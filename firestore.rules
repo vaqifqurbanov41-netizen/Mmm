@@ -1,0 +1,293 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global safety net: deny all reads/writes by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidTimestamp(ts) {
+      return ts is timestamp && ts <= request.time;
+    }
+
+    function isValidFarmerProfile(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.fullName is string && data.fullName.size() <= 120 &&
+             data.phone is string && data.phone.size() <= 40 &&
+             data.place is string && data.place.size() <= 120;
+    }
+
+    function isValidFarmField(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+             data.crop is string && data.crop.size() >= 1 && data.crop.size() <= 100 &&
+             data.sizeHa is number && data.sizeHa > 0 && data.sizeHa <= 1000000 &&
+             data.widthM is number && data.widthM >= 0 && data.widthM <= 1000000 &&
+             data.lengthM is number && data.lengthM >= 0 && data.lengthM <= 1000000 &&
+             data.location is string && data.location.size() <= 150 &&
+             data.coords is list && data.coords.size() <= 100 &&
+             (data.coords.size() == 0 || data.coords[0] is string);
+    }
+
+    function isValidEquipmentItem(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+             data.model is string && data.model.size() <= 100 &&
+             data.plateCode is string && data.plateCode.size() <= 40 &&
+             data.inspectionDate is string && data.inspectionDate.size() <= 30 &&
+             data.insuranceDate is string && data.insuranceDate.size() <= 30;
+    }
+
+    function isValidFinanceEntry(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.type in ['income', 'expense'] &&
+             data.date is string && data.date.size() <= 30 &&
+             data.fieldName is string && data.fieldName.size() <= 120 &&
+             data.amount is number && data.amount > 0 && data.amount <= 1000000000 &&
+             data.category is string && data.category.size() <= 120;
+    }
+
+    function isValidHarvestEntry(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.date is string && data.date.size() <= 30 &&
+             data.crop is string && data.crop.size() >= 1 && data.crop.size() <= 140 &&
+             data.quantityKg is number && data.quantityKg > 0 && data.quantityKg <= 1000000000 &&
+             data.pricePerKg is number && data.pricePerKg >= 0 && data.pricePerKg <= 1000000;
+    }
+
+    function isValidSubsidyDeclaration(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.date is string && data.date.size() >= 1 && data.date.size() <= 30 &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 160;
+    }
+
+    function isValidCustomPesticide(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 140 &&
+             data.maxRate is number && data.maxRate > 0 && data.maxRate <= 100000 &&
+             data.unit is string && data.unit.size() >= 1 && data.unit.size() <= 20 &&
+             data.quarantineDays is int && data.quarantineDays >= 0 && data.quarantineDays <= 3650 &&
+             data.safetyClass is string && data.safetyClass.size() <= 40 &&
+             data.target is string && data.target.size() <= 200;
+    }
+
+    function isValidCustomLink(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 140 &&
+             data.url is string && data.url.size() >= 4 && data.url.size() <= 500;
+    }
+
+    match /users/{userId} {
+      allow get: if isOwner(userId) && isValidId(userId);
+      allow list: if false;
+
+      allow create: if isOwner(userId) &&
+                       isValidId(userId) &&
+                       incoming().userId == request.auth.uid &&
+                       incoming().keys().hasAll(['userId', 'fullName', 'phone', 'place', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'fullName', 'phone', 'place', 'createdAt', 'updatedAt']) &&
+                       isValidTimestamp(incoming().createdAt) &&
+                       isValidTimestamp(incoming().updatedAt) &&
+                       isValidFarmerProfile(incoming());
+
+      allow update: if isOwner(userId) &&
+                       isValidId(userId) &&
+                       isValidFarmerProfile(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       isValidTimestamp(incoming().updatedAt) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['fullName', 'phone', 'place', 'updatedAt']);
+
+      allow delete: if isOwner(userId) && isValidId(userId);
+
+      match /fields/{fieldId} {
+        allow get: if isOwner(userId) && isValidId(fieldId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+                         isValidId(fieldId) &&
+                         incoming().userId == request.auth.uid &&
+                         incoming().keys().hasAll(['userId', 'name', 'crop', 'sizeHa', 'widthM', 'lengthM', 'location', 'coords', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['userId', 'name', 'crop', 'sizeHa', 'widthM', 'lengthM', 'location', 'coords', 'createdAt', 'updatedAt']) &&
+                         isValidTimestamp(incoming().createdAt) &&
+                         isValidTimestamp(incoming().updatedAt) &&
+                         isValidFarmField(incoming());
+
+        allow update: if isOwner(userId) &&
+                         isValidId(fieldId) &&
+                         isValidFarmField(incoming()) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         isValidTimestamp(incoming().updatedAt) &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['name', 'crop', 'sizeHa', 'widthM', 'lengthM', 'location', 'coords', 'updatedAt']);
+
+        allow delete: if isOwner(userId) && isValidId(fieldId);
+      }
+
+      match /equipment/{equipmentId} {
+        allow get: if isOwner(userId) && isValidId(equipmentId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+                         isValidId(equipmentId) &&
+                         incoming().userId == request.auth.uid &&
+                         incoming().keys().hasAll(['userId', 'name', 'model', 'plateCode', 'inspectionDate', 'insuranceDate', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['userId', 'name', 'model', 'plateCode', 'inspectionDate', 'insuranceDate', 'createdAt', 'updatedAt']) &&
+                         isValidTimestamp(incoming().createdAt) &&
+                         isValidTimestamp(incoming().updatedAt) &&
+                         isValidEquipmentItem(incoming());
+
+        allow update: if isOwner(userId) &&
+                         isValidId(equipmentId) &&
+                         isValidEquipmentItem(incoming()) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         isValidTimestamp(incoming().updatedAt) &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['name', 'model', 'plateCode', 'inspectionDate', 'insuranceDate', 'updatedAt']);
+
+        allow delete: if isOwner(userId) && isValidId(equipmentId);
+      }
+
+      match /finance/{financeId} {
+        allow get: if isOwner(userId) && isValidId(financeId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+                         isValidId(financeId) &&
+                         incoming().userId == request.auth.uid &&
+                         incoming().keys().hasAll(['userId', 'type', 'date', 'fieldName', 'amount', 'category', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['userId', 'type', 'date', 'fieldName', 'amount', 'category', 'createdAt', 'updatedAt']) &&
+                         isValidTimestamp(incoming().createdAt) &&
+                         isValidTimestamp(incoming().updatedAt) &&
+                         isValidFinanceEntry(incoming());
+
+        allow update: if isOwner(userId) &&
+                         isValidId(financeId) &&
+                         isValidFinanceEntry(incoming()) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         isValidTimestamp(incoming().updatedAt) &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['type', 'date', 'fieldName', 'amount', 'category', 'updatedAt']);
+
+        allow delete: if isOwner(userId) && isValidId(financeId);
+      }
+
+      match /harvests/{harvestId} {
+        allow get: if isOwner(userId) && isValidId(harvestId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+                         isValidId(harvestId) &&
+                         incoming().userId == request.auth.uid &&
+                         incoming().keys().hasAll(['userId', 'date', 'crop', 'quantityKg', 'pricePerKg', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['userId', 'date', 'crop', 'quantityKg', 'pricePerKg', 'createdAt', 'updatedAt']) &&
+                         isValidTimestamp(incoming().createdAt) &&
+                         isValidTimestamp(incoming().updatedAt) &&
+                         isValidHarvestEntry(incoming());
+
+        allow update: if isOwner(userId) &&
+                         isValidId(harvestId) &&
+                         isValidHarvestEntry(incoming()) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         isValidTimestamp(incoming().updatedAt) &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['date', 'crop', 'quantityKg', 'pricePerKg', 'updatedAt']);
+
+        allow delete: if isOwner(userId) && isValidId(harvestId);
+      }
+
+      match /declarations/{declarationId} {
+        allow get: if isOwner(userId) && isValidId(declarationId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+                         isValidId(declarationId) &&
+                         incoming().userId == request.auth.uid &&
+                         incoming().keys().hasAll(['userId', 'date', 'title', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['userId', 'date', 'title', 'createdAt', 'updatedAt']) &&
+                         isValidTimestamp(incoming().createdAt) &&
+                         isValidTimestamp(incoming().updatedAt) &&
+                         isValidSubsidyDeclaration(incoming());
+
+        allow update: if isOwner(userId) &&
+                         isValidId(declarationId) &&
+                         isValidSubsidyDeclaration(incoming()) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         isValidTimestamp(incoming().updatedAt) &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['date', 'title', 'updatedAt']);
+
+        allow delete: if isOwner(userId) && isValidId(declarationId);
+      }
+
+      match /customPesticides/{pesticideId} {
+        allow get: if isOwner(userId) && isValidId(pesticideId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+                         isValidId(pesticideId) &&
+                         incoming().userId == request.auth.uid &&
+                         incoming().keys().hasAll(['userId', 'name', 'maxRate', 'unit', 'quarantineDays', 'safetyClass', 'target', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['userId', 'name', 'maxRate', 'unit', 'quarantineDays', 'safetyClass', 'target', 'createdAt', 'updatedAt']) &&
+                         isValidTimestamp(incoming().createdAt) &&
+                         isValidTimestamp(incoming().updatedAt) &&
+                         isValidCustomPesticide(incoming());
+
+        allow update: if isOwner(userId) &&
+                         isValidId(pesticideId) &&
+                         isValidCustomPesticide(incoming()) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         isValidTimestamp(incoming().updatedAt) &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['name', 'maxRate', 'unit', 'quarantineDays', 'safetyClass', 'target', 'updatedAt']);
+
+        allow delete: if isOwner(userId) && isValidId(pesticideId);
+      }
+
+      match /customLinks/{linkId} {
+        allow get: if isOwner(userId) && isValidId(linkId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+                         isValidId(linkId) &&
+                         incoming().userId == request.auth.uid &&
+                         incoming().keys().hasAll(['userId', 'name', 'url', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['userId', 'name', 'url', 'createdAt', 'updatedAt']) &&
+                         isValidTimestamp(incoming().createdAt) &&
+                         isValidTimestamp(incoming().updatedAt) &&
+                         isValidCustomLink(incoming());
+
+        allow update: if isOwner(userId) &&
+                         isValidId(linkId) &&
+                         isValidCustomLink(incoming()) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         isValidTimestamp(incoming().updatedAt) &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['name', 'url', 'updatedAt']);
+
+        allow delete: if isOwner(userId) && isValidId(linkId);
+      }
+    }
+  }
+}

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Central sprout stem -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M52,35 L56,35 L56,74 L52,74 Z" />
+    <!-- Left lush leaf -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M53,55 C38,55 30,45 30,33 C42,33 52,41 53,55 Z" />
+    <!-- Right upper leaf -->
+    <path
+        android:fillColor="#D4F5DF"
+        android:pathData="M55,46 C56,33 66,26 78,26 C78,38 69,46 55,46 Z" />
+    <!-- Curved field horizon / furrow 1 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M28,72 C39,65 69,65 80,72 L80,76 C68,70 40,70 28,76 Z" />
+    <!-- Curved field horizon / furrow 2 -->
+    <path
+        android:fillColor="#C6F0D4"
+        android:pathData="M34,80 C44,75 64,75 74,80 L74,83.5 C63,79 45,79 34,83.5 Z" />
+</vector>

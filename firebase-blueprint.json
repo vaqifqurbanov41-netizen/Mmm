@@ -1,0 +1,160 @@
+{
+  "entities": {
+    "FarmerProfile": {
+      "title": "FarmerProfile",
+      "description": "Personal profile of the authenticated farmer",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID" },
+        "fullName": { "type": "string", "description": "Farmer full name" },
+        "phone": { "type": "string", "description": "Phone number" },
+        "place": { "type": "string", "description": "District or village" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp on creation" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp on update" }
+      },
+      "required": ["userId", "fullName", "phone", "place", "createdAt", "updatedAt"]
+    },
+    "FarmField": {
+      "title": "FarmField",
+      "description": "Measured agricultural field with optional polygon coordinates",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner Firebase Auth UID" },
+        "name": { "type": "string", "description": "Field name" },
+        "crop": { "type": "string", "description": "Planted crop" },
+        "sizeHa": { "type": "number", "description": "Area in hectares" },
+        "widthM": { "type": "number", "description": "Average width in meters" },
+        "lengthM": { "type": "number", "description": "Average length in meters" },
+        "location": { "type": "string", "description": "District or village" },
+        "coords": { "type": "array", "description": "Polygon vertices formatted as lat,lon strings" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp on creation" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp on update" }
+      },
+      "required": ["userId", "name", "crop", "sizeHa", "widthM", "lengthM", "location", "coords", "createdAt", "updatedAt"]
+    },
+    "EquipmentItem": {
+      "title": "EquipmentItem",
+      "description": "Farm machinery and vehicles with inspection and insurance dates",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner Firebase Auth UID" },
+        "name": { "type": "string", "description": "Equipment name" },
+        "model": { "type": "string", "description": "Make and model" },
+        "plateCode": { "type": "string", "description": "License plate number" },
+        "inspectionDate": { "type": "string", "description": "Technical inspection ISO date yyyy-MM-dd" },
+        "insuranceDate": { "type": "string", "description": "Insurance expiry ISO date yyyy-MM-dd" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp on creation" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp on update" }
+      },
+      "required": ["userId", "name", "model", "plateCode", "inspectionDate", "insuranceDate", "createdAt", "updatedAt"]
+    },
+    "FinanceEntry": {
+      "title": "FinanceEntry",
+      "description": "Farm income or expense transaction",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner Firebase Auth UID" },
+        "type": { "type": "string", "enum": ["income", "expense"], "description": "Transaction type" },
+        "date": { "type": "string", "description": "ISO date yyyy-MM-dd" },
+        "fieldName": { "type": "string", "description": "Associated field or crop" },
+        "amount": { "type": "number", "description": "Amount in AZN" },
+        "category": { "type": "string", "description": "Expense or income category" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp on creation" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp on update" }
+      },
+      "required": ["userId", "type", "date", "fieldName", "amount", "category", "createdAt", "updatedAt"]
+    },
+    "HarvestEntry": {
+      "title": "HarvestEntry",
+      "description": "Harvest yield and valuation log",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner Firebase Auth UID" },
+        "date": { "type": "string", "description": "Harvest ISO date yyyy-MM-dd" },
+        "crop": { "type": "string", "description": "Field or crop name" },
+        "quantityKg": { "type": "number", "description": "Harvested quantity in kg" },
+        "pricePerKg": { "type": "number", "description": "Selling price in AZN per kg" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp on creation" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp on update" }
+      },
+      "required": ["userId", "date", "crop", "quantityKg", "pricePerKg", "createdAt", "updatedAt"]
+    },
+    "SubsidyDeclaration": {
+      "title": "SubsidyDeclaration",
+      "description": "Crop subsidy declaration reminder date",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner Firebase Auth UID" },
+        "date": { "type": "string", "description": "Declaration ISO date yyyy-MM-dd" },
+        "title": { "type": "string", "description": "Declaration title" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp on creation" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp on update" }
+      },
+      "required": ["userId", "date", "title", "createdAt", "updatedAt"]
+    },
+    "CustomPesticide": {
+      "title": "CustomPesticide",
+      "description": "User-defined pesticide entry with safe rate limit",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner Firebase Auth UID" },
+        "name": { "type": "string", "description": "Pesticide name" },
+        "maxRate": { "type": "number", "description": "Maximum allowed application rate" },
+        "unit": { "type": "string", "description": "Unit such as L/ha or kg/ha" },
+        "quarantineDays": { "type": "integer", "description": "Pre-harvest quarantine days" },
+        "safetyClass": { "type": "string", "description": "Hazard class" },
+        "target": { "type": "string", "description": "Target pests or diseases" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp on creation" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp on update" }
+      },
+      "required": ["userId", "name", "maxRate", "unit", "quarantineDays", "safetyClass", "target", "createdAt", "updatedAt"]
+    },
+    "CustomLink": {
+      "title": "CustomLink",
+      "description": "User-saved agricultural portal bookmark",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner Firebase Auth UID" },
+        "name": { "type": "string", "description": "Portal display title" },
+        "url": { "type": "string", "description": "Portal HTTPS URL" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp on creation" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp on update" }
+      },
+      "required": ["userId", "name", "url", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/FarmerProfile" },
+      "description": "Farmer profile document scoped to authenticated UID"
+    },
+    "/users/{userId}/fields/{fieldId}": {
+      "schema": { "$ref": "#/entities/FarmField" },
+      "description": "Saved farm fields belonging to the authenticated user"
+    },
+    "/users/{userId}/equipment/{equipmentId}": {
+      "schema": { "$ref": "#/entities/EquipmentItem" },
+      "description": "Saved farm equipment belonging to the authenticated user"
+    },
+    "/users/{userId}/finance/{financeId}": {
+      "schema": { "$ref": "#/entities/FinanceEntry" },
+      "description": "Farm income and expense logs belonging to the authenticated user"
+    },
+    "/users/{userId}/harvests/{harvestId}": {
+      "schema": { "$ref": "#/entities/HarvestEntry" },
+      "description": "Harvest logs belonging to the authenticated user"
+    },
+    "/users/{userId}/declarations/{declarationId}": {
+      "schema": { "$ref": "#/entities/SubsidyDeclaration" },
+      "description": "Subsidy declaration reminders belonging to the authenticated user"
+    },
+    "/users/{userId}/customPesticides/{pesticideId}": {
+      "schema": { "$ref": "#/entities/CustomPesticide" },
+      "description": "Custom pesticides belonging to the authenticated user"
+    },
+    "/users/{userId}/customLinks/{linkId}": {
+      "schema": { "$ref": "#/entities/CustomLink" },
+      "description": "Custom bookmarks belonging to the authenticated user"
+    }
+  }
+}

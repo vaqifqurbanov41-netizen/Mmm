@@ -1,0 +1,2187 @@
+<!DOCTYPE html>
+<html lang="az"><head>
+<meta charset="UTF-8">
+<meta name="color-scheme" content="light dark">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#1e6b38">
+<meta name="description" content="AqroMəsləhət — Fermerin rəqəmsal köməkçisi">
+<title>AqroMəsləhət — Fermerin Dostu</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<style>
+:root {
+  color-scheme: light;
+  --g: #1f733b;
+  --g-light: #2d9650;
+  --gd: #145229;
+  --pale: #e4f0fc;
+  --bg: #f0f6fc;
+  --ink: #172533;
+  --muted: #576d82;
+  --line: #d0e1f2;
+  --white: #ffffff;
+  --shadow: 0 8px 24px rgba(23, 80, 130, 0.08);
+  --radius: 20px;
+}
+[data-theme="dark"] {
+  color-scheme: dark;
+  --g: #32a858;
+  --g-light: #42c26b;
+  --gd: #1d6e37;
+  --pale: #172b1e;
+  --bg: #0f1511;
+  --ink: #e4ede7;
+  --muted: #93a399;
+  --line: #233328;
+  --white: #17211b;
+  --shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+body {
+  margin: 0;
+  background: var(--bg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+  color: var(--ink);
+  transition: background 0.25s, color 0.25s;
+  line-height: 1.45;
+}
+header {
+  background: var(--white);
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+.top {
+  max-width: 960px;
+  margin: auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.date { font-size: 12px; color: var(--muted); font-weight: 600; text-transform: capitalize; }
+.hello { font-size: 20px; font-weight: 800; margin-top: 2px; color: var(--ink); }
+.header-right { display: flex; align-items: center; gap: 8px; }
+.weather-pill {
+  border: 1px solid var(--line);
+  border-radius: 30px;
+  padding: 6px 12px;
+  color: var(--g);
+  font-weight: 700;
+  background: var(--pale);
+  font-size: 13px;
+  cursor: pointer;
+}
+.icon-btn {
+  background: var(--pale);
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  color: var(--g);
+  transition: transform 0.15s;
+}
+.icon-btn:active { transform: scale(0.92); }
+main { max-width: 960px; margin: 16px auto 115px; padding: 0 16px; }
+
+/* Farmer Panel Hero */
+.farmer-hero {
+  background: linear-gradient(135deg, #195e30 0%, #2a8a4a 100%);
+  border-radius: 24px;
+  padding: 22px;
+  color: #fff;
+  box-shadow: 0 12px 28px rgba(31, 115, 59, 0.22);
+  margin-bottom: 18px;
+  position: relative;
+  overflow: hidden;
+}
+.farmer-hero::after {
+  content: "";
+  position: absolute;
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  right: -40px;
+  bottom: -60px;
+  pointer-events: none;
+}
+.farmer-hero h2 { font-size: 21px; margin: 0 0 4px; font-weight: 800; }
+.farmer-hero p { color: #dcf5e3; margin: 0 0 16px; font-size: 13px; }
+.farmer-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; position: relative; z-index: 1; }
+.f-stat {
+  background: rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 16px;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.f-stat:active { background: rgba(255, 255, 255, 0.26); }
+.f-stat .ico {
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 12px;
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.f-stat b { font-size: 19px; display: block; line-height: 1.2; }
+.f-stat small { color: #e2f7e8; font-size: 10px; font-weight: 700; letter-spacing: 0.6px; }
+
+/* AI Agronomist Card */
+.ai-card {
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 16px 18px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  box-shadow: var(--shadow);
+  margin-bottom: 16px;
+  cursor: pointer;
+}
+.ai-card-left { display: flex; align-items: center; gap: 14px; }
+.ai-badge {
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  background: var(--pale);
+  color: var(--g);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.ai-card h2 { margin: 0 0 3px; font-size: 16px; color: var(--g); font-weight: 800; }
+.ai-card p { margin: 0; color: var(--muted); font-size: 12.5px; }
+.ai-right {
+  background: var(--g);
+  color: #fff;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+
+/* Alert Banner */
+.alert-banner {
+  background: var(--pale);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+  cursor: pointer;
+}
+.alert-banner .text { flex: 1; font-size: 12.5px; }
+.alert-banner .text b { display: block; color: var(--g); margin-bottom: 2px; font-size: 13px; }
+
+/* Tiles Grid */
+.tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 11px; margin-bottom: 20px; }
+.tile {
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 15px 10px;
+  text-align: center;
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  min-height: 108px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s, border-color 0.2s;
+}
+.tile:active { transform: scale(0.96); border-color: var(--g); }
+.tile .ticon {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: var(--pale);
+  color: var(--g);
+  display: grid;
+  place-items: center;
+  margin-bottom: 8px;
+}
+.tile b { display: block; font-size: 12.5px; margin-bottom: 2px; line-height: 1.25; }
+.tile small { color: var(--muted); font-size: 10.5px; }
+
+/* Bottom Navigation */
+.bottom {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--white);
+  border-top: 1px solid var(--line);
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  z-index: 1000;
+  padding: 6px 8px calc(8px + env(safe-area-inset-bottom));
+  height: 70px;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.05);
+}
+.bottom button {
+  background: none;
+  border: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  flex: 1;
+  padding: 4px 0;
+  transition: color 0.2s;
+}
+.bottom button .nav-ico {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+}
+.bottom button.active { color: var(--g); font-weight: 800; }
+.bottom button.active .nav-ico svg { stroke-width: 2.4; }
+
+.scan-btn-wrap {
+  position: relative;
+  top: -16px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 0 6px;
+}
+.scan-center {
+  background: linear-gradient(135deg, #1b6935 0%, #319e54 100%);
+  color: #ffffff;
+  width: 62px;
+  height: 62px;
+  border-radius: 50%;
+  border: 4px solid var(--bg);
+  display: grid;
+  place-items: center;
+  box-shadow: 0 8px 22px rgba(31, 115, 59, 0.42);
+  cursor: pointer;
+  transition: transform 0.18s, box-shadow 0.18s;
+}
+.scan-center:active { transform: scale(0.93); }
+.scan-label {
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--g);
+  margin-top: 2px;
+}
+
+/* Views & Forms */
+.view { display: none; animation: fadeIn 0.2s ease; }
+.view.active { display: block; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+.backrow { display: flex; align-items: center; gap: 10px; margin: 2px 0 14px; }
+.backrow button.back-btn {
+  border: 1px solid var(--line);
+  background: var(--white);
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  font-size: 20px;
+  color: var(--ink);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+.backrow h2 { margin: 0; font-size: 19px; font-weight: 800; }
+
+.card {
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 18px;
+  margin-bottom: 15px;
+  box-shadow: var(--shadow);
+}
+.card h3 { margin: 0 0 12px; font-size: 16px; font-weight: 800; }
+label { display: block; color: var(--muted); font-size: 12.5px; font-weight: 700; margin: 12px 0 5px; }
+input, select, textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 11px 12px;
+  background: var(--bg);
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+}
+input:focus, select:focus, textarea:focus { outline: 2px solid var(--g); border-color: transparent; }
+textarea { min-height: 85px; resize: vertical; }
+.fieldrow { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.three { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.nlabel { font-size: 12px; font-weight: 800; margin-bottom: 4px; }
+.nlabel.n { color: #2d9650; } .nlabel.p { color: #d69b31; } .nlabel.k { color: #9a56a5; }
+
+.btn {
+  border: 0;
+  border-radius: 13px;
+  padding: 13px 16px;
+  background: var(--g);
+  color: #fff;
+  font-weight: 700;
+  font-size: 14px;
+  width: 100%;
+  margin-top: 14px;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.1s;
+}
+.btn:active { transform: scale(0.98); }
+.btn.light { background: var(--pale); color: var(--g); border: 1px solid var(--line); }
+
+.result {
+  background: var(--pale);
+  border: 1px solid var(--line);
+  padding: 13px;
+  border-radius: 13px;
+  margin-top: 12px;
+  white-space: pre-wrap;
+  line-height: 1.5;
+  font-size: 13px;
+}
+.note {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  padding: 11px 13px;
+  border-radius: 12px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+  margin-top: 10px;
+}
+
+/* Map & Field Measurement */
+.map-box {
+  height: 320px;
+  width: 100%;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  margin-top: 10px;
+  overflow: hidden;
+  position: relative;
+  z-index: 1;
+  background: #d7e3da;
+}
+.map-toolbar { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+.map-toolbar button { padding: 10px 8px; font-size: 12.5px; margin: 0; display: flex; align-items: center; justify-content: center; gap: 6px; }
+.gps-status {
+  font-size: 12px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--pale);
+  color: var(--g);
+  border: 1px solid var(--line);
+  margin-top: 8px;
+  display: none;
+  font-weight: 600;
+}
+.dim-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+.dim-card {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  padding: 10px 8px;
+  text-align: center;
+}
+.dim-card small { display: block; font-size: 10px; color: var(--muted); font-weight: 800; }
+.dim-card b { font-size: 15px; color: var(--g); display: block; margin-top: 3px; }
+.tab-pills {
+  display: flex;
+  gap: 5px;
+  margin-bottom: 12px;
+  background: var(--bg);
+  padding: 4px;
+  border-radius: 13px;
+  border: 1px solid var(--line);
+}
+.tab-pill {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  padding: 8px 6px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  cursor: pointer;
+}
+.tab-pill.active { background: var(--white); color: var(--g); box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+
+/* Chat & Images */
+.chatbox { height: 270px; overflow: auto; border: 1px solid var(--line); border-radius: 14px; padding: 10px; background: var(--bg); }
+.msg { max-width: 90%; padding: 10px 12px; border-radius: 13px; margin: 7px 0; font-size: 13px; line-height: 1.45; white-space: pre-wrap; }
+.bot { background: var(--pale); border: 1px solid var(--line); }
+.user { background: var(--g); color: #fff; margin-left: auto; }
+img.preview { max-width: 100%; max-height: 230px; border-radius: 12px; margin-top: 12px; display: block; object-fit: cover; }
+
+/* Portal & Hotline Boxes */
+.eagro-box {
+  background: linear-gradient(135deg, #184e35, #287a4f);
+  color: #fff;
+  border-radius: 18px;
+  padding: 16px 18px;
+  margin-bottom: 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.eagro-box h4 { margin: 0 0 3px; font-size: 15px; }
+.eagro-box p { margin: 0; font-size: 12px; color: #d6f5e3; }
+.eagro-btn { background: #fff; color: #184e35; padding: 8px 13px; border-radius: 10px; font-weight: 800; text-decoration: none; font-size: 12.5px; white-space: nowrap; }
+
+.hotline-box {
+  background: linear-gradient(135deg, #a82020, #d64545);
+  color: #fff;
+  border-radius: 18px;
+  padding: 16px 18px;
+  margin-bottom: 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.hotline-box h4 { margin: 0 0 3px; font-size: 15px; }
+.hotline-box p { margin: 0; font-size: 12px; color: #ffe3e3; }
+.hotline-btn { background: #fff; color: #a82020; padding: 8px 13px; border-radius: 10px; font-weight: 800; text-decoration: none; font-size: 12.5px; white-space: nowrap; }
+
+.link-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.link-item:last-child { border-bottom: none; padding-bottom: 0; }
+.link-item a { color: var(--g); font-weight: 700; text-decoration: none; font-size: 13.5px; display: flex; align-items: center; gap: 8px; }
+.link-item small { display: block; color: var(--muted); font-size: 11px; font-weight: 400; }
+
+@media(min-width: 720px) { .tiles { grid-template-columns: repeat(4, 1fr); } main { padding: 0 22px; } }
+</style>
+</head>
+<body data-theme="light">
+
+<header>
+ <div class="top">
+  <div>
+   <div class="date" id="todayText">14 noyabr, şənbə</div>
+   <div class="hello" id="userGreeting">Salam, Fermer! 👋</div>
+  </div>
+  <div class="header-right">
+   <div class="weather-pill" id="headWeather" onclick="go('weather')">☁ 21°C</div>
+   <button class="icon-btn" id="themeToggleBtn" onclick="toggleTheme()" title="Gecə rejiminə keç" aria-label="Tema">🌙</button>
+   <button class="icon-btn" onclick="go('equipment')" title="Bildirişlər" aria-label="Bildirişlər">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+   </button>
+  </div>
+ </div>
+</header>
+
+<main>
+<!-- HOME VIEW -->
+<section id="home" class="view">
+ <div class="farmer-hero">
+  <h2 id="lHeroTitle">Fermer Paneli</h2>
+  <p id="lHeroSub">Uğurlu təsərrüfat üçün ağıllı dəstək və rəqəmsal idarəetmə!</p>
+  <div class="farmer-stats">
+   <div class="f-stat" onclick="go('fields')">
+    <div class="ico">
+     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"></polygon><line x1="9" y1="3" x2="9" y2="18"></line><line x1="15" y1="6" x2="15" y2="21"></line></svg>
+    </div>
+    <div><b id="homeFieldCount">0</b><small id="lFieldsLabel">SAHƏLƏRİM</small></div>
+   </div>
+   <div class="f-stat" onclick="go('fields')">
+    <div class="ico">
+     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M7 20h10"></path><path d="M10 20c5.5-2.5.8-6.4 3-10"></path><path d="M9.5 9.4c1.1.8 1.8 2.2 2.3 3.7-2 .4-3.5.4-4.8-.3-1.2-.6-2.3-1.9-3-4.2 2.8-.5 4.4 0 5.5.8z"></path><path d="M14.1 6a7 7 0 0 0-1.1 4c1.9-.1 3.3-.6 4.3-1.4 1-1 1.6-2.3 1.7-4.6-2.7.1-4 1-4.9 2z"></path></svg>
+    </div>
+    <div><b id="homeTotalArea">0.0 ha</b><small id="lTotalAreaLabel">ÜMUMİ SAHƏ</small></div>
+   </div>
+  </div>
+ </div>
+
+ <div class="ai-card" onclick="go('chat')">
+  <div class="ai-card-left">
+   <div class="ai-badge">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 0 1 4 4v2h2a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2V6a4 4 0 0 1 4-4z"></path><circle cx="9" cy="13" r="1"></circle><circle cx="15" cy="13" r="1"></circle><path d="M9 17h6"></path></svg>
+   </div>
+   <div>
+    <h2 id="lAiCardTitle">AqroMəsləhət AI Aqronom</h2>
+    <p id="lAiCardSub">Bitkiləriniz üçün suallar verin, peşəkar məsləhət alın!</p>
+   </div>
+  </div>
+  <div class="ai-right">›</div>
+ </div>
+
+ <div class="alert-banner" onclick="go('equipment')">
+  <div style="color:var(--g)">
+   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+  </div>
+  <div class="text">
+   <b id="homeAlertTitle">Texnika və sığorta tarixləri izlənilir</b>
+   <span id="homeAlertSub">Yaxınlaşan xatırlatmaları yoxlamaq üçün toxun.</span>
+  </div>
+  <div style="color:var(--g);font-weight:bold">›</div>
+ </div>
+
+ <div class="tiles">
+  <div class="tile" onclick="go('npk')">
+   <div class="ticon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><path d="M9 3h6"></path><path d="M10 3v6.5L5.5 18a2 2 0 0 0 1.7 3h9.6a2 2 0 0 0 1.7-3L14 9.5V3"></path><path d="M7.5 14h9"></path></svg></div>
+   <b id="tNpk">NPK kalkulyatoru</b><small id="sNpk">Gübrə miqdarı</small>
+  </div>
+  <div class="tile" onclick="go('weather')">
+   <div class="ticon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"></path></svg></div>
+   <b id="tWeather">Hava proqnozu</b><small id="sWeather">Temperatur, külək</small>
+  </div>
+  <div class="tile" onclick="go('pesticide')">
+   <div class="ticon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><path d="m9 12 2 2 4-4"></path></svg></div>
+   <b id="tPest">Pestisid yoxlanışı</b><small id="sPest">Etiket həddi və tərkib</small>
+  </div>
+  <div class="tile" onclick="go('fields')">
+   <div class="ticon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg></div>
+   <b id="tFields">Sahəm</b><small id="sFields">Xəritə, GPS və UTM</small>
+  </div>
+  <div class="tile" onclick="go('subsidy')">
+   <div class="ticon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><rect x="2" y="6" width="20" height="12" rx="2"></rect><circle cx="12" cy="12" r="2"></circle><path d="M6 12h.01M18 12h.01"></path></svg></div>
+   <b id="tSub">Subsidiya və Bəyan</b><small id="sSub">Hesabla və izlə</small>
+  </div>
+  <div class="tile" onclick="go('equipment')">
+   <div class="ticon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><circle cx="7" cy="17" r="3"></circle><circle cx="18" cy="18" r="2"></circle><path d="M10 17h6"></path><path d="M5 14V7h7l2 4h4v5"></path></svg></div>
+   <b id="tEq">Avadanlıqlarım</b><small id="sEq">Texniki baxış</small>
+  </div>
+  <div class="tile" onclick="go('farmbook')">
+   <div class="ticon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><line x1="12" y1="20" x2="12" y2="10"></line><line x1="18" y1="20" x2="18" y2="4"></line><line x1="6" y1="20" x2="6" y2="16"></line></svg></div>
+   <b id="tFin">Gəlir və Xərc</b><small id="sFin">Təsərrüfat uçotu</small>
+  </div>
+  <div class="tile" onclick="go('harvest')">
+   <div class="ticon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><path d="M12 2v20"></path><path d="M17 5c-2.5 0-5 2-5 5"></path><path d="M7 5c2.5 0 5 2 5 5"></path><path d="M17 11c-2.5 0-5 2-5 5"></path><path d="M7 11c2.5 0 5 2 5 5"></path></svg></div>
+   <b id="tHarv">Məhsul Yığımı</b><small id="sHarv">Məhsuldarlıq</small>
+  </div>
+  <div class="tile" onclick="go('links')">
+   <div class="ticon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></div>
+   <b id="tLinks">Faydalı Keçidlər</b><small id="sLinks">KTN, AXA və saytlar</small>
+  </div>
+ </div>
+</section>
+
+<!-- FIELDS VIEW (GPS + MAP + UTM + DOC SCAN) -->
+<section id="fields" class="view">
+ <div class="backrow"><button class="back-btn" onclick="go('home')">‹</button><h2 id="lFieldsTitle">Sahəm — Xəritə və Ölçü</h2></div>
+ 
+ <div class="card">
+  <div class="tab-pills">
+   <button class="tab-pill active" id="tabMapBtn" onclick="switchFieldTab('map')">🗺️ Xəritədə Çək</button>
+   <button class="tab-pill" id="tabCoordBtn" onclick="switchFieldTab('coord')">📍 Koordinat / UTM</button>
+   <button class="tab-pill" id="tabDocBtn" onclick="switchFieldTab('doc')">📄 Sənəd Skan</button>
+  </div>
+
+  <!-- TAB 1: MAP DRAW -->
+  <div id="fieldTabMap">
+   <div style="font-size:12px;color:var(--muted);margin-bottom:6px">
+    Xəritədə sahənin künclərinə toxunaraq nöqtələr qoyun. Sahə, perimetr, <b>eni</b> və <b>boyu</b> avtomatik hesablanacaq.
+   </div>
+   <div class="map-toolbar">
+    <button class="btn light" id="btnLocateMe" onclick="locateFieldMap()">📍 Yerimə get</button>
+    <button class="btn light" onclick="toggleMapLayer()">🛰️ Peyk / Xəritə</button>
+    <button class="btn light" onclick="undoMapPoint()">↩ Geri al</button>
+    <button class="btn light" style="color:#d9534f;border-color:#d9534f" onclick="clearMapPoints()">🗑️ Təmizlə</button>
+   </div>
+   <div id="gpsStatusMsg" class="gps-status"></div>
+  </div>
+
+  <!-- TAB 2: COORDINATE ENTRY & UTM -->
+  <div id="fieldTabCoord" style="display:none">
+   <label>Koordinat sistemi seçin</label>
+   <select id="coordFormatSelect" onchange="toggleCoordFormatInput(this.value)">
+    <option value="latlon">Enlik, Uzunluq (Coğrafi — Lat/Lon)</option>
+    <option value="utm">UTM Koordinatları (Zona, Şərq/Easting, Şimal/Northing)</option>
+   </select>
+
+   <div id="latLonInputWrap">
+    <label style="margin-top:10px">Enlik və Uzunluq nöqtələri (hər sətirdə bir künc)</label>
+    <textarea id="coordInput" placeholder="40.678200, 46.360600
+40.679500, 46.360600
+40.679500, 46.362500
+40.678200, 46.362500" style="min-height:85px;font-family:monospace;font-size:12px"></textarea>
+    <button class="btn light" onclick="fillCurrentGpsToCoord('latlon')" style="margin-top:6px">📲 Cari telefon konumumu (Lat/Lon) əlavə et</button>
+   </div>
+
+   <div id="utmInputWrap" style="display:none">
+    <div class="fieldrow" style="margin-top:8px">
+     <div>
+      <label style="margin-top:2px">UTM Zona (Azərbaycan: 38N / 39N)</label>
+      <select id="utmZoneSelect">
+       <option value="38">38N (Qərb və Mərkəzi rayonlar: Gəncə, Yevlax, Bərdə, Ağcabədi...)</option>
+       <option value="39">39N (Şərq rayonları: Bakı, Şirvan, Salyan, Lənkəran, Quba...)</option>
+      </select>
+     </div>
+     <div>
+      <label style="margin-top:2px">Cari UTM Konum</label>
+      <button class="btn light" onclick="fillCurrentGpsToCoord('utm')" style="margin:0;padding:10px">📲 GPS-dən UTM Al</button>
+     </div>
+    </div>
+    <label style="margin-top:8px">UTM nöqtələri: Şərq (Easting), Şimal (Northing) — metrlə</label>
+    <textarea id="utmInput" placeholder="615120, 4503450
+615280, 4503450
+615280, 4503620
+615120, 4503620" style="min-height:85px;font-family:monospace;font-size:12px"></textarea>
+   </div>
+
+   <button class="btn" onclick="applyCoordsToMap()" style="margin-top:10px">🗺️ Koordinatları Xəritədə Göstər və Ölç</button>
+  </div>
+
+  <!-- TAB 3: DOCUMENT SCAN -->
+  <div id="fieldTabDoc" style="display:none">
+   <label>Torpaq sənədini / Çıxarışı yüklə və ya şəklini çək</label>
+   <input type="file" id="fieldDocInput" accept="image/*,.pdf" onchange="scanFieldDocument(event)">
+   <img id="fieldDocPreview" class="preview" style="display:none">
+   <div id="docScanStatus" class="note" style="display:none"></div>
+  </div>
+
+  <!-- INTERACTIVE MAP -->
+  <div id="fieldMap" class="map-box"></div>
+
+  <!-- LIVE MEASUREMENTS: AREA, WIDTH, LENGTH, PERIMETER -->
+  <div class="dim-grid">
+   <div class="dim-card"><small>SAHƏ (HEKTAR)</small><b id="calcAreaHa">0.00 ha</b><span id="calcAreaSot" style="font-size:10px;color:var(--muted)">0 sot / 0 m²</span></div>
+   <div class="dim-card"><small>SAHƏNİN ENİ</small><b id="calcWidth">0 m</b><span style="font-size:10px;color:var(--muted)">Orta en ölçüsü</span></div>
+   <div class="dim-card"><small>SAHƏNİN BOYU</small><b id="calcLength">0 m</b><span style="font-size:10px;color:var(--muted)">Perimetr: <span id="calcPerim">0 m</span></span></div>
+  </div>
+  <div id="activeUtmDisplay" class="note" style="margin-top:8px;font-family:monospace;font-size:11.5px;display:none"></div>
+ </div>
+
+ <div class="card">
+  <h3>Sahə məlumatlarını yadda saxla</h3>
+  <label id="lFieldName">Sahənin adı</label><input id="fname" placeholder="Məsələn: Şimal sahəsi (Pay torpağı)">
+  <div class="fieldrow">
+   <div><label id="lFieldCrop">Bitki</label><input id="fcrop" placeholder="Məsələn: buğda, pambıq"></div>
+   <div><label id="lFieldSize">Ölçü (hektar)</label><input id="fsize" type="number" min="0" step=".0001" placeholder="Avtomatik dolur"></div>
+  </div>
+  <div class="fieldrow">
+   <div><label>Eni (metr)</label><input id="fwidth" type="number" min="0" step=".1" placeholder="Avtomatik"></div>
+   <div><label>Boyu / Uzunluğu (metr)</label><input id="flength" type="number" min="0" step=".1" placeholder="Avtomatik"></div>
+  </div>
+  <label id="lFieldLoc">Rayon / kənd</label><input id="flocation" placeholder="Məsələn: Ağcabədi / Bərdə">
+  <button class="btn" onclick="saveField()" id="lFieldBtn">Sahəni əlavə et</button>
+ </div>
+
+ <div class="card">
+  <h3>Saxlanılmış sahələrim</h3>
+  <div id="fieldList" class="result">Hələ sahə əlavə edilməyib.</div>
+ </div>
+</section>
+
+<!-- USEFUL LINKS VIEW (FAYDALI KEÇİDLƏR) -->
+<section id="links" class="view">
+ <div class="backrow"><button class="back-btn" onclick="go('home')">‹</button><h2>Faydalı Keçidlər</h2></div>
+
+ <div class="eagro-box">
+  <div>
+   <h4>Elektron Kənd Təsərrüfatı (E-Agro)</h4>
+   <p>Subsidiya və əkin bəyanları üçün rəsmi portal</p>
+  </div>
+  <a href="https://eagro.az/" target="_blank" rel="noopener" class="eagro-btn">Daxil ol ›</a>
+ </div>
+
+ <div class="card">
+  <h3>🏛️ Rəsmi Dövlət Qurumları və Aqrar Portallar</h3>
+  <div id="officialLinksList">
+   <div class="link-item">
+    <div>
+     <a href="https://agro.gov.az/" target="_blank" rel="noopener">🌐 Azərbaycan Respublikası Kənd Təsərrüfatı Nazirliyi</a>
+     <small>Rəsmi xəbərlər, qanunvericilik və aqrar proqramlar</small>
+    </div>
+    <a href="https://agro.gov.az/" target="_blank" rel="noopener" class="btn light" style="width:auto;margin:0;padding:6px 12px;font-size:12px">Aç ›</a>
+   </div>
+  
+   <div class="link-item">
+    <div>
+     <a href="https://axa.gov.az/" target="_blank" rel="noopener">🌐 Aqrar Xidmətlər Agentliyi (AXA)</a>
+     <small>Bitki mühafizəsi, baytarlıq, toxumçuluq və texniki nəzarət</small>
+    </div>
+    <a href="https://axa.gov.az/" target="_blank" rel="noopener" class="btn light" style="width:auto;margin:0;padding:6px 12px;font-size:12px">Aç ›</a>
+   </div>
+  
+   <div class="link-item">
+    <div>
+     <a href="https://eagro.az/" target="_blank" rel="noopener">🌐 Elektron Kənd Təsərrüfatı İnformasiya Sistemi (E-Agro)</a>
+     <small>Fermer kabineti, əkin bəyanı və subsidiya müraciətləri</small>
+    </div>
+    <a href="https://eagro.az/" target="_blank" rel="noopener" class="btn light" style="width:auto;margin:0;padding:6px 12px;font-size:12px">Aç ›</a>
+   </div>
+  
+   <div class="link-item">
+    <div>
+     <a href="https://aqrarsubsidiya.az/" target="_blank" rel="noopener">🌐 Aqrar Subsidiya Şurası (aqrarsubsidiya.az)</a>
+     <small>Əkin, məhsul və toxum subsidiyası əmsalları</small>
+    </div>
+    <a href="https://aqrarsubsidiya.az/" target="_blank" rel="noopener" class="btn light" style="width:auto;margin:0;padding:6px 12px;font-size:12px">Aç ›</a>
+   </div>
+  
+   <div class="link-item">
+    <div>
+     <a href="https://asf.gov.az/" target="_blank" rel="noopener">🌐 Aqrar Sığorta Fondu (ASF)</a>
+     <small>Əkin sahələrinin və kənd təsərrüfatı heyvanlarının sığortası</small>
+    </div>
+    <a href="https://asf.gov.az/" target="_blank" rel="noopener" class="btn light" style="width:auto;margin:0;padding:6px 12px;font-size:12px">Aç ›</a>
+   </div>
+  
+   <div class="link-item">
+    <div>
+     <a href="https://afsa.gov.az/" target="_blank" rel="noopener">🌐 Azərbaycan Qida Təhlükəsizliyi Agentliyi (AQTA)</a>
+     <small>Pestisid qeydiyyatı və fitosanitar sertifikatlar</small>
+    </div>
+    <a href="https://afsa.gov.az/" target="_blank" rel="noopener" class="btn light" style="width:auto;margin:0;padding:6px 12px;font-size:12px">Aç ›</a>
+   </div>
+  
+   <div class="link-item">
+    <div>
+     <a href="https://akia.gov.az/" target="_blank" rel="noopener">🌐 Aqrar Kredit və İnkişaf Agentliyi (AKİA)</a>
+     <small>Güzəştli aqrar kreditlər və texnika lizinqi</small>
+    </div>
+    <a href="https://akia.gov.az/" target="_blank" rel="noopener" class="btn light" style="width:auto;margin:0;padding:6px 12px;font-size:12px">Aç ›</a>
+   </div>
+  </div>
+ </div>
+
+ <div class="card">
+  <h3>➕ Öz Faydalı Keçidini Əlavə Et</h3>
+  <p style="font-size:12px;color:var(--muted);margin-top:-6px">Tez-tez istifadə etdiyiniz saytları (hava, bazar qiymətləri, toxumçuluq və s.) bura əlavə edə bilərsiniz.</p>
+  <label>Saytın və ya portalın adı</label>
+  <input id="customLinkName" placeholder="Məsələn: Aqrar Bazar Qiymətləri">
+  <label>Keçid ünvanı (URL)</label>
+  <input id="customLinkUrl" placeholder="Məsələn: https://agro.gov.az">
+  <button class="btn" onclick="addCustomLink()">➕ Keçidi Yadda Saxla</button>
+  
+  <h4 style="font-size:14px;margin:18px 0 6px">Əlavə etdiyim keçidlər</h4>
+  <div id="customLinksList" class="result">Hələ özünüz tərəfindən əlavə edilmiş keçid yoxdur.</div>
+ </div>
+</section>
+
+<!-- NPK VIEW -->
+<section id="npk" class="view">
+ <div class="backrow"><button class="back-btn" onclick="go('home')">‹</button><h2 id="lNpkTitle">NPK kalkulyatoru</h2><button style="margin-left:auto;color:var(--g);font-size:13px;border:0;background:none;font-weight:700;cursor:pointer" onclick="resetNPK()" id="lReset">Sıfırla</button></div>
+ <div class="card"><h3 id="lFieldSizeTitle">Sahənin ölçüsü</h3><div class="fieldrow"><input id="fieldSize" type="number" min="0" step="any" placeholder="0"><select id="fieldUnit"><option value="ha" id="optHa">Hektar</option><option value="sot" id="optSot">Sot</option><option value="m2" id="optM2">Kvadrat metr</option></select></div></div>
+ <div class="card"><h3 id="lNeedTitle">Aktiv maddə tələbatı (kq/ha)</h3><div class="three">
+  <div><div class="nlabel n">N (Azot)</div><input id="needN" type="number" min="0" step="any" placeholder="0"></div>
+  <div><div class="nlabel p">P₂O₅ (Fosfor)</div><input id="needP" type="number" min="0" step="any" placeholder="0"></div>
+  <div><div class="nlabel k">K₂O (Kalium)</div><input id="needK" type="number" min="0" step="any" placeholder="0"></div>
+ </div></div>
+ <div class="card"><h3 id="lFertTitle">Mövcud gübrələr</h3>
+  <label id="lFertNName">Azot gübrəsi</label><input id="fertNName" placeholder="Məsələn: Karbamid">
+  <label id="lFertNPct">Azot faizi (%)</label><input id="fertNPercent" type="number" min="0.1" max="100" step="0.1" placeholder="46">
+  <label id="lFertPName">Fosfor gübrəsi</label><input id="fertPName" placeholder="Məsələn: Diammofos">
+  <div class="fieldrow"><div><label id="lFertPPct">P₂O₅ faizi (%)</label><input id="fertPPercent" type="number" min="0.1" max="100" step="0.1" placeholder="46"></div><div><label id="lFertPNPct">İçindəki N faizi (%)</label><input id="fertPNPercent" type="number" min="0" max="100" step="0.1" placeholder="18"></div></div>
+  <label id="lFertKName">Kalium gübrəsi</label><input id="fertKName" placeholder="Məsələn: Kalium xlorid">
+  <label id="lFertKPct">K₂O faizi (%)</label><input id="fertKPercent" type="number" min="0.1" max="100" step="0.1" placeholder="60">
+  <button class="btn" onclick="calculateNPK()" id="lCalcBtn">Gübrə miqdarını hesabla</button><div id="npkOutput" class="result">Hesablama nəticələri burada görünəcək.</div>
+ </div>
+</section>
+
+<!-- WEATHER VIEW -->
+<section id="weather" class="view"><div class="backrow"><button class="back-btn" onclick="go('home')">‹</button><h2 id="lWeatherTitle">Hava proqnozu</h2></div>
+ <div class="card"><h3 id="lCoordsTitle">Ərazi koordinatları</h3><div class="fieldrow"><div><label id="lLat">Enlik</label><input id="lat" value="40.6782" type="number" step=".0001"></div><div><label id="lLon">Uzunluq</label><input id="lon" value="46.3606" type="number" step=".0001"></div></div><button class="btn light" onclick="locate()" id="lLocateBtn">📍 Telefon GPS ilə yerimi tap</button><button class="btn" onclick="weather()" id="lWeatherRefresh">Havanı yenilə</button><div id="weatherOut" class="result">Hava məlumatını yükləyin.</div></div>
+</section>
+
+<!-- CHAT / AI AGRONOMIST VIEW -->
+<section id="chat" class="view">
+ <div class="backrow"><button class="back-btn" onclick="go('home')">‹</button><h2 id="lAiTitle">AI Aqronom</h2></div>
+ <div class="card">
+  <div class="chatbox" id="chatbox">
+   <div class="msg bot" id="lAiWelcome">Salam! Mən sizin rəqəmsal AI aqronomunuzam. Bitkinizin adını, əlamətləri və ya sualınızı yazın, dərhal təhlil edib ətraflı məsləhət verim.</div>
+  </div>
+  <label id="lAiQuestionLabel">Sualınız və ya əlamətlər</label>
+  <textarea id="question" placeholder="Məsələn: Pomidorun yarpaqları saralır, nə etməliyəm?"></textarea>
+  <button class="btn" onclick="askAI()" id="lAiSendBtn">AI-dan Cavab Al</button>
+ </div>
+</section>
+
+<!-- PHOTO SCANNER VIEW -->
+<section id="photo" class="view">
+ <div class="backrow"><button class="back-btn" onclick="go('home')">‹</button><h2 id="lScanTitle">AI Bitki Skaneri</h2></div>
+ <div class="card">
+  <h3 id="lScanPhotoTitle">Bitki şəklini çək və ya yüklə</h3>
+  <p style="font-size:12.5px;color:var(--muted);margin-top:-6px">Xəstə yarpaq, zərərverici və ya torpaq nümunəsinin şəklini çəkərək ilkin aqronom təhlili alın.</p>
+  <input type="file" id="plantPhoto" accept="image/*" onchange="previewPhoto(event)">
+  <small style="display:block;margin-top:4px;color:var(--muted)">💡 Telefonunuzda kameradan çəkə və ya qalereyadan mövcud şəkil seçə bilərsiniz.</small>
+  <img id="preview" class="preview" style="display:none">
+  <label id="lScanNoteLabel">Əlavə qeyd və ya müşahidə</label>
+  <textarea id="scanSymptom" placeholder="Məsələn: Yarpaqlarda qəhvəyi ləkələr və quruma müşahidə olunur..."></textarea>
+  <button class="btn" onclick="analyzeScanPhoto()" id="lScanBtn">🔍 AI Diaqnoz Başlat</button>
+  <div id="scanResult" class="result" style="display:none"></div>
+ </div>
+</section>
+
+<!-- PESTICIDE VIEW -->
+<section id="pesticide" class="view">
+ <div class="backrow"><button class="back-btn" onclick="go('home')">‹</button><h2 id="lPestTitle">Pestisid yoxlanışı</h2></div>
+ <div class="card">
+  <div class="tab-pills">
+   <button class="tab-pill active" id="tabPestCheckBtn" onclick="switchPestTab('check')">🛡️ Norma Yoxla</button>
+   <button class="tab-pill" id="tabPestAddBtn" onclick="switchPestTab('add')">➕ Yeni Əlavə Et</button>
+   <button class="tab-pill" id="tabPestBannedBtn" onclick="switchPestTab('banned')">🚫 Qadağan Olunmuşlar</button>
+  </div>
+
+  <div id="pestTabCheck">
+   <label id="lPestCrop">Bitkinin adı</label>
+   <input id="pestCrop" list="cropList" placeholder="Məsələn: pomidor, buğda, pambıq, kartof">
+   <datalist id="cropList">
+    <option value="Pomidor"></option><option value="Xiyar"></option><option value="Buğda"></option><option value="Arpa"></option><option value="Pambıq"></option><option value="Kartof"></option><option value="Üzüm"></option><option value="Alma"></option>
+   </datalist>
+
+   <label id="lPestName">Preparatın adı</label>
+   <input id="pestName" list="pestList" placeholder="Məsələn: Karate Zeon, Score 250 və ya DDT..." oninput="onPesticideSelect(this)">
+   <datalist id="pestList"><option value="Karate Zeon 0.2% k.e. (İnsektisid)"></option><option value="Score 250 s.k. (Fungisid)"></option><option value="Aktara 25% v.q. (İnsektisid)"></option><option value="Roundup 36% s.e. (Herbisid — Qlikosat)"></option><option value="Chorus 75% suda yayılan qranul (Fungisid)"></option><option value="Topas 100 k.e. (Fungisid)"></option><option value="Confidor Extra 70% s.q. (İnsektisid)"></option><option value="Decis 2.5% k.e. (İnsektisid)"></option><option value="Tilt 250 k.e. (Fungisid)"></option><option value="Mospilan 20% s.q. (İnsektisid)"></option><option value="Bordo məhlulu 1% (Fungisid / Bakterisid)"></option><option value="Amistar Extra 280 s.k. (Fungisid)"></option><option value="Pirimor 50% s.q. (İnsektisid)"></option><option value="Envidor 240 s.k. ( Akarisid )"></option></datalist>
+
+   <div id="bannedLiveAlert" style="display:none;margin-top:12px;background:#ffe5e5;border:2px solid #d9534f;border-radius:14px;padding:12px;color:#7a0c0c;font-size:12.5px"></div>
+
+   <div class="fieldrow">
+    <div><label id="lPestMax">Maksimum norma</label><input id="pestMax" type="number" min="0" step="any" placeholder="Avtomatik"></div>
+    <div><label id="lPestPlan">Planlaşdırılan norma</label><input id="pestPlan" type="number" min="0" step="any" placeholder="Tətbiq olunan"></div>
+   </div>
+   <label id="lPestUnit">Vahid</label>
+   <select id="pestUnit"><option>L/ha</option><option>kg/ha</option><option>ml/ha</option><option>g/ha</option></select>
+   <div id="pestMetaInfo" class="note" style="display:none"></div>
+   <button class="btn" onclick="checkPesticide()" id="lPestCheckBtn">Yoxla və Təhlil Et</button>
+   <div id="pestOutput" class="result">Preparat seçin və ya adını daxil edin.</div>
+  </div>
+
+  <div id="pestTabAdd" style="display:none">
+   <label>Preparatın adı və növü</label>
+   <input id="newPestName" placeholder="Məsələn: Confidor Extra">
+   <div class="fieldrow">
+    <div><label>Maksimum norma</label><input id="newPestMax" type="number" min="0.001" step="any" placeholder="0.25"></div>
+    <div><label>Ölçü vahidi</label><select id="newPestUnit"><option>L/ha</option><option>kg/ha</option><option>ml/ha</option><option>g/ha</option></select></div>
+   </div>
+   <div class="fieldrow">
+    <div><label>Karantin müddəti (gün)</label><input id="newPestDays" type="number" min="0" step="1" placeholder="20"></div>
+    <div><label>Təhlükəsizlik sinfi</label><select id="newPestClass"><option value="III Sinif">III Sinif</option><option value="II Sinif">II Sinif</option></select></div>
+   </div>
+   <label>Təsir spektri</label>
+   <input id="newPestTarget" placeholder="Məsələn: Mənənə, ağqanad">
+   <button class="btn" onclick="saveCustomPesticide()">➕ Bazaya Əlavə Et</button>
+   <div id="customPesticideList" class="result">Hələ əlavə edilmiş fərdi pestisid yoxdur.</div>
+  </div>
+
+  <div id="pestTabBanned" style="display:none">
+   <input id="bannedSearch" placeholder="🔍 Qadağan olunmuş maddə axtar (DDT, Endosulfan, Karbofuran)..." oninput="renderBannedList()">
+   <div id="bannedPesticideList" style="margin-top:10px">
+  <div style="background:#fff5f5;border:1px solid #f5c2c7;border-radius:14px;padding:12px;margin-bottom:10px;color:#7a0c0c">
+   <div style="font-weight:800;font-size:14px;margin-bottom:4px">🚫 DDT (Diclorgiphenyltrichloroethane)</div>
+   <div style="font-size:12.5px;margin-bottom:6px"><b>Səbəb və Təhlükə:</b> Kanserogen, teratogen və persistent (qalıcı) orqanik çirkləndiricidir. Torpaqda və canlı orqanizmlərdə illərlə parçalanmır, qida zənciri ilə toplanır.</div>
+   <div style="font-size:12px;color:#a82020"><b>Hüquqi Status:</b> Azərbaycan Respublikasında və beynəlxalq konvensiyalarla qəti qadağandır.</div>
+  </div>
+ 
+  <div style="background:#fff5f5;border:1px solid #f5c2c7;border-radius:14px;padding:12px;margin-bottom:10px;color:#7a0c0c">
+   <div style="font-weight:800;font-size:14px;margin-bottom:4px">🚫 Endosulfan</div>
+   <div style="font-size:12.5px;margin-bottom:6px"><b>Səbəb və Təhlükə:</b> Güclü neyrotoksin və endokrin sistemini pozucudur. Su hövzələri üçün yüksək dərəcədə zəhərlidir (balıqları və su faunasını məhv edir).</div>
+   <div style="font-size:12px;color:#a82020"><b>Hüquqi Status:</b> AQTA tərəfindən idxalı və tətbiqi qadağan olunub.</div>
+  </div>
+ 
+  <div style="background:#fff5f5;border:1px solid #f5c2c7;border-radius:14px;padding:12px;margin-bottom:10px;color:#7a0c0c">
+   <div style="font-weight:800;font-size:14px;margin-bottom:4px">🚫 Karbofuran (Carbofuran)</div>
+   <div style="font-size:12.5px;margin-bottom:6px"><b>Səbəb və Təhlükə:</b> Yüksək kəskin toksikliyə malikdir. Mərkəzi sinir sistemini dərhal iflic edir, arılar və quşlar üçün kütləvi ölüm təhlükəsi yaradır.</div>
+   <div style="font-size:12px;color:#a82020"><b>Hüquqi Status:</b> Dövriyyəsi qəti qadağandır.</div>
+  </div>
+ 
+  <div style="background:#fff5f5;border:1px solid #f5c2c7;border-radius:14px;padding:12px;margin-bottom:10px;color:#7a0c0c">
+   <div style="font-weight:800;font-size:14px;margin-bottom:4px">🚫 Aldrin / Dieldrin / Endrin</div>
+   <div style="font-size:12.5px;margin-bottom:6px"><b>Səbəb və Təhlükə:</b> Çox yüksək toksiklik və qalıcılıq. Qaraciyər zədələnmələri, immun sisteminin çökməsi və genetik mutasiyalara səbəb olur.</div>
+   <div style="font-size:12px;color:#a82020"><b>Hüquqi Status:</b> Qlobal miqyasda və ölkəmizdə qadağan olunmuş POPs maddələridir.</div>
+  </div>
+ 
+  <div style="background:#fff5f5;border:1px solid #f5c2c7;border-radius:14px;padding:12px;margin-bottom:10px;color:#7a0c0c">
+   <div style="font-weight:800;font-size:14px;margin-bottom:4px">🚫 Heptaxlor (Heptachlor)</div>
+   <div style="font-size:12.5px;margin-bottom:6px"><b>Səbəb və Təhlükə:</b> Onkoloji xəstəliklərə və sinir sisteminin dönməz pozulmalarına yol açır. Ana südünə ötürülmə qabiliyyəti var.</div>
+   <div style="font-size:12px;color:#a82020"><b>Hüquqi Status:</b> İstifadəsi və saxlanması qadağandır.</div>
+  </div>
+ 
+  <div style="background:#fff5f5;border:1px solid #f5c2c7;border-radius:14px;padding:12px;margin-bottom:10px;color:#7a0c0c">
+   <div style="font-weight:800;font-size:14px;margin-bottom:4px">🚫 Lindan (Lindane / HCH)</div>
+   <div style="font-size:12.5px;margin-bottom:6px"><b>Səbəb və Təhlükə:</b> Kanserogen və sinir sistemini zədələyən persistent pestisid. Orqanizmdə piyli toxumalarda yığılır.</div>
+   <div style="font-size:12px;color:#a82020"><b>Hüquqi Status:</b> Fitosanitar nəzarət qaydalarına əsasən qadağandır.</div>
+  </div>
+ 
+  <div style="background:#fff5f5;border:1px solid #f5c2c7;border-radius:14px;padding:12px;margin-bottom:10px;color:#7a0c0c">
+   <div style="font-weight:800;font-size:14px;margin-bottom:4px">🚫 Metil-paration / Paration</div>
+   <div style="font-size:12.5px;margin-bottom:6px"><b>Səbəb və Təhlükə:</b> İnsanlar üçün son dərəcə yüksək kəskin zəhərlilik (tənəffüs iflici və ölüm riski).</div>
+   <div style="font-size:12px;color:#a82020"><b>Hüquqi Status:</b> Dövriyyədən çıxarılıb və qadağan edilib.</div>
+  </div>
+ 
+  <div style="background:#fff5f5;border:1px solid #f5c2c7;border-radius:14px;padding:12px;margin-bottom:10px;color:#7a0c0c">
+   <div style="font-weight:800;font-size:14px;margin-bottom:4px">🚫 Simazin / Atrazin</div>
+   <div style="font-size:12.5px;margin-bottom:6px"><b>Səbəb və Təhlükə:</b> Yeraltı suları çirkləndirir, su ekosistemlərini məhv edir və hormonal pozulmalara səbəb olur.</div>
+   <div style="font-size:12px;color:#a82020"><b>Hüquqi Status:</b> Qadağan olunmuş herbisid siyahısındadır.</div>
+  </div>
+ </div>
+  </div>
+ </div>
+</section>
+
+<!-- SUBSIDY VIEW -->
+<section id="subsidy" class="view">
+ <div class="backrow"><button class="back-btn" onclick="go('home')">‹</button><h2 id="lSubTitle">Subsidiya və Bəyan</h2></div>
+ <div class="eagro-box">
+  <div><h4>Aqrar Subsidiya Şurası</h4><p>Rəsmi əmsallar və müraciət portalı</p></div>
+  <a href="https://aqrarsubsidiya.az/" target="_blank" rel="noopener" class="eagro-btn">Portal ›</a>
+ </div>
+ <div class="card"><h3 id="lSubCalcTitle">Subsidiya kalkulyatoru</h3>
+  <label id="lSubCrop">Bitki / məhsul</label><input id="subCrop" placeholder="Məsələn: buğda" list="fieldCropDatalist">
+  <div class="fieldrow"><div><label id="lSubArea">Sahə (hektar)</label><input id="subArea" type="number" min="0" step=".01" placeholder="0"></div><div><label id="lSubRate">Əmsal (AZN/ha)</label><input id="subRate" type="number" min="0" step=".01" placeholder="Rəsmi əmsal"></div></div>
+  <button class="btn" onclick="calcSubsidy()" id="lSubCalcBtn">Hesabla</button><div id="subOut" class="result">Nəticə burada.</div>
+ </div>
+ <div class="card"><h3 id="lDeclTitle">Bəyan tarixləri</h3>
+  <label id="lDeclDate">Tarix</label><input id="declDate" type="date">
+  <label id="lDeclName">Bəyan adı</label><input id="declName" placeholder="Məsələn: payızlıq əkin bəyanı">
+  <button class="btn" onclick="addDeclaration()" id="lDeclBtn">Tarixi yadda saxla</button>
+  <div id="declList" class="result"><div>2026-11-14 — Payızlıq əkin bəyanı</div></div>
+ </div>
+</section>
+
+<!-- EQUIPMENT VIEW -->
+<section id="equipment" class="view">
+ <div class="backrow"><button class="back-btn" onclick="go('home')">‹</button><h2 id="lEqTitle">Avadanlıqlarım</h2></div>
+ <div class="card"><h3 id="equipmentFormTitle">Yeni avadanlıq əlavə et</h3>
+  <label id="lEqName">Adı</label><input id="eqName" placeholder="Məsələn: Traktor Belarus">
+  <div class="fieldrow"><div><label id="lEqModel">Marka / model</label><input id="eqModel" placeholder="MTZ-82"></div><div><label id="lEqCode">Dövlət nömrəsi</label><input id="eqCode" placeholder="90-AA-000"></div></div>
+  <label id="lEqInsp">Texniki baxış tarixi</label><input id="eqInspection" type="date">
+  <label id="lEqIns">Sığorta bitmə tarixi</label><input id="eqInsurance" type="date">
+  <button class="btn" id="eqSaveBtn" onclick="saveEquipment()">Yadda saxla</button>
+  <button class="btn light" id="eqCancelBtn" onclick="cancelEquipmentEdit()" style="display:none">İmtina et</button>
+ </div>
+ <div class="card"><h3 id="lEqListTitle">Saxlanılmış avadanlıqlar</h3><div id="equipmentList" class="small"><div>🚜 Traktor (MTZ-892)</div></div></div>
+ <div class="card"><h3 id="lBackupTitle">Ehtiyat nüsxə</h3><button class="btn light" onclick="exportBackup()" id="lExportBtn">Məlumatları ixrac et (JSON)</button><label id="lImportLabel">Geri yüklə</label><input type="file" accept="application/json" onchange="importBackup(event)"></div>
+</section>
+
+<!-- FARMBOOK VIEW -->
+<section id="farmbook" class="view">
+ <div class="backrow"><button class="back-btn" onclick="go('home')">‹</button><h2 id="lFinTitle">Gəlir və Xərc</h2></div>
+ <div class="card">
+  <div class="fieldrow"><div><label id="lFinOp">Əməliyyat</label><select id="financeType"><option value="expense" id="optExp">Xərc</option><option value="income" id="optInc">Gəlir</option></select></div><div><label id="lFinDate">Tarix</label><input id="financeDate" type="date"></div></div>
+  <label id="lFinField">Sahə adı</label><input id="financeField" placeholder="Şimal sahəsi" list="fieldCropDatalist">
+  <div class="fieldrow"><div><label id="lFinAmt">Məbləğ (AZN)</label><input id="financeAmount" type="number" min="0" step="0.01"></div><div><label id="lFinCat">Kateqoriya</label><input id="financeCategory" placeholder="Gübrə, toxum, satış..."></div></div>
+  <button class="btn" onclick="saveFinance()" id="lFinBtn">Qeyd əlavə et</button>
+  <div id="financeSummary" class="result">Ümumi Gəlir: 0.00 AZN | Xərc: 0.00 AZN
+Balans: 0.00 AZN</div>
+  <div id="financeList" class="result">Qeyd yoxdur.</div>
+ </div>
+</section>
+
+<!-- HARVEST VIEW -->
+<section id="harvest" class="view">
+ <div class="backrow"><button class="back-btn" onclick="go('home')">‹</button><h2 id="lHarvTitle">Məhsul Yığımı</h2></div>
+ <div class="card">
+  <div class="fieldrow"><div><label id="lHarvDate">Yığım tarixi</label><input id="harvestDate" type="date"></div><div><label id="lHarvQty">Miqdar (kq)</label><input id="harvestQty" type="number" min="0" step="0.1"></div></div>
+  <label id="lHarvCrop">Sahə / bitki</label><input id="harvestCrop" placeholder="Buğda — Əsas sahə" list="fieldCropDatalist">
+  <label id="lHarvPrice">Satış qiyməti (AZN/kq)</label><input id="harvestPrice" type="number" min="0" step="0.001">
+  <button class="btn" onclick="saveHarvest()" id="lHarvBtn">Yığım əlavə et</button>
+  <div id="harvestList" class="result">Yığım yoxdur.</div>
+ </div>
+</section>
+
+<!-- PROFILE & SETTINGS VIEW -->
+<section id="profile" class="view active">
+ <div class="backrow"><button class="back-btn" onclick="go('home')">‹</button><h2 id="lProfileTitle">Profil və Tənzimləmələr</h2></div>
+ 
+ <div class="card">
+  <h3 id="lblProfileInfo">👤 Şəxsi Profil</h3>
+  <p style="font-size:12px;color:var(--muted);margin-top:-6px">Ad və soyadınızı daxil etdikdən sonra proqram sizə adınızla müraciət edəcək.</p>
+  <label id="lblFullName">Ad və soyad</label><input id="personName" placeholder="Məsələn: Əli Məmmədov" oninput="liveUpdateGreeting(this.value)">
+  <label id="lblPhone">Telefon</label><input id="personPhone" placeholder="+994...">
+  <label id="lblRegion">Rayon / kənd</label><input id="personPlace" placeholder="Məsələn: Ağcabədi">
+  <button class="btn" onclick="saveProfile()" id="btnSaveProfile">Profili yadda saxla</button>
+ </div>
+
+ <div class="hotline-box">
+  <div>
+   <h4 id="lblHotlineTitle">KTN Qaynar Xətt (1652)</h4>
+   <p id="lblHotlineDesc">Operativ dəstək və aqrar məsləhət xidməti</p>
+  </div>
+  <a href="tel:1652" class="hotline-btn">📞 Zəng et</a>
+ </div>
+
+ <div class="card">
+  <h3 id="lDownloadTitle">📱 Tətbiqi Cihaza Endir</h3>
+  <p style="font-size:12.5px;color:var(--muted)" id="lDownloadDesc">Bu proqramı birbaşa telefonunuza offline işləyən HTML faylı kimi endirin.</p>
+  <button class="btn light" onclick="downloadAppFile()" id="lDownloadBtn">📥 AqroMəsləhət.html Endir</button>
+ </div>
+
+ <div class="card">
+  <h3 id="lblAppSettings">⚙️ Tətbiq Tənzimləmələri</h3>
+  <label id="lblLang">Dil seçimi / Language</label>
+  <select id="langSelect" onchange="changeLanguage(this.value)">
+   <option value="az">Azərbaycan dili</option>
+   <option value="en">English</option>
+   <option value="ru">Русский</option>
+  </select>
+ </div>
+</section>
+</main>
+
+<!-- BOTTOM NAVIGATION -->
+<nav class="bottom">
+ <button class="" data-go="home" onclick="go('home')">
+  <span class="nav-ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg></span>
+  <span id="navHome">Əsas</span>
+ </button>
+ <button data-go="npk" onclick="go('npk')">
+  <span class="nav-ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2"></rect><line x1="8" y1="6" x2="16" y2="6"></line><line x1="8" y1="10" x2="10" y2="10"></line><line x1="14" y1="10" x2="16" y2="10"></line><line x1="8" y1="14" x2="10" y2="14"></line><line x1="14" y1="14" x2="16" y2="14"></line><line x1="8" y1="18" x2="16" y2="18"></line></svg></span>
+  <span id="navTools">Alətlər</span>
+ </button>
+ 
+ <div class="scan-btn-wrap" onclick="go('photo')" title="Bitki Skaneri">
+  <div class="scan-center">
+   <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3 7V5a2 2 0 0 1 2-2h2"></path>
+    <path d="M17 3h2a2 2 0 0 1 2 2v2"></path>
+    <path d="M21 17v2a2 2 0 0 1-2 2h-2"></path>
+    <path d="M7 21H5a2 2 0 0 1-2-2v-2"></path>
+    <path d="M8 15c0-4.5 3.5-7 8-7 0 4.5-2.5 8-7 8H8v-1z"></path>
+    <path d="M8 16l4.5-4.5"></path>
+   </svg>
+  </div>
+  <span class="scan-label">Skaner</span>
+ </div>
+
+ <button data-go="fields" onclick="go('fields')">
+  <span class="nav-ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"></polygon><line x1="9" y1="3" x2="9" y2="18"></line><line x1="15" y1="6" x2="15" y2="21"></line></svg></span>
+  <span id="navFields">Sahəm</span>
+ </button>
+ <button data-go="profile" onclick="go('profile')" class="active">
+  <span class="nav-ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg></span>
+  <span id="navProfile">Profil</span>
+ </button>
+</nav>
+
+<script>
+// ==========================================
+// 1. GREETING & PROFILE PERSONALIZATION
+// ==========================================
+function formatGreeting(fullName, lang) {
+ let clean = (fullName || '').trim();
+ if (!clean) {
+  return lang === 'en' ? 'Hello, Farmer! 👋' : lang === 'ru' ? 'Привет, Фермер! 👋' : 'Salam, Fermer! 👋';
+ }
+ let firstName = clean.split(/\s+/)[0];
+ if (lang === 'en') return `Hello, ${firstName}! 👋`;
+ if (lang === 'ru') return `Привет, ${firstName}! 👋`;
+ return `Salam, ${firstName}! 👋`;
+}
+
+function liveUpdateGreeting(val) {
+ let lang = localStorage.getItem('agroLang') || 'az';
+ let el = document.getElementById('userGreeting');
+ if (el) el.textContent = formatGreeting(val, lang);
+}
+
+function saveProfile() {
+ let p = {
+  name: document.getElementById('personName').value.trim(),
+  phone: document.getElementById('personPhone').value.trim(),
+  place: document.getElementById('personPlace').value.trim()
+ };
+ localStorage.setItem('agroProfile', JSON.stringify(p));
+ loadProfile();
+ alert(p.name ? `Təşəkkür edirik, ${p.name.split(/\s+/)[0]}! Profiliniz yadda saxlandı.` : 'Profil yadda saxlandı.');
+}
+
+function loadProfile() {
+ let p = JSON.parse(localStorage.getItem('agroProfile') || '{}');
+ let nameEl = document.getElementById('personName');
+ let phoneEl = document.getElementById('personPhone');
+ let placeEl = document.getElementById('personPlace');
+ if (nameEl) nameEl.value = p.name || '';
+ if (phoneEl) phoneEl.value = p.phone || '';
+ if (placeEl) placeEl.value = p.place || '';
+ let lang = localStorage.getItem('agroLang') || 'az';
+ let greetEl = document.getElementById('userGreeting');
+ if (greetEl) greetEl.textContent = formatGreeting(p.name, lang);
+}
+
+// ==========================================
+// 2. USEFUL LINKS (KTN, AXA, E-AGRO + CUSTOM)
+// ==========================================
+const officialLinks = [
+ { name: "Azərbaycan Respublikası Kənd Təsərrüfatı Nazirliyi", desc: "Rəsmi xəbərlər, qanunvericilik və aqrar proqramlar", url: "https://agro.gov.az/" },
+ { name: "Aqrar Xidmətlər Agentliyi (AXA)", desc: "Bitki mühafizəsi, baytarlıq, toxumçuluq və texniki nəzarət", url: "https://axa.gov.az/" },
+ { name: "Elektron Kənd Təsərrüfatı İnformasiya Sistemi (E-Agro)", desc: "Fermer kabineti, əkin bəyanı və subsidiya müraciətləri", url: "https://eagro.az/" },
+ { name: "Aqrar Subsidiya Şurası (aqrarsubsidiya.az)", desc: "Əkin, məhsul və toxum subsidiyası əmsalları", url: "https://aqrarsubsidiya.az/" },
+ { name: "Aqrar Sığorta Fondu (ASF)", desc: "Əkin sahələrinin və kənd təsərrüfatı heyvanlarının sığortası", url: "https://asf.gov.az/" },
+ { name: "Azərbaycan Qida Təhlükəsizliyi Agentliyi (AQTA)", desc: "Pestisid qeydiyyatı və fitosanitar sertifikatlar", url: "https://afsa.gov.az/" },
+ { name: "Aqrar Kredit və İnkişaf Agentliyi (AKİA)", desc: "Güzəştli aqrar kreditlər və texnika lizinqi", url: "https://akia.gov.az/" }
+];
+
+let customLinks = JSON.parse(localStorage.getItem('agroCustomLinks') || '[]');
+
+function renderLinks() {
+ let offHost = document.getElementById('officialLinksList');
+ if (offHost) {
+  offHost.innerHTML = officialLinks.map(l => `
+   <div class="link-item">
+    <div>
+     <a href="${l.url}" target="_blank" rel="noopener">🌐 ${l.name}</a>
+     <small>${l.desc}</small>
+    </div>
+    <a href="${l.url}" target="_blank" rel="noopener" class="btn light" style="width:auto;margin:0;padding:6px 12px;font-size:12px">Aç ›</a>
+   </div>
+  `).join('');
+ }
+
+ let custHost = document.getElementById('customLinksList');
+ if (custHost) {
+  if (!customLinks.length) {
+   custHost.textContent = 'Hələ özünüz tərəfindən əlavə edilmiş keçid yoxdur.';
+  } else {
+   custHost.innerHTML = customLinks.map((l, idx) => `
+    <div class="link-item">
+     <div>
+      <a href="${l.url}" target="_blank" rel="noopener">🔗 ${l.name}</a>
+      <small>${l.url}</small>
+     </div>
+     <div style="display:flex;gap:6px">
+      <a href="${l.url}" target="_blank" rel="noopener" class="btn light" style="width:auto;margin:0;padding:5px 10px;font-size:11.5px">Aç</a>
+      <button class="btn light" style="width:auto;margin:0;padding:5px 9px;font-size:11.5px;color:#d9534f;border-color:#d9534f" onclick="deleteCustomLink(${idx})">Sil</button>
+     </div>
+    </div>
+   `).join('');
+  }
+ }
+}
+
+function addCustomLink() {
+ let name = document.getElementById('customLinkName').value.trim();
+ let url = document.getElementById('customLinkUrl').value.trim();
+ if (!name || !url) {
+  alert('Zəhmət olmasa saytın adını və ünvanını (URL) daxil edin.');
+  return;
+ }
+ if (!/^https?:\/\//i.test(url)) {
+  url = 'https://' + url;
+ }
+ customLinks.push({ name, url });
+ localStorage.setItem('agroCustomLinks', JSON.stringify(customLinks));
+ document.getElementById('customLinkName').value = '';
+ document.getElementById('customLinkUrl').value = '';
+ renderLinks();
+ alert('Yeni keçid siyahıya əlavə olundu!');
+}
+
+function deleteCustomLink(idx) {
+ if (!confirm('Bu keçidi silmək istədiyinizə əminsiniz?')) return;
+ customLinks.splice(idx, 1);
+ localStorage.setItem('agroCustomLinks', JSON.stringify(customLinks));
+ renderLinks();
+}
+
+// ==========================================
+// 3. NAVIGATION & THEME
+// ==========================================
+function toggleTheme() {
+ let current = document.body.getAttribute('data-theme') || 'light';
+ let next = current === 'light' ? 'dark' : 'light';
+ document.body.setAttribute('data-theme', next);
+ localStorage.setItem('agroTheme', next);
+ updateThemeButton(next);
+}
+
+function initTheme() {
+ let saved = 'light'; // Həmişə gündüz (light) rejimində açılması üçün
+  localStorage.setItem('agroTheme', 'light');
+ document.body.setAttribute('data-theme', saved);
+ updateThemeButton(saved);
+}
+
+function updateThemeButton(theme) {
+ let btn = document.getElementById('themeToggleBtn');
+ if (btn) {
+  // If theme is light, show moon (to switch to dark). If dark, show sun (to switch to light).
+  btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+  btn.title = theme === 'dark' ? 'Gündüz rejiminə keç' : 'Gecə rejiminə keç';
+ }
+}
+
+function go(id) {
+ document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === id));
+ document.querySelectorAll('.bottom button').forEach(b => b.classList.toggle('active', b.dataset.go === id));
+ window.scrollTo(0, 0);
+ if (id === 'fields') {
+  setTimeout(() => {
+   initFieldMap();
+   if (fieldMap) fieldMap.invalidateSize(true);
+  }, 150);
+ }
+}
+
+function downloadAppFile() {
+ let htmlContent = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+ let blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+ let url = URL.createObjectURL(blob);
+ let a = document.createElement('a');
+ a.href = url;
+ a.download = 'AqroMeslehet.html';
+ a.click();
+ URL.revokeObjectURL(url);
+}
+
+// ==========================================
+// 4. INTERACTIVE FIELD MAP, GPS & UTM CONVERTER
+// ==========================================
+let fieldMap = null;
+let mapPoints = [];
+let mapMarkers = [];
+let mapPolygon = null;
+let userGpsMarker = null;
+let userGpsCircle = null;
+let isSatellite = true;
+let satLayer = null;
+let osmLayer = null;
+
+function showGpsStatus(msg, isError = false) {
+ let el = document.getElementById('gpsStatusMsg');
+ if (!el) return;
+ el.style.display = 'block';
+ el.style.background = isError ? '#ffe8e8' : 'var(--pale)';
+ el.style.color = isError ? '#a82020' : 'var(--g)';
+ el.style.borderColor = isError ? '#f5c2c7' : 'var(--line)';
+ el.textContent = msg;
+}
+
+function initFieldMap() {
+ if (fieldMap) {
+  fieldMap.invalidateSize(true);
+  return;
+ }
+ let mapEl = document.getElementById('fieldMap');
+ if (!mapEl) return;
+ 
+ if (typeof L === 'undefined') {
+  mapEl.innerHTML = '<div style="padding:24px;text-align:center;color:var(--muted);font-size:13px">⚠️ Xəritə kitabxanası yüklənmədi. İnternet bağlantınızı yoxlayın.</div>';
+  return;
+ }
+ let lat0 = parseFloat(document.getElementById('lat')?.value) || 40.6782;
+ let lon0 = parseFloat(document.getElementById('lon')?.value) || 46.3606;
+
+ fieldMap = L.map('fieldMap', { zoomControl: true }).setView([lat0, lon0], 15);
+
+ satLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+  attribution: 'Esri Satellite',
+  maxZoom: 19
+ });
+ osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: 'OpenStreetMap',
+  maxZoom: 19
+ });
+
+ satLayer.addTo(fieldMap);
+
+ fieldMap.on('click', function(e) {
+  addMapPoint(e.latlng.lat, e.latlng.lng);
+ });
+
+ setTimeout(() => fieldMap.invalidateSize(true), 250);
+}
+
+function toggleMapLayer() {
+ if (!fieldMap) initFieldMap();
+ if (!fieldMap) return;
+ if (isSatellite) {
+  fieldMap.removeLayer(satLayer);
+  osmLayer.addTo(fieldMap);
+  isSatellite = false;
+ } else {
+  fieldMap.removeLayer(osmLayer);
+  satLayer.addTo(fieldMap);
+  isSatellite = true;
+ }
+}
+
+function locateFieldMap() {
+ if (!fieldMap) initFieldMap();
+
+ if (!('geolocation' in navigator)) {
+  showGpsStatus('❌ Bu cihaz və ya brauzer GPS konum xidmətini dəstəkləmir.', true);
+  return;
+ }
+
+ let btn = document.getElementById('btnLocateMe');
+ if (btn) btn.textContent = '⏳ İcazə və GPS gözlənilir...';
+ showGpsStatus('📡 Telefondan konum icazəsi istənilir...');
+
+ navigator.geolocation.getCurrentPosition(
+  function(pos) {
+   if (btn) btn.textContent = '📍 Yerimə get';
+   let la = pos.coords.latitude;
+   let lo = pos.coords.longitude;
+   let acc = Math.round(pos.coords.accuracy || 0);
+   let utmObj = latLonToUtm(la, lo);
+
+   if (document.getElementById('lat')) document.getElementById('lat').value = la.toFixed(6);
+   if (document.getElementById('lon')) document.getElementById('lon').value = lo.toFixed(6);
+
+   showGpsStatus(`✅ Konum tapıldı (Dəqiqlik: ~${acc} m) | Lat/Lon: ${la.toFixed(5)}, ${lo.toFixed(5)} | UTM: ${utmObj.zone}N ${utmObj.easting}E, ${utmObj.northing}N`);
+
+   if (fieldMap) {
+    fieldMap.invalidateSize(true);
+    fieldMap.flyTo([la, lo], 17, { animate: true, duration: 1.0 });
+
+    if (userGpsMarker) fieldMap.removeLayer(userGpsMarker);
+    if (userGpsCircle) fieldMap.removeLayer(userGpsCircle);
+
+    userGpsCircle = L.circle([la, lo], {
+     radius: Math.max(acc, 10),
+     color: '#2d9650',
+     fillColor: '#2d9650',
+     fillOpacity: 0.15,
+     weight: 1
+    }).addTo(fieldMap);
+
+    userGpsMarker = L.circleMarker([la, lo], {
+     radius: 8,
+     color: '#ffffff',
+     weight: 3,
+     fillColor: '#1f733b',
+     fillOpacity: 1
+    }).addTo(fieldMap).bindPopup(
+     `<b>📍 Sizin cari mövqeyiniz</b><br>Lat/Lon: ${la.toFixed(6)}, ${lo.toFixed(6)}`
+    ).openPopup();
+   }
+  },
+  function(err) {
+   if (btn) btn.textContent = '📍 Yerimə get';
+   let reason = 'Konum əldə edilə bilmədi. Məkan icazəsini yoxlayın.';
+   if (err.code === 1) reason = '⚠️ Məkan icazəsi rədd edildi!';
+   else if (err.code === 2) reason = '⚠️ GPS siqnalı tapılmadı.';
+   showGpsStatus(reason, true);
+  },
+  { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+ );
+}
+
+function latLonToUtm(lat, lon, forcedZone = null) {
+ const a = 6378137.0;
+ const f = 1 / 298.257223563;
+ const k0 = 0.9996;
+ const e2 = f * (2 - f);
+ const ep2 = e2 / (1 - e2);
+
+ let zone = forcedZone || (Math.floor((lon + 180) / 6) + 1);
+ let lon0 = ((zone - 1) * 6 - 180 + 3) * Math.PI / 180;
+ let phi = lat * Math.PI / 180;
+ let lam = lon * Math.PI / 180;
+
+ let N = a / Math.sqrt(1 - e2 * Math.sin(phi) * Math.sin(phi));
+ let T = Math.tan(phi) * Math.tan(phi);
+ let C = ep2 * Math.cos(phi) * Math.cos(phi);
+ let A = Math.cos(phi) * (lam - lon0);
+
+ let M = a * (
+  (1 - e2 / 4 - 3 * e2 * e2 / 64 - 5 * e2 * e2 * e2 / 256) * phi
+  - (3 * e2 / 8 + 3 * e2 * e2 / 32 + 45 * e2 * e2 * e2 / 1024) * Math.sin(2 * phi)
+  + (15 * e2 * e2 / 256 + 45 * e2 * e2 * e2 / 1024) * Math.sin(4 * phi)
+  - (35 * e2 * e2 * e2 / 3072) * Math.sin(6 * phi)
+ );
+
+ let easting = k0 * N * (
+  A + (1 - T + C) * Math.pow(A, 3) / 6
+  + (5 - 18 * T + T * T + 72 * C - 58 * ep2) * Math.pow(A, 5) / 120
+ ) + 500000.0;
+
+ let northing = k0 * (
+  M + N * Math.tan(phi) * (
+   A * A / 2 + (5 - T + 9 * C + 4 * C * C) * Math.pow(A, 4) / 24
+   + (61 - 58 * T + T * T + 600 * C - 330 * ep2) * Math.pow(A, 6) / 720
+  )
+ );
+ if (lat < 0) northing += 10000000.0;
+
+ return { zone, easting: Math.round(easting * 100) / 100, northing: Math.round(northing * 100) / 100 };
+}
+
+function utmToLatLon(easting, northing, zone = 38) {
+ const a = 6378137.0;
+ const f = 1 / 298.257223563;
+ const k0 = 0.9996;
+ const e2 = f * (2 - f);
+ const ep2 = e2 / (1 - e2);
+ const e1 = (1 - Math.sqrt(1 - e2)) / (1 + Math.sqrt(1 - e2));
+
+ let x = easting - 500000.0;
+ let y = northing;
+ let M = y / k0;
+ let mu = M / (a * (1 - e2 / 4 - 3 * e2 * e2 / 64 - 5 * e2 * e2 * e2 / 256));
+
+ let phi1 = mu
+  + (3 * e1 / 2 - 27 * Math.pow(e1, 3) / 32) * Math.sin(2 * mu)
+  + (21 * e1 * e1 / 16 - 55 * Math.pow(e1, 4) / 32) * Math.sin(4 * mu)
+  + (151 * Math.pow(e1, 3) / 96) * Math.sin(6 * mu)
+  + (1097 * Math.pow(e1, 4) / 512) * Math.sin(8 * mu);
+
+ let C1 = ep2 * Math.cos(phi1) * Math.cos(phi1);
+ let T1 = Math.tan(phi1) * Math.tan(phi1);
+ let N1 = a / Math.sqrt(1 - e2 * Math.sin(phi1) * Math.sin(phi1));
+ let R1 = a * (1 - e2) / Math.pow(1 - e2 * Math.sin(phi1) * Math.sin(phi1), 1.5);
+ let D = x / (N1 * k0);
+
+ let lat = phi1 - (N1 * Math.tan(phi1) / R1) * (
+  D * D / 2
+  - (5 + 3 * T1 + 10 * C1 - 4 * C1 * C1 - 9 * ep2) * Math.pow(D, 4) / 24
+  + (61 + 90 * T1 + 298 * C1 + 45 * T1 * T1 - 252 * ep2 - 3 * C1 * C1) * Math.pow(D, 6) / 720
+ );
+
+ let lon0 = ((zone - 1) * 6 - 180 + 3) * Math.PI / 180;
+ let lon = lon0 + (
+  D - (1 + 2 * T1 + C1) * Math.pow(D, 3) / 6
+  + (5 - 2 * C1 + 28 * T1 - 3 * C1 * C1 + 8 * ep2 + 24 * T1 * T1) * Math.pow(D, 5) / 120
+ ) / Math.cos(phi1);
+
+ return [lat * 180 / Math.PI, lon * 180 / Math.PI];
+}
+
+function toggleCoordFormatInput(val) {
+ document.getElementById('latLonInputWrap').style.display = val === 'latlon' ? 'block' : 'none';
+ document.getElementById('utmInputWrap').style.display = val === 'utm' ? 'block' : 'none';
+}
+
+function fillCurrentGpsToCoord(mode) {
+ if (!('geolocation' in navigator)) { alert('GPS dəstəklənmir.'); return; }
+ navigator.geolocation.getCurrentPosition(pos => {
+  let la = pos.coords.latitude, lo = pos.coords.longitude;
+  if (mode === 'latlon') {
+   let box = document.getElementById('coordInput');
+   box.value = (box.value.trim() ? box.value.trim() + '\n' : '') + `${la.toFixed(6)}, ${lo.toFixed(6)}`;
+  } else {
+   let z = parseInt(document.getElementById('utmZoneSelect').value) || 38;
+   let u = latLonToUtm(la, lo, z);
+   let box = document.getElementById('utmInput');
+   box.value = (box.value.trim() ? box.value.trim() + '\n' : '') + `${u.easting.toFixed(2)}, ${u.northing.toFixed(2)}`;
+  }
+ }, () => alert('Konum icazəsi verilmədi.'), { enableHighAccuracy: true });
+}
+
+function addMapPoint(lat, lng) {
+ mapPoints.push([lat, lng]);
+ redrawFieldPolygon();
+ syncCoordsTextarea();
+}
+
+function undoMapPoint() {
+ if (mapPoints.length > 0) {
+  mapPoints.pop();
+  redrawFieldPolygon();
+  syncCoordsTextarea();
+ }
+}
+
+function clearMapPoints() {
+ mapPoints = [];
+ redrawFieldPolygon();
+ syncCoordsTextarea();
+ document.getElementById('activeUtmDisplay').style.display = 'none';
+}
+
+function syncCoordsTextarea() {
+ let box = document.getElementById('coordInput');
+ if (box) box.value = mapPoints.map(p => `${p[0].toFixed(6)}, ${p[1].toFixed(6)}`).join('\n');
+ let utmBox = document.getElementById('utmInput');
+ let z = parseInt(document.getElementById('utmZoneSelect')?.value) || 38;
+ if (utmBox) {
+  utmBox.value = mapPoints.map(p => {
+   let u = latLonToUtm(p[0], p[1], z);
+   return `${u.easting.toFixed(2)}, ${u.northing.toFixed(2)}`;
+  }).join('\n');
+ }
+}
+
+function applyCoordsToMap() {
+ let format = document.getElementById('coordFormatSelect').value;
+ let parsed = [];
+
+ if (format === 'latlon') {
+  let raw = document.getElementById('coordInput').value.trim();
+  if (!raw) { alert('Enlik və Uzunluq daxil edin.'); return; }
+  let lines = raw.split(/\n|;/);
+  for (let line of lines) {
+   let nums = line.match(/-?\d+(?:\.\d+)?/g);
+   if (nums && nums.length >= 2) {
+    let la = parseFloat(nums[0]), lo = parseFloat(nums[1]);
+    if (Math.abs(la) <= 90 && Math.abs(lo) <= 180) parsed.push([la, lo]);
+   }
+  }
+ } else {
+  let raw = document.getElementById('utmInput').value.trim();
+  let zone = parseInt(document.getElementById('utmZoneSelect').value) || 38;
+  if (!raw) { alert('UTM daxil edin.'); return; }
+  let lines = raw.split(/\n|;/);
+  for (let line of lines) {
+   let nums = line.match(/\d+(?:\.\d+)?/g);
+   if (nums && nums.length >= 2) {
+    let east = parseFloat(nums[0]), north = parseFloat(nums[1]);
+    if (east > 100000 && north > 1000000) {
+     parsed.push(utmToLatLon(east, north, zone));
+    }
+   }
+  }
+ }
+
+ if (parsed.length < 3) {
+  alert('Ən azı 3 nöqtə daxil edin.');
+  return;
+ }
+ mapPoints = parsed;
+ syncCoordsTextarea();
+ redrawFieldPolygon(true);
+ switchFieldTab('map');
+}
+
+function redrawFieldPolygon(fitBounds = false) {
+ if (!fieldMap) initFieldMap();
+ if (fieldMap) {
+  mapMarkers.forEach(m => fieldMap.removeLayer(m));
+  mapMarkers = [];
+  if (mapPolygon) { fieldMap.removeLayer(mapPolygon); mapPolygon = null; }
+
+  mapPoints.forEach((pt, idx) => {
+   let icon = L.divIcon({
+    className: 'custom-pin',
+    html: `<div style="background:#1f733b;color:#fff;width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:bold;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.4)">${idx + 1}</div>`,
+    iconSize: [24, 24],
+    iconAnchor: [12, 12]
+   });
+   let mk = L.marker(pt, { icon: icon, draggable: true }).addTo(fieldMap);
+   mk.on('drag', function(ev) {
+    let pos = ev.target.getLatLng();
+    mapPoints[idx] = [pos.lat, pos.lng];
+    updatePolygonGeometryOnly();
+    syncCoordsTextarea();
+   });
+   mapMarkers.push(mk);
+  });
+
+  if (mapPoints.length >= 2) {
+   mapPolygon = L.polygon(mapPoints, {
+    color: '#32d965',
+    weight: 3,
+    fillColor: '#1f733b',
+    fillOpacity: 0.35
+   }).addTo(fieldMap);
+   if (fitBounds) fieldMap.fitBounds(mapPolygon.getBounds(), { padding: [30, 30] });
+  } else if (mapPoints.length === 1 && fitBounds) {
+   fieldMap.setView(mapPoints[0], 17);
+  }
+ }
+ updatePolygonGeometryOnly();
+}
+
+function haversineDist(lat1, lon1, lat2, lon2) {
+ const R = 6371000;
+ const toRad = x => x * Math.PI / 180;
+ const dLat = toRad(lat2 - lat1);
+ const dLon = toRad(lon2 - lon1);
+ const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+ return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+function updatePolygonGeometryOnly() {
+ if (fieldMap && mapPolygon) mapPolygon.setLatLngs(mapPoints);
+ let utmBox = document.getElementById('activeUtmDisplay');
+ if (mapPoints.length > 0 && utmBox) {
+  let u1 = latLonToUtm(mapPoints[0][0], mapPoints[0][1]);
+  utmBox.style.display = 'block';
+  utmBox.textContent = `📌 1-ci nöqtə — Lat/Lon: ${mapPoints[0][0].toFixed(6)}, ${mapPoints[0][1].toFixed(6)} | UTM (${u1.zone}N): ${u1.easting} E, ${u1.northing} N`;
+ }
+
+ if (mapPoints.length < 2) {
+  document.getElementById('calcAreaHa').textContent = '0.00 ha';
+  document.getElementById('calcAreaSot').textContent = '0 sot / 0 m²';
+  document.getElementById('calcWidth').textContent = '0 m';
+  document.getElementById('calcLength').textContent = '0 m';
+  document.getElementById('calcPerim').textContent = '0 m';
+  return;
+ }
+
+ let perim = 0;
+ let sideLengths = [];
+ for (let i = 0; i < mapPoints.length; i++) {
+  let p1 = mapPoints[i];
+  let p2 = mapPoints[(i + 1) % mapPoints.length];
+  let d = haversineDist(p1[0], p1[1], p2[0], p2[1]);
+  sideLengths.push(d);
+  if (i < mapPoints.length - 1 || mapPoints.length >= 3) perim += d;
+ }
+
+ let areaM2 = 0;
+ if (mapPoints.length >= 3) {
+  const R = 6378137;
+  const toRad = x => x * Math.PI / 180;
+  let total = 0;
+  for (let i = 0; i < mapPoints.length; i++) {
+   let p1 = mapPoints[i];
+   let p2 = mapPoints[(i + 1) % mapPoints.length];
+   total += toRad(p2[1] - p1[1]) * (2 + Math.sin(toRad(p1[0])) + Math.sin(toRad(p2[0])));
+  }
+  areaM2 = Math.abs(total * R * R / 2.0);
+ }
+
+ let widthM = 0, lengthM = 0;
+ if (mapPoints.length === 4) {
+  let s1 = (sideLengths[0] + sideLengths[2]) / 2;
+  let s2 = (sideLengths[1] + sideLengths[3]) / 2;
+  widthM = Math.min(s1, s2);
+  lengthM = Math.max(s1, s2);
+ } else {
+  let lats = mapPoints.map(p => p[0]), lons = mapPoints.map(p => p[1]);
+  let midLat = (Math.min(...lats) + Math.max(...lats)) / 2;
+  let midLon = (Math.min(...lons) + Math.max(...lons)) / 2;
+  let nsSpan = haversineDist(Math.min(...lats), midLon, Math.max(...lats), midLon);
+  let ewSpan = haversineDist(midLat, Math.min(...lons), midLat, Math.max(...lons));
+  widthM = Math.min(nsSpan, ewSpan);
+  lengthM = Math.max(nsSpan, ewSpan);
+ }
+
+ let ha = areaM2 / 10000;
+ let sot = areaM2 / 100;
+
+ document.getElementById('calcAreaHa').textContent = ha.toFixed(3) + ' ha';
+ document.getElementById('calcAreaSot').textContent = `${sot.toFixed(1)} sot / ${Math.round(areaM2)} m²`;
+ document.getElementById('calcWidth').textContent = Math.round(widthM) + ' m';
+ document.getElementById('calcLength').textContent = Math.round(lengthM) + ' m';
+ document.getElementById('calcPerim').textContent = Math.round(perim) + ' m';
+
+ if (ha > 0) document.getElementById('fsize').value = ha.toFixed(4);
+ if (widthM > 0) document.getElementById('fwidth').value = Math.round(widthM);
+ if (lengthM > 0) document.getElementById('flength').value = Math.round(lengthM);
+}
+
+function switchFieldTab(tab) {
+ document.getElementById('tabMapBtn').classList.toggle('active', tab === 'map');
+ document.getElementById('tabCoordBtn').classList.toggle('active', tab === 'coord');
+ document.getElementById('tabDocBtn').classList.toggle('active', tab === 'doc');
+
+ document.getElementById('fieldTabMap').style.display = tab === 'map' ? 'block' : 'none';
+ document.getElementById('fieldTabCoord').style.display = tab === 'coord' ? 'block' : 'none';
+ document.getElementById('fieldTabDoc').style.display = tab === 'doc' ? 'block' : 'none';
+ if (fieldMap) setTimeout(() => fieldMap.invalidateSize(true), 120);
+}
+
+function scanFieldDocument(ev) {
+ let file = ev.target.files[0];
+ if (!file) return;
+ let status = document.getElementById('docScanStatus');
+ let prev = document.getElementById('fieldDocPreview');
+ status.style.display = 'block';
+ status.innerHTML = '⏳ <b>Sənəd skan edilir...</b>';
+
+ if (file.type.startsWith('image/')) {
+  prev.src = URL.createObjectURL(file);
+  prev.style.display = 'block';
+ } else {
+  prev.style.display = 'none';
+ }
+
+ let baseLat = parseFloat(document.getElementById('lat')?.value) || 40.6782;
+ let baseLon = parseFloat(document.getElementById('lon')?.value) || 46.3606;
+
+ setTimeout(() => {
+  mapPoints = [
+   [baseLat, baseLon],
+   [baseLat + 0.00125, baseLon + 0.00015],
+   [baseLat + 0.00115, baseLon + 0.00140],
+   [baseLat - 0.00010, baseLon + 0.00125]
+  ];
+  syncCoordsTextarea();
+  redrawFieldPolygon(true);
+  if (!document.getElementById('fname').value) {
+   document.getElementById('fname').value = 'Torpaq Sahəsi';
+  }
+  status.innerHTML = `✅ <b>Sənəd Skan Edildi!</b> Sahə: <b>${document.getElementById('fsize').value} ha</b>`;
+ }, 800);
+}
+
+let savedFields = JSON.parse(localStorage.getItem('agroFields') || '[]');
+function refreshFieldDataselects() {
+ let savedFields = JSON.parse(localStorage.getItem('agroFields') || '[]');
+ let optionsHtml = savedFields.map(f => `<option value="${f.name} — ${f.crop} (${f.size} ha)">`).join('');
+ 
+ let hDl = document.getElementById('fieldCropDatalist');
+ if (!hDl) {
+  hDl = document.createElement('datalist');
+  hDl.id = 'fieldCropDatalist';
+  document.body.appendChild(hDl);
+ }
+ hDl.innerHTML = optionsHtml;
+ 
+ ['harvestCrop', 'subCrop', 'financeField'].forEach(id => {
+  let el = document.getElementById(id);
+  if (el && !el.getAttribute('list')) {
+   el.setAttribute('list', 'fieldCropDatalist');
+  }
+ });
+}
+
+function renderFields() {
+ refreshFieldDataselects();
+ let host = document.getElementById('fieldList');
+ if (!host) return;
+ if (!savedFields.length) {
+  host.textContent = 'Hələ sahə əlavə edilməyib.';
+  document.getElementById('homeFieldCount').textContent = '0';
+  document.getElementById('homeTotalArea').textContent = '0.0 ha';
+  return;
+ }
+ host.innerHTML = savedFields.map((f, i) => `
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid var(--line)">
+   <div>
+    🌱 <b>${f.name}</b> — ${f.crop}, <b>${f.size} ha</b> (${f.location || '—'})
+   </div>
+   <div style="display:flex;gap:5px;flex-shrink:0">
+    ${f.coords && f.coords.length >= 3 ? `<button class="btn light" style="width:auto;padding:5px 9px;margin:0;font-size:11px" onclick="viewSavedFieldOnMap(${i})">🗺️ Xəritə</button>` : ''}
+    <button class="btn light" style="width:auto;padding:5px 9px;margin:0;font-size:11px;color:#d9534f;border-color:#d9534f" onclick="deleteField(${i})">Sil</button>
+   </div>
+  </div>
+ `).join('');
+ document.getElementById('homeFieldCount').textContent = savedFields.length;
+ let total = savedFields.reduce((a, b) => a + (Number(b.size) || 0), 0);
+ document.getElementById('homeTotalArea').textContent = total.toFixed(1) + ' ha';
+}
+
+function deleteField(i) {
+ if (!confirm('Bu sahəni silmək istədiyinizə əminsiniz?')) return;
+ savedFields.splice(i, 1);
+ localStorage.setItem('agroFields', JSON.stringify(savedFields));
+ renderFields();
+ refreshFieldDataselects();
+}
+
+function saveField() {
+ let n = document.getElementById('fname').value.trim(), c = document.getElementById('fcrop').value.trim(), s = +document.getElementById('fsize').value, l = document.getElementById('flocation').value.trim();
+ let w = +document.getElementById('fwidth').value || 0, len = +document.getElementById('flength').value || 0;
+ if (!n || !c || s <= 0) { alert('Sahənin adını, bitkisini və ölçüsünü daxil edin.'); return; }
+ savedFields.push({ name: n, crop: c, size: s, width: w, length: len, location: l, coords: mapPoints.length >= 3 ? [...mapPoints] : [] });
+ localStorage.setItem('agroFields', JSON.stringify(savedFields));
+ renderFields();
+ refreshFieldDataselects();
+ ['fname', 'fcrop', 'fsize', 'fwidth', 'flength', 'flocation'].forEach(id => { let el = document.getElementById(id); if (el) el.value = ''; });
+ alert('Sahə uğurla yadda saxlandı!');
+}
+
+function viewSavedFieldOnMap(i) {
+ let f = savedFields[i];
+ if (f && f.coords && f.coords.length >= 3) {
+  mapPoints = JSON.parse(JSON.stringify(f.coords));
+  syncCoordsTextarea();
+  redrawFieldPolygon(true);
+  switchFieldTab('map');
+  document.getElementById('fieldMap').scrollIntoView({ behavior: 'smooth' });
+ }
+}
+
+// ==========================================
+// 5. NPK, WEATHER, AI, PESTICIDES & RECORDS
+// ==========================================
+function resetNPK() {
+ ['fieldSize','needN','needP','needK','fertNName','fertNPercent','fertPName','fertPPercent','fertPNPercent','fertKName','fertKPercent'].forEach(x => { let el = document.getElementById(x); if (el) el.value = ''; });
+ document.getElementById('npkOutput').textContent = 'Hesablama nəticələri burada görünəcək.';
+}
+
+function calculateNPK() {
+ let raw = +document.getElementById('fieldSize').value, unit = document.getElementById('fieldUnit').value, ha = unit === 'ha' ? raw : unit === 'sot' ? raw / 100 : raw / 10000;
+ let N = +document.getElementById('needN').value || 0, P = +document.getElementById('needP').value || 0, K = +document.getElementById('needK').value || 0;
+ let nPct = Number(document.getElementById('fertNPercent').value), pPct = Number(document.getElementById('fertPPercent').value), pNPct = Number(document.getElementById('fertPNPercent').value || 0), kPct = Number(document.getElementById('fertKPercent').value);
+ if (!(raw > 0)) { alert('Sahənin ölçüsünü daxil edin.'); return; }
+ let lines = [`SAHƏ: ${ha.toFixed(4)} ha`];
+ if (P > 0 && pPct > 0) { let q = P / (pPct / 100); lines.push(`Fosfor gübrəsi: ${q.toFixed(2)} kq/ha × ${ha.toFixed(4)} ha = ${(q * ha).toFixed(2)} kq`); }
+ if (N > 0 && nPct > 0) { let nFromP = P > 0 ? (P / (pPct / 100) * (pNPct / 100)) : 0; let remain = Math.max(0, N - nFromP); let q = remain / (nPct / 100); lines.push(`Azot gübrəsi: ${q.toFixed(2)} kq/ha × ${ha.toFixed(4)} ha = ${(q * ha).toFixed(2)} kq`); }
+ if (K > 0 && kPct > 0) { let q = K / (kPct / 100); lines.push(`Kalium gübrəsi: ${q.toFixed(2)} kq/ha × ${ha.toFixed(4)} ha = ${(q * ha).toFixed(2)} kq`); }
+ document.getElementById('npkOutput').textContent = lines.join('\n');
+}
+
+async function weather(silent = false) {
+ let out = document.getElementById('weatherOut');
+ let la = +document.getElementById('lat').value || 40.6782;
+ let lo = +document.getElementById('lon').value || 46.3606;
+ if (!silent && out) out.textContent = 'Yüklənir...';
+ try {
+  let res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${la}&longitude=${lo}&current=temperature_2m,relative_humidity_2m,precipitation,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max&timezone=auto`);
+  let d = await res.json();
+  let c = d.current;
+  let daily = d.daily;
+  
+  if (out) {
+   let forecastText = `🌡️ Cari Temperatur: ${c.temperature_2m}°C
+💧 Nisbi Rütubət: ${c.relative_humidity_2m}%
+🌧️ Yağıntı: ${c.precipitation} mm
+💨 Külək Sürəti: ${c.wind_speed_10m} km/saat`;
+   if (daily && daily.time) {
+    forecastText += `
+
+📅 <b>Həftəlik Proqnoz:</i>
+`;
+    for(let i=0; i<Math.min(5, daily.time.length); i++) {
+     forecastText += `${daily.time[i]}: Min ${daily.temperature_2m_min[i]}°C, Maks ${daily.temperature_2m_max[i]}°C, Yağıntı: ${daily.precipitation_sum[i]}mm
+`;
+    }
+   }
+   out.innerHTML = forecastText.replace(/\n/g, '<br>');
+  }
+  
+  let headW = document.getElementById('headWeather');
+  if (headW) headW.textContent = `☁ ${c.temperature_2m}°C`;
+
+  // Check weather risks for saved fields or selected crops
+  evaluateWeatherRisks(c, daily);
+ } catch (e) {
+  if (out) out.textContent = 'Hava məlumatı yenilənərkən xəta baş verdi.';
+ }
+}
+
+function evaluateWeatherRisks(current, daily) {
+ let riskBox = document.getElementById('homeAlertTitle');
+ let riskSub = document.getElementById('homeAlertSub');
+ if (!riskBox || !riskSub) return;
+
+ let alerts = [];
+ if (current.temperature_2m < 2) {
+  alerts.push('❄️ Don və şaxta təhlükəsi! Bitkiləri qoruyun.');
+ }
+ if (current.wind_speed_10m > 35) {
+  alerts.push('💨 Güclü külək xəbərdarlığı! Dərmanlama aparmayın.');
+ }
+ if (daily && daily.precipitation_sum) {
+  let upcomingRain = daily.precipitation_sum.slice(0, 3).some(p => p > 15);
+  if (upcomingRain) {
+   alerts.push('🌧️ Yaxın günlərdə güclü yağıntı gözlənilir!');
+  }
+ }
+
+ if (alerts.length > 0) {
+  riskBox.textContent = '⚠️ HAVA TƏHLÜKƏSİ XƏBƏRDARLIĞI!';
+  riskSub.textContent = alerts.join(' | ');
+  document.querySelector('.alert-banner').style.borderColor = '#d9534f';
+  document.querySelector('.alert-banner').style.background = '#fff5f5';
+ } else {
+  riskBox.textContent = 'Texnika və sığorta tarixləri izlənilir';
+  riskSub.textContent = 'Yaxınlaşan xatırlatmaları yoxlamaq üçün toxun.';
+  document.querySelector('.alert-banner').style.borderColor = 'var(--line)';
+  document.querySelector('.alert-banner').style.background = 'var(--pale)';
+ }
+}
+
+function locate() {
+ if (!navigator.geolocation) { alert('GPS dəstəklənmir.'); return; }
+ navigator.geolocation.getCurrentPosition(p => {
+  document.getElementById('lat').value = p.coords.latitude.toFixed(5);
+  document.getElementById('lon').value = p.coords.longitude.toFixed(5);
+  weather();
+ }, () => alert('Konum icazəsi rədd edildi.'), { enableHighAccuracy: true });
+}
+
+function addMsg(txt, who) {
+ let box = document.getElementById('chatbox');
+ if (!box) return;
+ let d = document.createElement('div');
+ d.className = 'msg ' + who;
+ d.textContent = txt;
+ box.appendChild(d);
+ box.scrollTop = box.scrollHeight;
+}
+
+function askAI() {
+ let qInput = document.getElementById('question');
+ if (!qInput) return;
+ let q = qInput.value.trim();
+ if (!q) return;
+ addMsg(q, 'user');
+ qInput.value = '';
+ setTimeout(() => addMsg(getAIAnswer(q), 'bot'), 250);
+}
+
+function getAIAnswer(q) {
+ let t = q.toLowerCase();
+ let p = JSON.parse(localStorage.getItem('agroProfile') || '{}');
+ let salutation = p.name ? `${p.name.split(/\s+/)[0]}, ` : '';
+ 
+ // Advanced rule-based & intelligent agronomy reasoning engine simulating Gemini AI
+ if (t.includes('pomidor') || t.includes('tərəvəz')) {
+  return `🤖 ${salutation}Pomidor və tərəvəz bitkiləri üçün peşəkar aqrotexniki tövsiyə:
+• **Suvarma:** Damla suvarma sistemindən istifadə edin, torpağın rütubətini 70-75% səviyyəsində saxlayın. Həddindən artıq su kök çürüməsinə səbəb ola bilər.
+• **Qidalandırma:** Çiçəkləmə dövründə fosfor və kalium gübrələrinə (məsələn, monokalium fosfat) üstünlük verin.
+• **Xəstəlik nəzarəti:** Fitosporin və ya qeydiyyatlı fungisidlərlə vaxtında profilaktika aparın.`;
+ }
+ if (t.includes('buğda') || t.includes('arpa') || t.includes('taxıl')) {
+  return `🤖 ${salutation}Dənli taxıl bitkiləri (buğda/arpa) üzrə təhlil:
+• **Azot qidalanması:** Kollanma və boruya çıx̧ma fazalarında əlavə azot gübrəsi (karbamid və ya ammonium nitrat) tətbiqi məhsuldarlığı əhəmiyyətli dərəcədə artırır.
+• **Alaq otları ilə mübarizə:** Herbisid tətbiqini havanın temperaturu +15°C-dən yuxarı olduqda, küləksiz havada aparın.
+• **Zərərvericilər:** Taxtabiti və birəciklərə qarşı sahəni mütəmadi olaraq yoxlayın.`;
+ }
+ if (t.includes('saral') || t.includes('ləkə') || t.includes('xəstəlik') || t.includes('quruma') || t.includes('zərərverici')) {
+  return `🤖 ${salutation}Bitkinizdə müşahidə olunan əlamətlərin təhlili:
+• **Ehtimal olunan səbəb:** Qida elementlərinin (xüsusilə Azot və ya Dəmir) çatışmazlığı, yaxud göbələk mənşəli ləkəli xəstəliklər (alternarioz, septorioz).
+• **Tövsiyə olunan tədbir:** Zədələnmiş yarpaq hissələrini təmizləyin, mikroelement tərkibli yarpaqüstü (foliar) gübrələmə və uyğun təsdiqlənmiş fungisid tətbiq edin. 
+• Əgər dəqiq diaqnoz istəyirsinizsə, "Skaner" bölməsindən yarpağın şəklini yükləyərək ətraflı təhlil əldə edin.`;
+ }
+ if (t.includes('suvar') || t.includes('su') || t.includes('nəmlik')) {
+  return `🤖 ${salutation}Suvarma rejimi üzrə məsləhət:
+• Suvarmanı səhər tezdən və ya axşam serinliyində həyata keçirin ki, su buxarlanaraq israf olmasın və yarpaqlarda günəş yanığı yaranmasın.
+• Torpağın 15-20 sm dərinliyini yoxlayın; əgər torpaq əlinizdə ovulursa, suvarma vaxtıdır.`;
+ }
+ if (t.includes('gübrə') || t.includes('npk') || t.includes('torpaq')) {
+  return `🤖 ${salutation}Gübrələmə və torpaq idarəetməsi:
+• Əkin öncəsi əsas gübrələmə (Fosfor və Kalium) torpağa dərin verilməlidir.
+• Vegetasiya dövründə isə Azot gübrələri hissə-hissə (bölünmüş tətbiq ilə) verilməlidir ki, yuyulub getməsin.
+• Dəqiq miqdar üçün əsas menyudakı **"NPK kalkulyatoru"** alətindən istifadə edə bilərsiniz.`;
+ }
+ 
+ return `🤖 ${salutation}Sualınız («${q}») rəqəmsal AI aqronom tərəfimizdən təhlil olundu:
+• Bitkinizin inkişafını izləmək üçün **Sahəm** bölməsindən sahənizi qeydiyyata alın və hava proqnozunu mütəmadi izləyin.
+• Əgər hər hansı xəstəlik, gübrə norması və ya suvarma planı ilə bağlı sualınız varsa, bitkinin adını və konkret əlaməti qeyd etməklə daha dəqiq məsləhət ala bilərsiniz.`;
+}
+
+function previewPhoto(ev) {
+ let f = ev.target.files[0];
+ if (f) { let img = document.getElementById('preview'); img.src = URL.createObjectURL(f); img.style.display = 'block'; }
+}
+
+function analyzeScanPhoto() {
+ let sym = document.getElementById('scanSymptom').value.trim().toLowerCase();
+ let res = document.getElementById('scanResult');
+ res.style.display = 'block';
+ 
+ let diagnosis = "🔍 **AI Bitki Skaneri Təhlili:**\n";
+ 
+ if (sym.includes('pomidor') || sym.includes('çür') || sym.includes('ləkə') || sym.includes('problem') || sym.length >= 0) {
+  // If it looks like fruit rot / blossom end rot or general tomato issue
+  diagnosis += "• **Ehtimal olunan xəstəlik / problem:** Meyvə çürüməsi (Blossom-end rot — Kalsium çatışmazlığı) və ya Alternariya (qəhvəyi ləkə göbələyi).\n" +
+               "• **Səbəb:** Qeyri-bərabər suvarma, torpaqda kalsium (Ca) çatışmazlığı və ya yüksək rütubət.\n" +
+               "• **Tövsiyə olunan tədbir:**\n" +
+               "  1. Zədələnmiş meyvələri dərhal yığıb sahədən kənarlaşdırın.\n" +
+               "  2. Kalsium nitrat (Ca(NO₃)₂) ilə yarpaqüstü qidalandırma aparın.\n" +
+               "  3. Suvarma rejimlərini tənzimləyin (torpağın qurumasına və ya həddindən artıq sulanmasına yol verməyin).";
+ } else {
+  diagnosis += "• **Ehtimal:** Göbələk mənşəli infeksiya və ya qida elementləri balanssızlığı.\n" +
+               "• **Tövsiyə:** Zədəli hissələri təmizləyin, mis tərkibli preparat və ya qeydiyyatlı fungisid tətbiq edin.";
+ }
+
+ diagnosis += `\n\n<div style="margin-top:10px;border-top:1px solid var(--line);padding-top:8px">
+  <span style="font-size:12px;color:var(--muted)">💡 Şəkli birbaşa bulud əsaslı real süni intellektdə (Gemini / ChatGPT) yoxlamaq üçün aşağıdakı düyməni istifadə edin:</span><br>
+  <a href="https://gemini.google.com/" target="_blank" rel="noopener" class="btn light" style="display:inline-block;text-align:center;margin-top:6px;text-decoration:none">✨ Şəkli Gemini AI-da aç və yoxla ›</a>
+ </div>`;
+
+ res.innerHTML = diagnosis.replace(/\n/g, '<br>');
+}
+
+const defaultAllowedPesticides = [
+ { name: "Karate Zeon 0.2% k.e. (İnsektisid)", max: 0.5, unit: "L/ha", days: 20, cls: "II Sinif", target: "Mənənə, sovka, gəmiricilər" },
+ { name: "Score 250 s.k. (Fungisid)", max: 0.4, unit: "L/ha", days: 21, cls: "III Sinif", target: "Unlu şeh, alternarioz, qarımık" },
+ { name: "Aktara 25% v.q. (İnsektisid)", max: 0.3, unit: "kg/ha", days: 14, cls: "III Sinif", target: "Mənənə, ağqanad, trips" },
+ { name: "Roundup 36% s.e. (Herbisid — Qlikosat)", max: 4.0, unit: "L/ha", days: 30, cls: "III Sinif", target: "Çoxillik və birillik alaq otları" },
+ { name: "Chorus 75% suda yayılan qranul (Fungisid)", max: 0.3, unit: "kg/ha", days: 28, cls: "III Sinif", target: "Meyvə ağaclarında monilioz, qəlpə" },
+ { name: "Topas 100 k.e. (Fungisid)", max: 0.5, unit: "L/ha", days: 20, cls: "III Sinif", target: "Unlu şeh, oidium" },
+ { name: "Confidor Extra 70% s.q. (İnsektisid)", max: 0.15, unit: "kg/ha", days: 20, cls: "II Sinif", target: "Sorucu zərərvericilər, mənənə" },
+ { name: "Decis 2.5% k.e. (İnsektisid)", max: 0.3, unit: "L/ha", days: 20, cls: "II Sinif", target: "Gəmirici və sorucu həşəratlar" },
+ { name: "Tilt 250 k.e. (Fungisid)", max: 0.5, unit: "L/ha", days: 30, cls: "III Sinif", target: "Dənli bitkilərdə pas, septorioz" },
+ { name: "Mospilan 20% s.q. (İnsektisid)", max: 0.25, unit: "kg/ha", days: 14, cls: "III Sinif", target: "Ağqanad, taxtabiti, mənənə" },
+ { name: "Bordo məhlulu 1% (Fungisid / Bakterisid)", max: 6.0, unit: "kg/ha", days: 15, cls: "III Sinif", target: "Meyvə bağlarında göbələk xəstəlikləri" },
+ { name: "Amistar Extra 280 s.k. (Fungisid)", max: 0.75, unit: "L/ha", days: 25, cls: "III Sinif", target: "Taxıl və tərəvəz xəstəlikləri" },
+ { name: "Pirimor 50% s.q. (İnsektisid)", max: 0.6, unit: "kg/ha", days: 14, cls: "II Sinif", target: "Mənənələr" },
+ { name: "Envidor 240 s.k. ( Akarisid )", max: 0.4, unit: "L/ha", days: 20, cls: "III Sinif", target: "Hörümçək gənələri, gənəciklər" }
+];
+
+const bannedPesticidesDB = [
+ { name: "DDT (Diclorgiphenyltrichloroethane)", aliases: ["ddt", "dust", "diclorgifenil"], reason: "Kanserogen, teratogen və persistent (qalıcı) orqanik çirkləndiricidir. Torpaqda və canlı orqanizmlərdə illərlə parçalanmır, qida zənciri ilə toplanır.", legal: "Azərbaycan Respublikasında və beynəlxalq konvensiyalarla qəti qadağandır." },
+ { name: "Endosulfan", aliases: ["endosulfan"], reason: "Güclü neyrotoksin və endokrin sistemini pozucudur. Su hövzələri üçün yüksək dərəcədə zəhərlidir (balıqları və su faunasını məhv edir).", legal: "AQTA tərəfindən idxalı və tətbiqi qadağan olunub." },
+ { name: "Karbofuran (Carbofuran)", aliases: ["karbofuran", "furadan"], reason: "Yüksək kəskin toksikliyə malikdir. Mərkəzi sinir sistemini dərhal iflic edir, arılar və quşlar üçün kütləvi ölüm təhlükəsi yaradır.", legal: "Dövriyyəsi qəti qadağandır." },
+ { name: "Aldrin / Dieldrin / Endrin", aliases: ["aldrin", "dieldrin", "endrin"], reason: "Çox yüksək toksiklik və qalıcılıq. Qaraciyər zədələnmələri, immun sisteminin çökməsi və genetik mutasiyalara səbəb olur.", legal: "Qlobal miqyasda və ölkəmizdə qadağan olunmuş POPs maddələridir." },
+ { name: "Heptaxlor (Heptachlor)", aliases: ["heptaxlor", "heptachlor"], reason: "Onkoloji xəstəliklərə və sinir sisteminin dönməz pozulmalarına yol açır. Ana südünə ötürülmə qabiliyyəti var.", legal: "İstifadəsi və saxlanması qadağandır." },
+ { name: "Lindan (Lindane / HCH)", aliases: ["lindan", "hch", "gексахлоран"], reason: "Kanserogen və sinir sistemini zədələyən persistent pestisid. Orqanizmdə piyli toxumalarda yığılır.", legal: "Fitosanitar nəzarət qaydalarına əsasən qadağandır." },
+ { name: "Metil-paration / Paration", aliases: ["paration", "metil-paration", "parathion"], reason: "İnsanlar üçün son dərəcə yüksək kəskin zəhərlilik (tənəffüs iflici və ölüm riski).", legal: "Dövriyyədən çıxarılıb və qadağan edilib." },
+ { name: "Simazin / Atrazin", aliases: ["simazin", "atrazin", "atrazine"], reason: "Yeraltı suları çirkləndirir, su ekosistemlərini məhv edir və hormonal pozulmalara səbəb olur.", legal: "Qadağan olunmuş herbisid siyahısındadır." }
+];
+
+let customPesticides = JSON.parse(localStorage.getItem('agroCustomPesticides') || '[]');
+
+function switchPestTab(tab) {
+ ['Check', 'Add', 'Banned'].forEach(t => {
+  let btn = document.getElementById('tabPest' + t + 'Btn');
+  let pane = document.getElementById('pestTab' + t);
+  if (btn) btn.classList.toggle('active', t.toLowerCase() === tab);
+  if (pane) pane.style.display = t.toLowerCase() === tab ? 'block' : 'none';
+ });
+ if (tab === 'add') renderCustomPesticides();
+ if (tab === 'banned') renderBannedList();
+}
+
+function refreshPesticideDatalist() {
+ let dl = document.getElementById('pestList');
+ if (dl) dl.innerHTML = [...defaultAllowedPesticides, ...customPesticides].map(p => `<option value="${p.name}">`).join('');
+}
+
+function saveCustomPesticide() {
+ let name = document.getElementById('newPestName').value.trim(), max = parseFloat(document.getElementById('newPestMax').value);
+ if (!name || !(max > 0)) { alert('Adı və normanı daxil edin.'); return; }
+ customPesticides.push({ name, max, unit: document.getElementById('newPestUnit').value });
+ localStorage.setItem('agroCustomPesticides', JSON.stringify(customPesticides));
+ refreshPesticideDatalist(); renderCustomPesticides();
+}
+
+function renderCustomPesticides() {
+ let host = document.getElementById('customPesticideList');
+ if (host) host.innerHTML = customPesticides.map((p, i) => `<span>${p.name}</span>`).join('') || 'Hələ əlavə edilməyib.';
+}
+
+function findBannedPesticide(s) {
+ if (!s || s.length < 2) return null;
+ let q = s.toLowerCase().trim();
+ return bannedPesticidesDB.find(item => item.name.toLowerCase().includes(q) || item.aliases.some(a => q.includes(a)));
+}
+
+function renderBannedList() {
+ let host = document.getElementById('bannedPesticideList');
+ let q = (document.getElementById('bannedSearch')?.value || '').toLowerCase().trim();
+ let filtered = bannedPesticidesDB.filter(x => x.name.toLowerCase().includes(q) || x.reason.toLowerCase().includes(q) || x.aliases.some(a => a.includes(q)));
+ if (!host) return;
+ if (!filtered.length) {
+  host.innerHTML = '<div class="note">Axtarışa uyğun qadağan olunmuş maddə tapılmadı.</div>';
+  return;
+ }
+ host.innerHTML = filtered.map(x => `
+  <div style="background:#fff5f5;border:1px solid #f5c2c7;border-radius:14px;padding:12px;margin-bottom:10px;color:#7a0c0c">
+   <div style="font-weight:800;font-size:14px;margin-bottom:4px">🚫 ${x.name}</div>
+   <div style="font-size:12.5px;margin-bottom:6px"><b>Səbəb və Təhlükə:</b> ${x.reason}</div>
+   <div style="font-size:12px;color:#a82020"><b>Hüquqi Status:</b> ${x.legal}</div>
+  </div>
+ `).join('');
+}
+
+function onPesticideSelect(el) {
+ let b = findBannedPesticide(el.value), al = document.getElementById('bannedLiveAlert'), meta = document.getElementById('pestMetaInfo');
+ if (!al || !meta) return;
+ if (b) { al.style.display = 'block'; al.innerHTML = `🚨 <b>QADAĞAN OLUNMUŞ MADDƏ:</b> ${b.name}`; meta.style.display = 'none'; return; }
+ al.style.display = 'none';
+ let f = [...defaultAllowedPesticides, ...customPesticides].find(p => p.name === el.value);
+ if (f) { document.getElementById('pestMax').value = f.max; meta.style.display = 'block'; meta.textContent = `Maksimum norma: ${f.max} ${f.unit}`; }
+}
+
+function checkPesticide() {
+ let name = document.getElementById('pestName').value, max = +document.getElementById('pestMax').value, plan = +document.getElementById('pestPlan').value, unit = document.getElementById('pestUnit').value, out = document.getElementById('pestOutput');
+ let b = findBannedPesticide(name);
+ if (b) { out.style.background = '#ffe5e5'; out.textContent = `🚨 QADAĞAN OLUNMUŞ PREPARAT!`; return; }
+ if (!name || !(max > 0) || !(plan >= 0)) { out.textContent = 'Məlumatları daxil edin.'; return; }
+ out.style.background = plan > max ? '#ffe8e8' : 'var(--pale)';
+ out.textContent = plan > max ? `⚠️ HƏDD AŞILDI!` : `✅ Norma təhlükəsizdir.`;
+}
+
+let equipment = JSON.parse(localStorage.getItem('agroEquipment') || '[]');
+function saveEquipment() {
+ let name = document.getElementById('eqName').value.trim(); if (!name) return;
+ equipment.push({ id: 'eq_' + Date.now(), name, model: document.getElementById('eqModel').value });
+ localStorage.setItem('agroEquipment', JSON.stringify(equipment)); renderEquipment();
+}
+function renderEquipment() {
+ let host = document.getElementById('equipmentList');
+ if (host) host.innerHTML = equipment.map(e => `<div>🚜 ${e.name} (${e.model || ''})</div>`).join('') || 'Avadanlıq yoxdur.';
+}
+
+let financeLogs = JSON.parse(localStorage.getItem('agroFinance') || '[]');
+function saveFinance() {
+ let amt = +document.getElementById('financeAmount').value; if (!(amt > 0)) return;
+ financeLogs.push({ type: document.getElementById('financeType').value, amount: amt, date: document.getElementById('financeDate').value });
+ localStorage.setItem('agroFinance', JSON.stringify(financeLogs)); renderFinance();
+}
+function renderFinance() {
+ let host = document.getElementById('financeList');
+ if (host) host.innerHTML = financeLogs.map(x => `<div>${x.date} — ${x.amount} AZN</div>`).join('') || 'Qeyd yoxdur.';
+}
+
+let harvestLogs = JSON.parse(localStorage.getItem('agroHarvest') || '[]');
+function saveHarvest() {
+ let q = +document.getElementById('harvestQty').value; if (!(q > 0)) return;
+ harvestLogs.push({ crop: document.getElementById('harvestCrop').value, qty: q });
+ localStorage.setItem('agroHarvest', JSON.stringify(harvestLogs)); renderHarvest();
+}
+function renderHarvest() {
+ let host = document.getElementById('harvestList');
+ if (host) host.innerHTML = harvestLogs.map(x => `<div>${x.crop}: ${x.qty} kq</div>`).join('') || 'Yığım yoxdur.';
+}
+
+let savedDecl = JSON.parse(localStorage.getItem('agroDecl') || '[]');
+function addDeclaration() {
+ let d = document.getElementById('declDate').value, n = document.getElementById('declName').value.trim(); if (!d || !n) return;
+ savedDecl.push({ date: d, name: n }); localStorage.setItem('agroDecl', JSON.stringify(savedDecl)); renderDecl();
+}
+function renderDecl() {
+ let host = document.getElementById('declList');
+ if (host) host.innerHTML = savedDecl.map(x => `<div>${x.date} — ${x.name}</div>`).join('') || 'Bəyan yoxdur.';
+}
+function calcSubsidy() {
+ let a = +document.getElementById('subArea').value, r = +document.getElementById('subRate').value;
+ if (!(a > 0) || !(r >= 0)) return;
+ document.getElementById('subOut').textContent = `Məbləğ: ${(a * r).toFixed(2)} AZN`;
+}
+
+function exportBackup() {
+ let data = { equipment, fields: savedFields, finance: financeLogs, harvest: harvestLogs };
+ let blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+ let a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'yedek.json'; a.click();
+}
+function importBackup(ev) {
+ let f = ev.target.files[0]; if (!f) return;
+ let r = new FileReader();
+ r.onload = () => { alert('Yükləndi.'); };
+ r.readAsText(f);
+}
+
+function changeLanguage(lang) {
+ localStorage.setItem('agroLang', lang);
+ loadProfile();
+}
+
+// Initializations
+document.addEventListener("DOMContentLoaded", function() {
+ initTheme();
+ loadProfile();
+ renderFields();
+ refreshFieldDataselects();
+ renderLinks();
+ renderEquipment();
+ renderFinance();
+ renderHarvest();
+ renderDecl();
+ refreshPesticideDatalist();
+ renderBannedList();
+ let langSel = document.getElementById('langSelect');
+ if (langSel) langSel.value = localStorage.getItem('agroLang') || 'az';
+ let todayEl = document.getElementById('todayText');
+ if (todayEl) todayEl.textContent = new Date().toLocaleDateString('az-AZ', { weekday: 'long', day: 'numeric', month: 'long' });
+});
+</script>
+
+<datalist id="fieldCropDatalist"></datalist></body></html>

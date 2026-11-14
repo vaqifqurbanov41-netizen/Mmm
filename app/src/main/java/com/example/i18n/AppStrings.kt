@@ -1,0 +1,402 @@
+package com.example.i18n
+
+import androidx.compose.runtime.staticCompositionLocalOf
+
+data class LocalizedPesticide(
+    val id: String,
+    val name: String,
+    val maxRate: Double,
+    val unit: String,
+    val quarantineDays: Int,
+    val safetyClass: String,
+    val target: String,
+)
+
+data class LocalizedBannedPesticide(
+    val id: String,
+    val name: String,
+    val aliases: List<String>,
+    val reason: String,
+    val legalStatus: String,
+)
+
+data class LocalizedOfficialLink(
+    val name: String,
+    val description: String,
+    val url: String,
+)
+
+interface AppStrings {
+    val appName: String
+    val creatorLabel: String
+    val creatorName: String
+    val creatorSubtitle: String
+
+    // Common Actions & Dialogs
+    val back: String
+    val save: String
+    val cancel: String
+    val delete: String
+    val edit: String
+    val open: String
+    val add: String
+    val reset: String
+    val clear: String
+    val undo: String
+    val confirmDeleteTitle: String
+    val confirmDeleteMessage: String
+    val yesDelete: String
+    val loading: String
+    val savedSuccess: String
+    val deletedSuccess: String
+    val invalidInput: String
+    val fillRequiredFields: String
+    val aznCurrency: String
+    val haUnit: String
+    val sotUnit: String
+    val m2Unit: String
+    val mUnit: String
+    val kgUnit: String
+
+    // Greeting & Header
+    val defaultFarmerName: String
+    val greetingPrefix: String
+    val themeToggleLight: String
+    val themeToggleDark: String
+    val notificationsTitle: String
+
+    // Bottom Navigation
+    val navHome: String
+    val navTools: String
+    val navScanner: String
+    val navFields: String
+    val navProfile: String
+
+    // Home Dashboard
+    val heroTitle: String
+    val heroSubtitle: String
+    val myFieldsStat: String
+    val totalAreaStat: String
+    val aiBannerTitle: String
+    val aiBannerSub: String
+    val alertNormalTitle: String
+    val alertNormalSub: String
+    val alertWeatherTitle: String
+    val alertEquipmentTitle: String
+    val frostWarning: String
+    val windWarning: String
+    val rainWarning: String
+
+    // Home Tiles (9)
+    val tileNpkTitle: String
+    val tileNpkSub: String
+    val tileWeatherTitle: String
+    val tileWeatherSub: String
+    val tilePestTitle: String
+    val tilePestSub: String
+    val tileFieldsTitle: String
+    val tileFieldsSub: String
+    val tileSubsidyTitle: String
+    val tileSubsidySub: String
+    val tileEquipmentTitle: String
+    val tileEquipmentSub: String
+    val tileFinanceTitle: String
+    val tileFinanceSub: String
+    val tileHarvestTitle: String
+    val tileHarvestSub: String
+    val tileLinksTitle: String
+    val tileLinksSub: String
+
+    // Fields & Map Screen
+    val fieldsScreenTitle: String
+    val tabMapDraw: String
+    val tabCoordsUtm: String
+    val tabDocScan: String
+    val mapHint: String
+    val btnLocateMe: String
+    val btnLocating: String
+    val btnSatelliteLayer: String
+    val btnStreetLayer: String
+    val zoomIn: String
+    val zoomOut: String
+    val gpsPermissionNeeded: String
+    val gpsPermissionDenied: String
+    val gpsFoundFormat: String
+    val gpsUnavailable: String
+    val coordSystemLabel: String
+    val coordLatLonOption: String
+    val coordUtmOption: String
+    val latLonPointsLabel: String
+    val latLonPlaceholder: String
+    val btnInsertCurrentGpsLatLon: String
+    val utmZoneLabel: String
+    val utmZone38Label: String
+    val utmZone39Label: String
+    val btnGetUtmFromGps: String
+    val utmPointsLabel: String
+    val utmPlaceholder: String
+    val btnShowOnMap: String
+    val minThreePointsError: String
+    val docScanUploadLabel: String
+    val btnPickDocumentImage: String
+    val btnScanFieldDoc: String
+    val docScanResultPrefix: String
+    val metricAreaHa: String
+    val metricWidth: String
+    val metricWidthSub: String
+    val metricLength: String
+    val metricPerimeterPrefix: String
+    val firstPointPrefix: String
+    val saveFieldCardTitle: String
+    val fieldNameLabel: String
+    val fieldNamePlaceholder: String
+    val fieldCropLabel: String
+    val fieldCropPlaceholder: String
+    val fieldSizeLabel: String
+    val fieldSizePlaceholder: String
+    val fieldWidthLabel: String
+    val fieldLengthLabel: String
+    val fieldAutoPlaceholder: String
+    val fieldLocationLabel: String
+    val fieldLocationPlaceholder: String
+    val btnAddField: String
+    val savedFieldsTitle: String
+    val noFieldsEmpty: String
+    val btnViewOnMap: String
+    val fieldSavedToast: String
+
+    // NPK Calculator
+    val npkTitle: String
+    val npkFieldSizeTitle: String
+    val npkDemandTitle: String
+    val npkNitrogenLabel: String
+    val npkPhosphorusLabel: String
+    val npkPotassiumLabel: String
+    val npkFertilizersTitle: String
+    val npkFertNName: String
+    val npkFertNNameHint: String
+    val npkFertNPct: String
+    val npkFertPName: String
+    val npkFertPNameHint: String
+    val npkFertPPct: String
+    val npkFertPNPct: String
+    val npkFertKName: String
+    val npkFertKNameHint: String
+    val npkFertKPct: String
+    val btnCalculateNpk: String
+    val npkEmptyResult: String
+    val npkAreaLine: String
+    val npkPhosphorusLine: String
+    val npkNitrogenLine: String
+    val npkPotassiumLine: String
+    val npkNoFertApplied: String
+    val npkDefaultNName: String
+    val npkDefaultPName: String
+    val npkDefaultKName: String
+
+    // Weather Screen
+    val weatherTitle: String
+    val weatherCoordsTitle: String
+    val latLabel: String
+    val lonLabel: String
+    val btnGpsWeather: String
+    val btnRefreshWeather: String
+    val weatherCurrentTemp: String
+    val weatherHumidity: String
+    val weatherPrecip: String
+    val weatherWind: String
+    val weatherWindUnit: String
+    val weatherForecastTitle: String
+    val weatherMinLabel: String
+    val weatherMaxLabel: String
+    val weatherRainLabel: String
+    val weatherPromptLoad: String
+    val weatherError: String
+    val weatherSprayGood: String
+    val weatherSprayAvoid: String
+
+    // AI Agronomist & Plant Scanner
+    val aiTitle: String
+    val aiWelcomeMessage: String
+    val aiQuestionLabel: String
+    val aiQuestionPlaceholder: String
+    val btnSendAi: String
+    val btnClearChat: String
+    val aiSampleNotice: String
+    val aiSampleLabel: String
+    val aiQuickPrompts: List<String>
+    val scannerTitle: String
+    val scannerPhotoCardTitle: String
+    val scannerPhotoHint: String
+    val btnPickPlantPhoto: String
+    val scannerNoteLabel: String
+    val scannerNotePlaceholder: String
+    val btnStartDiagnosis: String
+    val scannerEmptyPhotoWarning: String
+
+    // Pesticide Screen
+    val pestTitle: String
+    val tabPestCheck: String
+    val tabPestAdd: String
+    val tabPestBanned: String
+    val pestCropLabel: String
+    val pestCropPlaceholder: String
+    val pestNameLabel: String
+    val pestNamePlaceholder: String
+    val pestMaxLabel: String
+    val pestMaxPlaceholder: String
+    val pestPlanLabel: String
+    val pestPlanPlaceholder: String
+    val pestUnitLabel: String
+    val btnCheckPesticide: String
+    val pestEmptyOutput: String
+    val pestBannedAlertPrefix: String
+    val pestBannedResultTitle: String
+    val pestRateSafe: String
+    val pestRateExceeded: String
+    val pestMetaFormat: String
+    val pestNewNameLabel: String
+    val pestNewNameHint: String
+    val pestNewMaxLabel: String
+    val pestNewUnitLabel: String
+    val pestNewDaysLabel: String
+    val pestNewClassLabel: String
+    val pestClass2: String
+    val pestClass3: String
+    val pestNewTargetLabel: String
+    val pestNewTargetHint: String
+    val btnAddCustomPest: String
+    val customPestEmpty: String
+    val bannedSearchHint: String
+    val bannedEmptySearch: String
+    val bannedReasonLabel: String
+    val bannedLegalLabel: String
+    val cropSuggestions: List<String>
+    val allowedPesticides: List<LocalizedPesticide>
+    val bannedPesticides: List<LocalizedBannedPesticide>
+
+    // Subsidy & Declarations
+    val subsidyTitle: String
+    val subsidyPortalTitle: String
+    val subsidyPortalSub: String
+    val subsidyPortalBtn: String
+    val subsidyCalcTitle: String
+    val subsidyCropLabel: String
+    val subsidyCropHint: String
+    val subsidyAreaLabel: String
+    val subsidyRateLabel: String
+    val subsidyRateHint: String
+    val btnCalcSubsidy: String
+    val subsidyEmptyOut: String
+    val subsidyResultFormat: String
+    val declTitle: String
+    val declDateLabel: String
+    val declNameLabel: String
+    val declNameHint: String
+    val btnSaveDecl: String
+    val declEmpty: String
+
+    // Equipment & Backup
+    val equipmentTitle: String
+    val eqFormAddTitle: String
+    val eqFormEditTitle: String
+    val eqNameLabel: String
+    val eqNameHint: String
+    val eqModelLabel: String
+    val eqModelHint: String
+    val eqCodeLabel: String
+    val eqCodeHint: String
+    val eqInspectionLabel: String
+    val eqInsuranceLabel: String
+    val eqListTitle: String
+    val eqEmpty: String
+    val eqStatusOverdue: String
+    val eqStatusSoon: String
+    val eqStatusValid: String
+    val backupTitle: String
+    val btnExportBackup: String
+    val btnImportBackup: String
+    val backupExportSuccess: String
+    val backupImportSuccess: String
+    val backupError: String
+
+    // Finance Screen
+    val financeTitle: String
+    val financeTypeLabel: String
+    val financeExpense: String
+    val financeIncome: String
+    val financeDateLabel: String
+    val financeFieldLabel: String
+    val financeFieldHint: String
+    val financeAmountLabel: String
+    val financeCategoryLabel: String
+    val financeCategoryHint: String
+    val btnAddFinance: String
+    val financeSummaryFormat: String
+    val financeEmpty: String
+
+    // Harvest Screen
+    val harvestTitle: String
+    val harvestDateLabel: String
+    val harvestQtyLabel: String
+    val harvestCropLabel: String
+    val harvestCropHint: String
+    val harvestPriceLabel: String
+    val btnAddHarvest: String
+    val harvestSummaryFormat: String
+    val harvestEmpty: String
+
+    // Useful Links Screen
+    val linksTitle: String
+    val eagroTitle: String
+    val eagroSub: String
+    val eagroBtn: String
+    val officialLinksTitle: String
+    val addCustomLinkTitle: String
+    val addCustomLinkSub: String
+    val customLinkNameLabel: String
+    val customLinkNameHint: String
+    val customLinkUrlLabel: String
+    val customLinkUrlHint: String
+    val btnSaveLink: String
+    val myCustomLinksTitle: String
+    val customLinksEmpty: String
+    val officialLinks: List<LocalizedOfficialLink>
+
+    // Profile & Settings Screen
+    val profileTitle: String
+    val profileInfoTitle: String
+    val profileInfoSub: String
+    val fullNameLabel: String
+    val fullNameHint: String
+    val phoneLabel: String
+    val phoneHint: String
+    val regionLabel: String
+    val regionHint: String
+    val btnSaveProfile: String
+    val profileSavedNamed: String
+    val profileSavedGeneric: String
+    val hotlineTitle: String
+    val hotlineSub: String
+    val hotlineBtn: String
+    val settingsTitle: String
+    val languageLabel: String
+    val themeModeLabel: String
+    val themeLight: String
+    val themeDark: String
+    val themeSystem: String
+    val aboutAppTitle: String
+    val aboutAppDesc: String
+
+    // Auth / Sign-In Screen
+    val signInTitle: String
+    val signInSubtitle: String
+    val signInWithGoogle: String
+    val signOut: String
+    val signInCancelledMsg: String
+    val aiLiveBadge: String
+}
+
+val LocalStrings = staticCompositionLocalOf<AppStrings> {
+    error("LocalStrings not provided")
+}

@@ -1,0 +1,6 @@
+{
+  "name": "AqroMəsləhət",
+  "description": "Fermerin rəqəmsal köməkçisi — AI aqronom, bitki skaneri, GPS/UTM sahə ölçmə, NPK kalkulyatoru, hava proqnozu, pestisid yoxlanışı, subsidiya və təsərrüfat uçotu. Yaradıcı: Vaqif Qurbanov.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
