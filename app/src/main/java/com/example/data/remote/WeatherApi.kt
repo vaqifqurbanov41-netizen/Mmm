@@ -1,7 +1,6 @@
 package com.example.data.remote
 
 import com.squareup.moshi.Json
-import com.squareup.moshi.JsonClass
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import okhttp3.OkHttpClient
@@ -11,27 +10,24 @@ import retrofit2.http.GET
 import retrofit2.http.Query
 import java.util.concurrent.TimeUnit
 
-@JsonClass(generateAdapter = true)
 data class OpenMeteoResponse(
     val current: CurrentWeatherDto? = null,
     val daily: DailyWeatherDto? = null,
 )
 
-@JsonClass(generateAdapter = true)
 data class CurrentWeatherDto(
-    @Json(name = "temperature_2m") val temperature2m: Double = 0.0,
-    @Json(name = "relative_humidity_2m") val humidity2m: Int = 0,
+    @param:Json(name = "temperature_2m") val temperature2m: Double = 0.0,
+    @param:Json(name = "relative_humidity_2m") val humidity2m: Int = 0,
     val precipitation: Double = 0.0,
-    @Json(name = "wind_speed_10m") val windSpeed10m: Double = 0.0,
+    @param:Json(name = "wind_speed_10m") val windSpeed10m: Double = 0.0,
 )
 
-@JsonClass(generateAdapter = true)
 data class DailyWeatherDto(
     val time: List<String> = emptyList(),
-    @Json(name = "temperature_2m_max") val tempMax: List<Double> = emptyList(),
-    @Json(name = "temperature_2m_min") val tempMin: List<Double> = emptyList(),
-    @Json(name = "precipitation_sum") val precipitationSum: List<Double> = emptyList(),
-    @Json(name = "wind_speed_10m_max") val windMax: List<Double> = emptyList(),
+    @param:Json(name = "temperature_2m_max") val tempMax: List<Double> = emptyList(),
+    @param:Json(name = "temperature_2m_min") val tempMin: List<Double> = emptyList(),
+    @param:Json(name = "precipitation_sum") val precipitationSum: List<Double> = emptyList(),
+    @param:Json(name = "wind_speed_10m_max") val windMax: List<Double> = emptyList(),
 )
 
 interface OpenMeteoService {
