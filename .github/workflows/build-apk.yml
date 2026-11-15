@@ -40,6 +40,9 @@ jobs:
 
       - name: Prepare debug keystore and env defaults
         run: |
+          if [ ! -f app/google-services.json ]; then
+            echo "::warning title=Missing google-services.json::app/google-services.json was not found in the repository. APK will still build, but Firebase/Google Sign-In requires app/google-services.json."
+          fi
           if [ ! -f .env.example ]; then
             echo "# placeholder" > .env.example
           fi
@@ -74,7 +77,9 @@ jobs:
             -Dorg.gradle.jvmargs="-Xmx2560m -XX:MaxMetaspaceSize=768m -Djava.awt.headless=true -Dfile.encoding=UTF-8" \
             --stacktrace 2>&1 | tee build-debug.log; then
             echo "=== FAILURE SUMMARY ==="
-            SUMMARY="$(grep -A 15 -E "FAILURE: Build failed|\* What went wrong:|Caused by:|Execution failed for task" build-debug.log | head -n 25)"
+            ERR_LINES="$(grep -E "^e: |Unresolved reference" build-debug.log | head -n 15)"
+            FAIL_BLOCK="$(grep -A 10 "FAILURE: Build failed" build-debug.log | head -n 12)"
+            SUMMARY="$(printf '%s\n%s' "$ERR_LINES" "$FAIL_BLOCK" | sed '/^$/d')"
             if [ -z "$SUMMARY" ]; then
               SUMMARY="$(tail -n 25 build-debug.log)"
             fi
