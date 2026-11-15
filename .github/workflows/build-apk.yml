@@ -43,12 +43,33 @@ jobs:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
         run: |
           if [ ! -f app/google-services.json ] && [ -n "$GOOGLE_SERVICES_JSON" ]; then
-            TRIMMED="$(printf '%s' "$GOOGLE_SERVICES_JSON" | sed 's/^[[:space:]]*//')"
-            if [ "${TRIMMED#\{}" != "$TRIMMED" ]; then
-              printf '%s\n' "$GOOGLE_SERVICES_JSON" > app/google-services.json
-            else
-              printf '%s' "$GOOGLE_SERVICES_JSON" | tr -d '\r\n ' | base64 -d > app/google-services.json || rm -f app/google-services.json
-            fi
+            python3 - <<'PY'
+          import base64, json, os, sys
+          raw = os.environ.get("GOOGLE_SERVICES_JSON", "").strip()
+          if not raw:
+              sys.exit(0)
+          content = None
+          if raw.startswith("{"):
+              content = raw
+          else:
+              try:
+                  decoded = base64.b64decode("".join(raw.split())).decode("utf-8").strip()
+                  if decoded.startswith("{"):
+                      content = decoded
+              except Exception:
+                  content = None
+          if not content:
+              print("::warning title=Invalid GOOGLE_SERVICES_JSON::Secret GOOGLE_SERVICES_JSON is neither valid JSON nor base64-encoded JSON.")
+              sys.exit(0)
+          try:
+              parsed = json.loads(content)
+          except Exception as exc:
+              print(f"::warning title=Invalid GOOGLE_SERVICES_JSON::JSON parse failed: {exc}")
+              sys.exit(0)
+          with open("app/google-services.json", "w", encoding="utf-8") as f:
+              json.dump(parsed, f, indent=2)
+          print("Created app/google-services.json from GOOGLE_SERVICES_JSON secret.")
+          PY
           fi
           if [ ! -f app/google-services.json ]; then
             echo "::warning title=Missing google-services.json::app/google-services.json was not found in the repository and GOOGLE_SERVICES_JSON secret is not set. Add GOOGLE_SERVICES_JSON in GitHub Settings -> Secrets and variables -> Actions (or upload app/google-services.json) so Firebase and Google Sign-In work."
