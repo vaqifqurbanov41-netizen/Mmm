@@ -16,13 +16,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Eco
 import androidx.compose.material.icons.filled.VerifiedUser
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -74,31 +79,11 @@ fun AuthScreen(
             .navigationBarsPadding()
             .padding(20.dp),
     ) {
-        // Language Selector Pill Row at Top
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        LanguageSwitcherPills(
+            currentLanguage = currentLanguage,
+            onSelectLanguage = onSelectLanguage,
             modifier = Modifier.align(Alignment.TopEnd),
-        ) {
-            AppLanguage.entries.forEach { lang ->
-                val selected = lang == currentLanguage
-                Surface(
-                    shape = RoundedCornerShape(50),
-                    color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
-                    border = BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.primary else extra.line),
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(50))
-                        .clickable { onSelectLanguage(lang) }
-                        .testTag("auth_lang_${lang.code}"),
-                ) {
-                    Text(
-                        text = lang.code.uppercase(),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = if (selected) Color.White else MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                    )
-                }
-            }
-        }
+        )
 
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -206,6 +191,172 @@ fun AuthScreen(
                         text = strings.signInWithGoogle,
                         style = MaterialTheme.typography.titleMedium,
                         color = Color.White,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LanguageSwitcherPills(
+    currentLanguage: AppLanguage,
+    onSelectLanguage: (AppLanguage) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val extra = LocalAqroColors.current
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = modifier,
+    ) {
+        AppLanguage.entries.forEach { lang ->
+            val selected = lang == currentLanguage
+            Surface(
+                shape = RoundedCornerShape(50),
+                color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
+                border = BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.primary else extra.line),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .clickable { onSelectLanguage(lang) }
+                    .testTag("auth_lang_${lang.code}"),
+            ) {
+                Text(
+                    text = lang.code.uppercase(),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (selected) Color.White else MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun FirebaseConfigMissingScreen(
+    currentLanguage: AppLanguage,
+    onSelectLanguage: (AppLanguage) -> Unit,
+) {
+    val strings = LocalStrings.current
+    val extra = LocalAqroColors.current
+
+    val (title, subtitle, stepsTitle, stepsBody) = when (currentLanguage) {
+        AppLanguage.AZ -> listOf(
+            "Firebase konfiqurasiyası tapılmadı",
+            "Bu APK faylı \"app/google-services.json\" olmadan qurulub. Google Giriş, Bulud sinxronizasiyası və AI Aqronom funksiyalarının işləməsi üçün bu konfiqurasiya tələb olunur.",
+            "Həll yolu (GitHub Actions):",
+            "1. Layihədən \"app/google-services.json\" faylını götürün.\n" +
+                "2. GitHub-da Settings → Secrets and variables → Actions bölməsində GOOGLE_SERVICES_JSON adlı secret əlavə edin (və ya faylı birbaşa app/ qovluğuna yükləyin).\n" +
+                "3. GitHub Actions-da APK qurulmasını yenidən başladın və yeni APK-nı quraşdırın."
+        )
+        AppLanguage.EN -> listOf(
+            "Firebase Configuration Missing",
+            "This APK was built without \"app/google-services.json\". Google Sign-In, Cloud Sync, and AI Agronomist require Firebase configuration.",
+            "How to fix (GitHub Actions):",
+            "1. Copy \"app/google-services.json\" from the project.\n" +
+                "2. Add it as a GitHub repository secret named GOOGLE_SERVICES_JSON under Settings → Secrets and variables → Actions (or upload it to app/).\n" +
+                "3. Re-run the Build APK workflow and install the updated APK."
+        )
+        AppLanguage.RU -> listOf(
+            "Конфигурация Firebase не найдена",
+            "Этот APK собран без файла \"app/google-services.json\". Для входа через Google, облачной синхронизации и ИИ-агронома требуется конфигурация Firebase.",
+            "Как исправить (GitHub Actions):",
+            "1. Скопируйте файл \"app/google-services.json\" из проекта.\n" +
+                "2. Добавьте его в GitHub: Settings → Secrets and variables → Actions с именем GOOGLE_SERVICES_JSON (или загрузите в папку app/).\n" +
+                "3. Перезапустите сборку APK в GitHub Actions и установите обновлённый APK."
+        )
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .padding(20.dp)
+            .testTag("firebase_missing_screen"),
+    ) {
+        LanguageSwitcherPills(
+            currentLanguage = currentLanguage,
+            onSelectLanguage = onSelectLanguage,
+            modifier = Modifier.align(Alignment.TopEnd),
+        )
+
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier
+                .align(Alignment.Center)
+                .widthIn(max = 480.dp)
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState()),
+        ) {
+            Spacer(modifier = Modifier.height(44.dp))
+
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(80.dp)
+                    .clip(CircleShape)
+                    .background(extra.warningContainer),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Warning,
+                    contentDescription = title,
+                    tint = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.size(42.dp),
+                )
+            }
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            Text(
+                text = strings.appName,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                textAlign = TextAlign.Center,
+            )
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Text(
+                text = title,
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.onBackground,
+                fontWeight = FontWeight.ExtraBold,
+                textAlign = TextAlign.Center,
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodyLarge,
+                color = extra.muted,
+                textAlign = TextAlign.Center,
+            )
+
+            Spacer(modifier = Modifier.height(22.dp))
+
+            Card(
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                ),
+                border = BorderStroke(1.dp, extra.line),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Text(
+                        text = stepsTitle,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = stepsBody,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                 }
             }

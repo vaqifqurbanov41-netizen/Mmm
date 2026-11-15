@@ -33,6 +33,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.example.data.ai.FirebaseAiRepository
 import com.example.data.firebase.configureAppCheck
+import com.example.data.firebase.ensureFirebaseInitialized
 import com.example.data.local.PreferencesStore
 import com.example.data.remote.OpenMeteoService
 import com.example.data.repository.FarmRepository
@@ -52,6 +53,7 @@ import com.example.ui.screens.ChatScreen
 import com.example.ui.screens.EquipmentScreen
 import com.example.ui.screens.FieldsScreen
 import com.example.ui.screens.FinanceScreen
+import com.example.ui.screens.FirebaseConfigMissingScreen
 import com.example.ui.screens.HarvestScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.LinksScreen
@@ -84,7 +86,10 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun AqroRootApp(auth: FirebaseAuth = Firebase.auth) {
+fun AqroRootApp(
+    authOverride: FirebaseAuth? = null,
+    firebaseReadyOverride: Boolean? = null,
+) {
     val settingsViewModel: SettingsViewModel = viewModel(
         factory = viewModelFactory {
             initializer {
@@ -104,43 +109,55 @@ fun AqroRootApp(auth: FirebaseAuth = Firebase.auth) {
     }
 
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val credentialManager = remember(context) { CredentialManager.create(context) }
-
-    val currentUser by auth.authStateFlow().collectAsStateWithLifecycle(initialValue = auth.currentUser)
-
-    LaunchedEffect(Unit) {
-        if (auth.currentUser == null) {
-            attemptAutoSignIn(
-                context = context,
-                credentialManager = credentialManager,
-                onAuthSuccess = {},
-                onUnauthenticated = {},
-                scope = scope,
-            )
-        }
+    val isFirebaseReady = remember(context, authOverride, firebaseReadyOverride) {
+        firebaseReadyOverride ?: (authOverride != null || ensureFirebaseInitialized(context))
     }
 
     CompositionLocalProvider(LocalStrings provides strings) {
         AqroMeslehetTheme(themePreference = themePref) {
-            val user = currentUser
-            if (user == null) {
-                AuthScreen(
+            if (!isFirebaseReady) {
+                FirebaseConfigMissingScreen(
                     currentLanguage = language,
                     onSelectLanguage = settingsViewModel::setLanguage,
-                    onAuthSuccess = {},
                 )
             } else {
-                key(user.uid) {
-                    AuthenticatedMainApp(
-                        currentUserId = user.uid,
-                        userEmail = user.email,
-                        language = language,
-                        themePreference = themePref,
+                val scope = rememberCoroutineScope()
+                val credentialManager = remember(context) { CredentialManager.create(context) }
+                val auth = remember(authOverride) { authOverride ?: Firebase.auth }
+                val currentUser by auth.authStateFlow()
+                    .collectAsStateWithLifecycle(initialValue = auth.currentUser)
+
+                LaunchedEffect(auth) {
+                    if (auth.currentUser == null) {
+                        attemptAutoSignIn(
+                            context = context,
+                            credentialManager = credentialManager,
+                            onAuthSuccess = {},
+                            onUnauthenticated = {},
+                            scope = scope,
+                        )
+                    }
+                }
+
+                val user = currentUser
+                if (user == null) {
+                    AuthScreen(
+                        currentLanguage = language,
                         onSelectLanguage = settingsViewModel::setLanguage,
-                        onSelectTheme = settingsViewModel::setThemePreference,
-                        onToggleDark = settingsViewModel::toggleLightDark,
+                        onAuthSuccess = {},
                     )
+                } else {
+                    key(user.uid) {
+                        AuthenticatedMainApp(
+                            currentUserId = user.uid,
+                            userEmail = user.email,
+                            language = language,
+                            themePreference = themePref,
+                            onSelectLanguage = settingsViewModel::setLanguage,
+                            onSelectTheme = settingsViewModel::setThemePreference,
+                            onToggleDark = settingsViewModel::toggleLightDark,
+                        )
+                    }
                 }
             }
         }

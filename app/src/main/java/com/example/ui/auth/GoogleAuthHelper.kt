@@ -13,6 +13,7 @@ import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential.Companion.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
 import com.google.firebase.Firebase
+import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
@@ -57,6 +58,10 @@ fun attemptAutoSignIn(
     onUnauthenticated: () -> Unit,
     scope: CoroutineScope,
 ) {
+    if (FirebaseApp.getApps(context).isEmpty()) {
+        onUnauthenticated()
+        return
+    }
     if (Firebase.auth.currentUser != null) {
         onAuthSuccess()
         return
@@ -103,6 +108,10 @@ fun onGoogleSignInClicked(
     scope: CoroutineScope,
     onAuthCancelled: () -> Unit = {},
 ) {
+    if (FirebaseApp.getApps(context).isEmpty()) {
+        onAuthError("Firebase is not initialized: app/google-services.json missing")
+        return
+    }
     val clientId = resolveWebClientId(context)
     if (clientId == null) {
         onAuthError("Google Sign-In configuration missing: default_web_client_id not found")
@@ -149,7 +158,11 @@ fun signOutUser(
             } catch (e: Exception) {
                 Log.w(AUTH_TAG, "Failed to clear credential state: ${e.message}")
             } finally {
-                Firebase.auth.signOut()
+                try {
+                    Firebase.auth.signOut()
+                } catch (e: Exception) {
+                    Log.w(AUTH_TAG, "FirebaseAuth signOut skipped: ${e.message}")
+                }
                 onSignOutComplete()
             }
         }
