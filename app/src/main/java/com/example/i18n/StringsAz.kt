@@ -357,6 +357,7 @@ object StringsAz : AppStrings {
         LocalizedOfficialLink("Aqrar Sığorta Fondu (ASF)", "Əkin sahələrinin və kənd təsərrüfatı heyvanlarının sığortası", "https://asf.gov.az/"),
         LocalizedOfficialLink("Azərbaycan Qida Təhlükəsizliyi Agentliyi (AQTA)", "Pestisid qeydiyyatı və fitosanitar sertifikatlar", "https://afsa.gov.az/"),
         LocalizedOfficialLink("Aqrar Kredit və İnkişaf Agentliyi (AKİA)", "Güzəştli aqrar kreditlər və texnika lizinqi", "https://akia.gov.az/"),
+        LocalizedOfficialLink("KTN ASİ Telegram Botu (@ktn_asi_bot)", "Kənd Təsərrüfatı Nazirliyi operativ Telegram məlumat və dəstək botu", "https://t.me/ktn_asi_bot"),
     )
 
     override val profileTitle = "Profil və Tənzimləmələr"
@@ -389,4 +390,11 @@ object StringsAz : AppStrings {
     override val signOut = "Hesabdan çıx"
     override val signInCancelledMsg = "Google girişi ləğv edildi. Davam etmək üçün hesab seçin."
     override val aiLiveBadge = "Gemini AI aktivdir"
+    override val telegramBotTitle = "KTN ASİ Telegram Botu"
+    override val telegramBotSub = "@ktn_asi_bot — operativ aqrar məlumat və dəstək"
+    override val telegramBotBtn = "Botu aç"
+    override val openLocalToolsBtn = "Yerli Alətlərlə Davam Et"
+    override val localModeBannerTitle = "Yerli / Oflayn rejim aktivdir"
+    override val localModeBannerSub = "NPK, Hava, Pestisid və Subsidiya hesabları işləyir. Bulud və AI üçün google-services.json əlavə edin."
+    override val localModeSetupAction = "Quraşdırma təlimatı"
 }

@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Agriculture
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -46,6 +47,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -53,7 +55,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.data.model.FarmField
 import com.example.i18n.LocalStrings
+import com.example.ui.components.KTN_TELEGRAM_BOT_URL
 import com.example.ui.components.formatNumber
+import com.example.ui.components.openExternalUrl
 import com.example.ui.navigation.NavRoutes
 import com.example.ui.theme.DangerBorder
 import com.example.ui.theme.DangerRed
@@ -85,6 +89,7 @@ fun HomeScreen(
 ) {
     val strings = LocalStrings.current
     val extra = LocalAqroColors.current
+    val context = LocalContext.current
 
     val totalHa = fields.sumOf { it.sizeHa }
 
@@ -246,6 +251,67 @@ fun HomeScreen(
                         contentDescription = strings.open,
                         tint = MaterialTheme.colorScheme.primary,
                     )
+                }
+            }
+        }
+
+        // KTN ASI Telegram Bot Card
+        item {
+            val telegramBlue = Color(0xFF0088CC)
+            Card(
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.dp, telegramBlue.copy(alpha = 0.35f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .clickable { openExternalUrl(context, KTN_TELEGRAM_BOT_URL) }
+                    .testTag("home_telegram_bot_card"),
+            ) {
+                Row(
+                    modifier = Modifier.padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(telegramBlue.copy(alpha = 0.14f)),
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Send,
+                            contentDescription = strings.telegramBotTitle,
+                            tint = telegramBlue,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = strings.telegramBotTitle,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            text = strings.telegramBotSub,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = extra.muted,
+                        )
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = telegramBlue.copy(alpha = 0.12f),
+                    ) {
+                        Text(
+                            text = strings.telegramBotBtn,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = telegramBlue,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        )
+                    }
                 }
             }
         }

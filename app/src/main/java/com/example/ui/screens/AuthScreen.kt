@@ -21,6 +21,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Eco
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.Warning
@@ -31,6 +33,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -54,6 +57,8 @@ import com.example.i18n.AppLanguage
 import com.example.i18n.LocalStrings
 import com.example.ui.auth.onGoogleSignInClicked
 import com.example.ui.components.DangerBannerBox
+import com.example.ui.components.KTN_TELEGRAM_BOT_URL
+import com.example.ui.components.openExternalUrl
 import com.example.ui.theme.LocalAqroColors
 
 @Composable
@@ -235,34 +240,45 @@ private fun LanguageSwitcherPills(
 fun FirebaseConfigMissingScreen(
     currentLanguage: AppLanguage,
     onSelectLanguage: (AppLanguage) -> Unit,
+    onContinueLocalMode: () -> Unit = {},
 ) {
     val strings = LocalStrings.current
     val extra = LocalAqroColors.current
+    val context = LocalContext.current
 
-    val (title, subtitle, stepsTitle, stepsBody) = when (currentLanguage) {
-        AppLanguage.AZ -> listOf(
+    val (title, subtitle, stepsTitle) = when (currentLanguage) {
+        AppLanguage.AZ -> Triple(
             "Firebase konfiqurasiyası tapılmadı",
-            "Bu APK faylı \"app/google-services.json\" olmadan qurulub. Google Giriş, Bulud sinxronizasiyası və AI Aqronom funksiyalarının işləməsi üçün bu konfiqurasiya tələb olunur.",
-            "Həll yolu (GitHub Actions):",
-            "1. Layihədən \"app/google-services.json\" faylını götürün.\n" +
-                "2. GitHub-da Settings → Secrets and variables → Actions bölməsində GOOGLE_SERVICES_JSON adlı secret əlavə edin (və ya faylı birbaşa app/ qovluğuna yükləyin).\n" +
-                "3. GitHub Actions-da APK qurulmasını yenidən başladın və yeni APK-nı quraşdırın."
+            "Bu APK faylı \"app/google-services.json\" olmadan qurulub. Google Giriş, Bulud sinxronizasiyası və AI Aqronom üçün bu konfiqurasiya tələb olunur — lakin yerli alətlərdən indi istifadə edə bilərsiniz.",
+            "Tam versiya üçün (GitHub Actions):"
+        )
+        AppLanguage.EN -> Triple(
+            "Firebase Configuration Missing",
+            "This APK was built without \"app/google-services.json\". Cloud Sync, Google Sign-In, and AI Agronomist require Firebase — or you can continue using local farm tools right now.",
+            "To enable full cloud features (GitHub Actions):"
+        )
+        AppLanguage.RU -> Triple(
+            "Конфигурация Firebase не найдена",
+            "Этот APK собран без \"app/google-services.json\". Для входа через Google, облака и ИИ-агронома требуется Firebase — либо вы можете использовать локальные инструменты прямо сейчас.",
+            "Для полной облачной версии (GitHub Actions):"
+        )
+    }
+
+    val steps = when (currentLanguage) {
+        AppLanguage.AZ -> listOf(
+            "Layihədən \"app/google-services.json\" faylını götürün.",
+            "GitHub-da Settings → Secrets and variables → Actions bölməsində GOOGLE_SERVICES_JSON adlı secret əlavə edin (və ya faylı birbaşa app/ qovluğuna yükləyin).",
+            "GitHub Actions-da APK qurulmasını yenidən başladın və yeni APK-nı quraşdırın."
         )
         AppLanguage.EN -> listOf(
-            "Firebase Configuration Missing",
-            "This APK was built without \"app/google-services.json\". Google Sign-In, Cloud Sync, and AI Agronomist require Firebase configuration.",
-            "How to fix (GitHub Actions):",
-            "1. Copy \"app/google-services.json\" from the project.\n" +
-                "2. Add it as a GitHub repository secret named GOOGLE_SERVICES_JSON under Settings → Secrets and variables → Actions (or upload it to app/).\n" +
-                "3. Re-run the Build APK workflow and install the updated APK."
+            "Copy \"app/google-services.json\" from the project.",
+            "Add it as a repository secret named GOOGLE_SERVICES_JSON under Settings → Secrets and variables → Actions (or upload it to app/).",
+            "Re-run the Build APK workflow and install the updated APK."
         )
         AppLanguage.RU -> listOf(
-            "Конфигурация Firebase не найдена",
-            "Этот APK собран без файла \"app/google-services.json\". Для входа через Google, облачной синхронизации и ИИ-агронома требуется конфигурация Firebase.",
-            "Как исправить (GitHub Actions):",
-            "1. Скопируйте файл \"app/google-services.json\" из проекта.\n" +
-                "2. Добавьте его в GitHub: Settings → Secrets and variables → Actions с именем GOOGLE_SERVICES_JSON (или загрузите в папку app/).\n" +
-                "3. Перезапустите сборку APK в GitHub Actions и установите обновлённый APK."
+            "Скопируйте файл \"app/google-services.json\" из проекта.",
+            "Добавьте его в GitHub: Settings → Secrets and variables → Actions с именем GOOGLE_SERVICES_JSON (или загрузите в папку app/).",
+            "Перезапустите сборку APK в GitHub Actions и установите обновлённый APK."
         )
     }
 
@@ -290,12 +306,12 @@ fun FirebaseConfigMissingScreen(
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState()),
         ) {
-            Spacer(modifier = Modifier.height(44.dp))
+            Spacer(modifier = Modifier.height(48.dp))
 
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .size(80.dp)
+                    .size(74.dp)
                     .clip(CircleShape)
                     .background(extra.warningContainer),
             ) {
@@ -303,11 +319,11 @@ fun FirebaseConfigMissingScreen(
                     imageVector = Icons.Filled.Warning,
                     contentDescription = title,
                     tint = MaterialTheme.colorScheme.tertiary,
-                    modifier = Modifier.size(42.dp),
+                    modifier = Modifier.size(38.dp),
                 )
             }
 
-            Spacer(modifier = Modifier.height(18.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
             Text(
                 text = strings.appName,
@@ -316,7 +332,7 @@ fun FirebaseConfigMissingScreen(
                 textAlign = TextAlign.Center,
             )
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
             Text(
                 text = title,
@@ -326,16 +342,64 @@ fun FirebaseConfigMissingScreen(
                 textAlign = TextAlign.Center,
             )
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             Text(
                 text = subtitle,
-                style = MaterialTheme.typography.bodyLarge,
+                style = MaterialTheme.typography.bodyMedium,
                 color = extra.muted,
                 textAlign = TextAlign.Center,
             )
 
-            Spacer(modifier = Modifier.height(22.dp))
+            Spacer(modifier = Modifier.height(18.dp))
+
+            Button(
+                onClick = onContinueLocalMode,
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp)
+                    .testTag("open_local_tools_btn"),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Build,
+                    contentDescription = null,
+                    modifier = Modifier.padding(end = 8.dp).size(20.dp),
+                )
+                Text(
+                    text = strings.openLocalToolsBtn,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White,
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            val telegramBlue = Color(0xFF0088CC)
+            OutlinedButton(
+                onClick = { openExternalUrl(context, KTN_TELEGRAM_BOT_URL) },
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, telegramBlue.copy(alpha = 0.55f)),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = telegramBlue),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .testTag("missing_firebase_telegram_btn"),
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.Send,
+                    contentDescription = null,
+                    modifier = Modifier.padding(end = 8.dp).size(18.dp),
+                )
+                Text(
+                    text = "${strings.telegramBotTitle} (@ktn_asi_bot)",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+
+            Spacer(modifier = Modifier.height(18.dp))
 
             Card(
                 shape = RoundedCornerShape(18.dp),
@@ -345,19 +409,43 @@ fun FirebaseConfigMissingScreen(
                 border = BorderStroke(1.dp, extra.line),
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Column(modifier = Modifier.padding(18.dp)) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.padding(18.dp),
+                ) {
                     Text(
                         text = stepsTitle,
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurface,
                         fontWeight = FontWeight.Bold,
                     )
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text(
-                        text = stepsBody,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
+                    steps.forEachIndexed { index, stepText ->
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.Top,
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .clip(CircleShape)
+                                    .background(extra.pale),
+                            ) {
+                                Text(
+                                    text = "${index + 1}",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.ExtraBold,
+                                )
+                            }
+                            Text(
+                                text = stepText,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
                 }
             }
         }

@@ -1,5 +1,8 @@
 package com.example.ui.components
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -66,6 +69,26 @@ import com.example.ui.theme.LocalAqroColors
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+const val KTN_TELEGRAM_BOT_URL = "https://t.me/ktn_asi_bot"
+
+fun openExternalUrl(context: Context, rawUrl: String) {
+    val trimmed = rawUrl.trim()
+    if (trimmed.isEmpty()) return
+    val formatted = if (
+        trimmed.startsWith("http://", ignoreCase = true) ||
+        trimmed.startsWith("https://", ignoreCase = true) ||
+        trimmed.startsWith("tg:", ignoreCase = true) ||
+        trimmed.startsWith("tel:", ignoreCase = true)
+    ) {
+        trimmed
+    } else {
+        "https://$trimmed"
+    }
+    runCatching {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(formatted)))
+    }
+}
 
 fun todayIsoDateString(): String =
     SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())

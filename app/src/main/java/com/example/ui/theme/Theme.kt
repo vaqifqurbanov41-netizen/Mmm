@@ -1,5 +1,9 @@
 package com.example.ui.theme
 
+import android.graphics.Color as AndroidColor
+import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -8,8 +12,10 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 
 data class AqroExtraColors(
@@ -115,6 +121,25 @@ fun AqroMeslehetTheme(
         ThemePreference.LIGHT -> false
         ThemePreference.DARK -> true
         ThemePreference.SYSTEM -> isSystemInDarkTheme()
+    }
+
+    val view = LocalView.current
+    if (!view.isInEditMode) {
+        SideEffect {
+            val activity = view.context as? ComponentActivity
+            activity?.enableEdgeToEdge(
+                statusBarStyle = if (useDark) {
+                    SystemBarStyle.dark(AndroidColor.TRANSPARENT)
+                } else {
+                    SystemBarStyle.light(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT)
+                },
+                navigationBarStyle = if (useDark) {
+                    SystemBarStyle.dark(AndroidColor.TRANSPARENT)
+                } else {
+                    SystemBarStyle.light(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT)
+                },
+            )
+        }
     }
 
     val colorScheme = if (useDark) DarkColorScheme else LightColorScheme

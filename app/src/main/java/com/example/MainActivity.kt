@@ -15,8 +15,10 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -57,6 +59,7 @@ import com.example.ui.screens.FirebaseConfigMissingScreen
 import com.example.ui.screens.HarvestScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.LinksScreen
+import com.example.ui.screens.LocalToolsApp
 import com.example.ui.screens.NpkScreen
 import com.example.ui.screens.PesticideScreen
 import com.example.ui.screens.ProfileScreen
@@ -116,10 +119,23 @@ fun AqroRootApp(
     CompositionLocalProvider(LocalStrings provides strings) {
         AqroMeslehetTheme(themePreference = themePref) {
             if (!isFirebaseReady) {
-                FirebaseConfigMissingScreen(
-                    currentLanguage = language,
-                    onSelectLanguage = settingsViewModel::setLanguage,
-                )
+                var continueInLocalMode by remember { mutableStateOf(false) }
+                if (continueInLocalMode) {
+                    LocalToolsApp(
+                        language = language,
+                        themePreference = themePref,
+                        onSelectLanguage = settingsViewModel::setLanguage,
+                        onSelectTheme = settingsViewModel::setThemePreference,
+                        onToggleDark = settingsViewModel::toggleLightDark,
+                        onOpenFirebaseSetup = { continueInLocalMode = false },
+                    )
+                } else {
+                    FirebaseConfigMissingScreen(
+                        currentLanguage = language,
+                        onSelectLanguage = settingsViewModel::setLanguage,
+                        onContinueLocalMode = { continueInLocalMode = true },
+                    )
+                }
             } else {
                 val scope = rememberCoroutineScope()
                 val credentialManager = remember(context) { CredentialManager.create(context) }

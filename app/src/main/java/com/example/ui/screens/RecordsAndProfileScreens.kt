@@ -23,6 +23,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Delete
@@ -71,9 +72,11 @@ import com.example.ui.components.AqroCard
 import com.example.ui.components.ConfirmDeleteDialog
 import com.example.ui.components.DangerBannerBox
 import com.example.ui.components.EmptyStateMessage
+import com.example.ui.components.KTN_TELEGRAM_BOT_URL
 import com.example.ui.components.ScreenTopBar
 import com.example.ui.components.TabPillsRow
 import com.example.ui.components.formatNumber
+import com.example.ui.components.openExternalUrl
 import com.example.ui.components.todayIsoDateString
 import com.example.ui.theme.DangerRed
 import com.example.ui.theme.EmeraldPrimary
@@ -447,6 +450,7 @@ fun LinksScreen(
     onAddCustomLink: suspend (String, String) -> Unit,
     onDeleteCustomLink: suspend (String) -> Unit,
     onBack: () -> Unit,
+    isLocalOnly: Boolean = false,
 ) {
     val strings = LocalStrings.current
     val extra = LocalAqroColors.current
@@ -458,12 +462,7 @@ fun LinksScreen(
     var formError by remember { mutableStateOf<String?>(null) }
     var pendingDelete by remember { mutableStateOf<CustomLink?>(null) }
 
-    val openUrl: (String) -> Unit = { url ->
-        runCatching {
-            val formatted = if (url.startsWith("http://", true) || url.startsWith("https://", true)) url else "https://$url"
-            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(formatted)))
-        }
-    }
+    val openUrl: (String) -> Unit = { url -> openExternalUrl(context, url) }
 
     ConfirmDeleteDialog(
         visible = pendingDelete != null,
@@ -508,6 +507,31 @@ fun LinksScreen(
         }
 
         item {
+            val telegramBlue = Color(0xFF0088CC)
+            AqroCard(borderColor = telegramBlue.copy(alpha = 0.4f)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text(strings.telegramBotTitle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text(strings.telegramBotSub, style = MaterialTheme.typography.bodySmall, color = extra.muted)
+                    }
+                    Button(
+                        onClick = { openUrl(KTN_TELEGRAM_BOT_URL) },
+                        colors = ButtonDefaults.buttonColors(containerColor = telegramBlue),
+                        modifier = Modifier.testTag("links_telegram_bot_btn"),
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.size(6.dp))
+                        Text(strings.telegramBotBtn)
+                    }
+                }
+            }
+        }
+
+        item {
             Text(strings.officialLinksTitle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         }
 
@@ -535,81 +559,83 @@ fun LinksScreen(
             }
         }
 
-        item {
-            AqroCard {
-                Text(strings.addCustomLinkTitle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text(strings.addCustomLinkSub, style = MaterialTheme.typography.bodySmall, color = extra.muted)
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = linkName,
-                    onValueChange = { linkName = it; formError = null },
-                    label = { Text(strings.customLinkNameLabel) },
-                    placeholder = { Text(strings.customLinkNameHint) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = linkUrl,
-                    onValueChange = { linkUrl = it; formError = null },
-                    label = { Text(strings.customLinkUrlLabel) },
-                    placeholder = { Text(strings.customLinkUrlHint) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                if (formError != null) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    DangerBannerBox(text = formError!!)
-                }
-                Spacer(modifier = Modifier.height(10.dp))
-                Button(
-                    onClick = {
-                        if (linkName.isBlank() || linkUrl.isBlank()) {
-                            formError = strings.fillRequiredFields
-                        } else {
-                            scope.launch {
-                                onAddCustomLink(linkName, linkUrl)
-                                linkName = ""
-                                linkUrl = ""
-                                formError = null
-                            }
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth().testTag("save_custom_link_btn"),
-                ) {
-                    Text(strings.btnSaveLink)
-                }
-            }
-        }
-
-        item {
-            Text(strings.myCustomLinksTitle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        }
-
-        if (customLinks.isEmpty()) {
+        if (!isLocalOnly) {
             item {
                 AqroCard {
-                    EmptyStateMessage(icon = Icons.Filled.Link, message = strings.customLinksEmpty)
+                    Text(strings.addCustomLinkTitle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(strings.addCustomLinkSub, style = MaterialTheme.typography.bodySmall, color = extra.muted)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = linkName,
+                        onValueChange = { linkName = it; formError = null },
+                        label = { Text(strings.customLinkNameLabel) },
+                        placeholder = { Text(strings.customLinkNameHint) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = linkUrl,
+                        onValueChange = { linkUrl = it; formError = null },
+                        label = { Text(strings.customLinkUrlLabel) },
+                        placeholder = { Text(strings.customLinkUrlHint) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    if (formError != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        DangerBannerBox(text = formError!!)
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Button(
+                        onClick = {
+                            if (linkName.isBlank() || linkUrl.isBlank()) {
+                                formError = strings.fillRequiredFields
+                            } else {
+                                scope.launch {
+                                    onAddCustomLink(linkName, linkUrl)
+                                    linkName = ""
+                                    linkUrl = ""
+                                    formError = null
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().testTag("save_custom_link_btn"),
+                    ) {
+                        Text(strings.btnSaveLink)
+                    }
                 }
             }
-        } else {
-            items(customLinks, key = { it.id }) { link ->
-                AqroCard(
-                    modifier = Modifier
-                        .clip(MaterialTheme.shapes.large)
-                        .clickable { openUrl(link.url) },
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        modifier = Modifier.fillMaxWidth(),
+
+            item {
+                Text(strings.myCustomLinksTitle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            }
+
+            if (customLinks.isEmpty()) {
+                item {
+                    AqroCard {
+                        EmptyStateMessage(icon = Icons.Filled.Link, message = strings.customLinksEmpty)
+                    }
+                }
+            } else {
+                items(customLinks, key = { it.id }) { link ->
+                    AqroCard(
+                        modifier = Modifier
+                            .clip(MaterialTheme.shapes.large)
+                            .clickable { openUrl(link.url) },
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(link.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                            Text(link.url, style = MaterialTheme.typography.bodySmall, color = extra.muted)
-                        }
-                        IconButton(onClick = { pendingDelete = link }) {
-                            Icon(Icons.Filled.Delete, contentDescription = strings.delete, tint = DangerRed)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(link.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                Text(link.url, style = MaterialTheme.typography.bodySmall, color = extra.muted)
+                            }
+                            IconButton(onClick = { pendingDelete = link }) {
+                                Icon(Icons.Filled.Delete, contentDescription = strings.delete, tint = DangerRed)
+                            }
                         }
                     }
                 }
@@ -628,6 +654,8 @@ fun ProfileScreen(
     onSelectTheme: (ThemePreference) -> Unit,
     onSaveProfile: suspend (String, String, String) -> Unit,
     onBack: () -> Unit,
+    isLocalOnly: Boolean = false,
+    onOpenFirebaseSetup: (() -> Unit)? = null,
 ) {
     val strings = LocalStrings.current
     val extra = LocalAqroColors.current
@@ -657,8 +685,9 @@ fun ProfileScreen(
             ScreenTopBar(title = strings.profileTitle, onBack = onBack)
         }
 
-        // Personal Profile Form
-        item {
+        if (!isLocalOnly) {
+            // Personal Profile Form
+            item {
             AqroCard {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Icon(Icons.Filled.Person, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
@@ -704,23 +733,24 @@ fun ProfileScreen(
                     Text(savedMsg!!, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                 }
                 Spacer(modifier = Modifier.height(10.dp))
-                Button(
-                    onClick = {
-                        scope.launch {
-                            onSaveProfile(fullName, phone, region)
-                            val firstName = fullName.trim().split(" ").firstOrNull().orEmpty()
-                            savedMsg = if (firstName.isNotBlank()) {
-                                String.format(language.locale, strings.profileSavedNamed, firstName)
-                            } else {
-                                strings.profileSavedGeneric
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                onSaveProfile(fullName, phone, region)
+                                val firstName = fullName.trim().split(" ").firstOrNull().orEmpty()
+                                savedMsg = if (firstName.isNotBlank()) {
+                                    String.format(language.locale, strings.profileSavedNamed, firstName)
+                                } else {
+                                    strings.profileSavedGeneric
+                                }
                             }
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth().testTag("save_profile_btn"),
-                ) {
-                    Icon(Icons.Filled.Save, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.size(6.dp))
-                    Text(strings.btnSaveProfile)
+                        },
+                        modifier = Modifier.fillMaxWidth().testTag("save_profile_btn"),
+                    ) {
+                        Icon(Icons.Filled.Save, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.size(6.dp))
+                        Text(strings.btnSaveProfile)
+                    }
                 }
             }
         }
@@ -766,13 +796,41 @@ fun ProfileScreen(
                     }
                     Button(
                         onClick = {
-                            context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:1652")))
+                            runCatching {
+                                context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:1652")))
+                            }
                         },
                         modifier = Modifier.testTag("hotline_1652_btn"),
                     ) {
                         Icon(Icons.Filled.Call, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.size(6.dp))
                         Text(strings.hotlineBtn)
+                    }
+                }
+            }
+        }
+
+        // KTN ASI Telegram Bot Card
+        item {
+            val telegramBlue = Color(0xFF0088CC)
+            AqroCard(borderColor = telegramBlue.copy(alpha = 0.35f)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text(strings.telegramBotTitle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text(strings.telegramBotSub, style = MaterialTheme.typography.bodySmall, color = extra.muted)
+                    }
+                    Button(
+                        onClick = { openExternalUrl(context, KTN_TELEGRAM_BOT_URL) },
+                        colors = ButtonDefaults.buttonColors(containerColor = telegramBlue),
+                        modifier = Modifier.testTag("profile_telegram_bot_btn"),
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.size(6.dp))
+                        Text(strings.telegramBotBtn)
                     }
                 }
             }
@@ -803,19 +861,32 @@ fun ProfileScreen(
             }
         }
 
-        // Google Sign-Out Button
-        item {
-            OutlinedButton(
-                onClick = {
-                    signOutUser(credentialManager = credentialManager, scope = scope)
-                },
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = DangerRed),
-                border = BorderStroke(1.dp, DangerRed.copy(alpha = 0.5f)),
-                modifier = Modifier.fillMaxWidth().testTag("sign_out_button"),
-            ) {
-                Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.size(8.dp))
-                Text(strings.signOut, fontWeight = FontWeight.Bold)
+        // Firebase Setup Guide (Local Mode) OR Google Sign-Out Button (Cloud Mode)
+        if (isLocalOnly) {
+            if (onOpenFirebaseSetup != null) {
+                item {
+                    OutlinedButton(
+                        onClick = onOpenFirebaseSetup,
+                        modifier = Modifier.fillMaxWidth().testTag("open_firebase_setup_btn"),
+                    ) {
+                        Text(strings.localModeSetupAction, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        } else {
+            item {
+                OutlinedButton(
+                    onClick = {
+                        signOutUser(credentialManager = credentialManager, scope = scope)
+                    },
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = DangerRed),
+                    border = BorderStroke(1.dp, DangerRed.copy(alpha = 0.5f)),
+                    modifier = Modifier.fillMaxWidth().testTag("sign_out_button"),
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.size(8.dp))
+                    Text(strings.signOut, fontWeight = FontWeight.Bold)
+                }
             }
         }
     }

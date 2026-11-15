@@ -357,6 +357,7 @@ object StringsRu : AppStrings {
         LocalizedOfficialLink("Фонд аграрного страхования (ASF)", "Страхование посевных площадей и сельхозживотных", "https://asf.gov.az/"),
         LocalizedOfficialLink("Агентство продовольственной безопасности (AQTA)", "Регистрация пестицидов и фитосанитарные сертификаты", "https://afsa.gov.az/"),
         LocalizedOfficialLink("Агентство аграрного кредита и развития (AKIA)", "Льготные агрокредиты и лизинг техники", "https://akia.gov.az/"),
+        LocalizedOfficialLink("Telegram-бот МСХ ASİ (@ktn_asi_bot)", "Официальный Telegram-бот поддержки Министерства сельского хозяйства", "https://t.me/ktn_asi_bot"),
     )
 
     override val profileTitle = "Профиль и Настройки"
@@ -389,4 +390,11 @@ object StringsRu : AppStrings {
     override val signOut = "Выйти из аккаунта"
     override val signInCancelledMsg = "Вход через Google отменён. Выберите аккаунт для продолжения."
     override val aiLiveBadge = "Gemini ИИ активен"
+    override val telegramBotTitle = "Telegram-бот МСХ ASİ"
+    override val telegramBotSub = "@ktn_asi_bot — оперативная аграрная поддержка"
+    override val telegramBotBtn = "Открыть бот"
+    override val openLocalToolsBtn = "Продолжить с локальными инструментами"
+    override val localModeBannerTitle = "Локальный / Офлайн режим"
+    override val localModeBannerSub = "Калькулятор NPK, погода, пестициды и субсидии работают локально. Для облака и ИИ добавьте google-services.json."
+    override val localModeSetupAction = "Инструкция"
 }

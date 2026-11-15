@@ -61,6 +61,7 @@ import com.example.ui.components.DangerBannerBox
 import com.example.ui.components.EmptyStateMessage
 import com.example.ui.components.ScreenTopBar
 import com.example.ui.components.formatNumber
+import com.example.ui.components.openExternalUrl
 import com.example.ui.components.todayIsoDateString
 import com.example.ui.theme.DangerRed
 import com.example.ui.theme.EmeraldPrimary
@@ -78,6 +79,7 @@ fun SubsidyScreen(
     onAddDeclaration: suspend (String, String) -> Unit,
     onDeleteDeclaration: suspend (String) -> Unit,
     onBack: () -> Unit,
+    isLocalOnly: Boolean = false,
 ) {
     val strings = LocalStrings.current
     val extra = LocalAqroColors.current
@@ -129,9 +131,7 @@ fun SubsidyScreen(
                     }
                     Button(
                         onClick = {
-                            context.startActivity(
-                                Intent(Intent.ACTION_VIEW, Uri.parse("https://aqrarsubsidiya.az/"))
-                            )
+                            openExternalUrl(context, "https://aqrarsubsidiya.az/")
                         },
                         modifier = Modifier.testTag("open_subsidy_portal_btn"),
                     ) {
@@ -211,71 +211,73 @@ fun SubsidyScreen(
             }
         }
 
-        item {
-            AqroCard {
-                Text(strings.declTitle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = declDate,
-                    onValueChange = { declDate = it; declError = null },
-                    label = { Text(strings.declDateLabel) },
-                    placeholder = { Text("YYYY-MM-DD") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = declTitle,
-                    onValueChange = { declTitle = it; declError = null },
-                    label = { Text(strings.declNameLabel) },
-                    placeholder = { Text(strings.declNameHint) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                if (declError != null) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    DangerBannerBox(text = declError!!)
-                }
-                Spacer(modifier = Modifier.height(10.dp))
-                Button(
-                    onClick = {
-                        if (declDate.isBlank() || declTitle.isBlank()) {
-                            declError = strings.fillRequiredFields
-                        } else {
-                            scope.launch {
-                                onAddDeclaration(declDate, declTitle)
-                                declTitle = ""
-                                declError = null
-                            }
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth().testTag("save_decl_btn"),
-                ) {
-                    Text(strings.btnSaveDecl)
-                }
-            }
-        }
-
-        if (declarations.isEmpty()) {
+        if (!isLocalOnly) {
             item {
                 AqroCard {
-                    EmptyStateMessage(icon = Icons.Filled.CalendarMonth, message = strings.declEmpty)
+                    Text(strings.declTitle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = declDate,
+                        onValueChange = { declDate = it; declError = null },
+                        label = { Text(strings.declDateLabel) },
+                        placeholder = { Text("YYYY-MM-DD") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = declTitle,
+                        onValueChange = { declTitle = it; declError = null },
+                        label = { Text(strings.declNameLabel) },
+                        placeholder = { Text(strings.declNameHint) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    if (declError != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        DangerBannerBox(text = declError!!)
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Button(
+                        onClick = {
+                            if (declDate.isBlank() || declTitle.isBlank()) {
+                                declError = strings.fillRequiredFields
+                            } else {
+                                scope.launch {
+                                    onAddDeclaration(declDate, declTitle)
+                                    declTitle = ""
+                                    declError = null
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().testTag("save_decl_btn"),
+                    ) {
+                        Text(strings.btnSaveDecl)
+                    }
                 }
             }
-        } else {
-            items(declarations, key = { it.id }) { decl ->
-                AqroCard {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(decl.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                            Text(decl.date, style = MaterialTheme.typography.bodySmall, color = extra.muted)
-                        }
-                        IconButton(onClick = { pendingDelete = decl }) {
-                            Icon(Icons.Filled.Delete, contentDescription = strings.delete, tint = DangerRed)
+
+            if (declarations.isEmpty()) {
+                item {
+                    AqroCard {
+                        EmptyStateMessage(icon = Icons.Filled.CalendarMonth, message = strings.declEmpty)
+                    }
+                }
+            } else {
+                items(declarations, key = { it.id }) { decl ->
+                    AqroCard {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(decl.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                Text(decl.date, style = MaterialTheme.typography.bodySmall, color = extra.muted)
+                            }
+                            IconButton(onClick = { pendingDelete = decl }) {
+                                Icon(Icons.Filled.Delete, contentDescription = strings.delete, tint = DangerRed)
+                            }
                         }
                     }
                 }

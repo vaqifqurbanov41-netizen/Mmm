@@ -38,6 +38,9 @@ class ExampleRobolectricTest {
         assertTrue(StringsEn.allowedPesticides.size == StringsAz.allowedPesticides.size)
         assertTrue(StringsRu.allowedPesticides.size == StringsAz.allowedPesticides.size)
         assertTrue(StringsAz.bannedPesticides.size == StringsEn.bannedPesticides.size)
+        assertTrue(StringsAz.officialLinks.any { it.url == "https://t.me/ktn_asi_bot" })
+        assertTrue(StringsEn.officialLinks.any { it.url == "https://t.me/ktn_asi_bot" })
+        assertTrue(StringsRu.officialLinks.any { it.url == "https://t.me/ktn_asi_bot" })
     }
 
     @Test
@@ -48,7 +51,7 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun `aqroRootApp renders missing firebase setup screen without crashing when firebase is uninitialized`() {
+    fun `aqroRootApp renders missing firebase setup screen and opens local tools mode cleanly`() {
         composeTestRule.setContent {
             AqroRootApp(firebaseReadyOverride = false)
         }
@@ -57,5 +60,9 @@ class ExampleRobolectricTest {
         composeTestRule.onNodeWithTag("auth_lang_en").performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("firebase_missing_screen").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("open_local_tools_btn").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("local_tools_app").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("local_home_telegram_bot_card").assertIsDisplayed()
     }
 }

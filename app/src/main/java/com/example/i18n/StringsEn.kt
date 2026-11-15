@@ -357,6 +357,7 @@ object StringsEn : AppStrings {
         LocalizedOfficialLink("Agrarian Insurance Fund (ASF)", "Crop and livestock agricultural insurance", "https://asf.gov.az/"),
         LocalizedOfficialLink("Azerbaijan Food Safety Agency (AQTA)", "Pesticide registration and phytosanitary certificates", "https://afsa.gov.az/"),
         LocalizedOfficialLink("Agrarian Credit and Development Agency (AKIA)", "Concessional farm loans and machinery leasing", "https://akia.gov.az/"),
+        LocalizedOfficialLink("KTN ASI Telegram Bot (@ktn_asi_bot)", "Official Ministry of Agriculture Telegram advisory & support bot", "https://t.me/ktn_asi_bot"),
     )
 
     override val profileTitle = "Profile & Settings"
@@ -389,4 +390,11 @@ object StringsEn : AppStrings {
     override val signOut = "Sign out"
     override val signInCancelledMsg = "Google Sign-In was cancelled. Please select an account to continue."
     override val aiLiveBadge = "Gemini AI Active"
+    override val telegramBotTitle = "KTN ASI Telegram Bot"
+    override val telegramBotSub = "@ktn_asi_bot — instant Ministry of Agriculture support"
+    override val telegramBotBtn = "Open Bot"
+    override val openLocalToolsBtn = "Continue with Local Tools"
+    override val localModeBannerTitle = "Local / Offline Mode Active"
+    override val localModeBannerSub = "NPK, Weather, Pesticide & Subsidy tools work locally. Add google-services.json for Cloud & AI."
+    override val localModeSetupAction = "Setup guide"
 }

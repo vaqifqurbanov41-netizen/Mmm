@@ -388,13 +388,20 @@ interface AppStrings {
     val aboutAppTitle: String
     val aboutAppDesc: String
 
-    // Auth / Sign-In Screen
+    // Auth / Sign-In & Local Fallback
     val signInTitle: String
     val signInSubtitle: String
     val signInWithGoogle: String
     val signOut: String
     val signInCancelledMsg: String
     val aiLiveBadge: String
+    val telegramBotTitle: String
+    val telegramBotSub: String
+    val telegramBotBtn: String
+    val openLocalToolsBtn: String
+    val localModeBannerTitle: String
+    val localModeBannerSub: String
+    val localModeSetupAction: String
 }
 
 val LocalStrings = staticCompositionLocalOf<AppStrings> {

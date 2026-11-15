@@ -66,6 +66,7 @@ fun PesticideScreen(
     onAddCustomPesticide: suspend (String, Double, String, Int, String, String) -> Unit,
     onDeleteCustomPesticide: suspend (String) -> Unit,
     onBack: () -> Unit,
+    isLocalOnly: Boolean = false,
 ) {
     val strings = LocalStrings.current
     val extra = LocalAqroColors.current
@@ -139,14 +140,20 @@ fun PesticideScreen(
     ) {
         item {
             ScreenTopBar(title = strings.pestTitle, onBack = onBack)
+            val tabs = if (isLocalOnly) {
+                listOf(strings.tabPestCheck, strings.tabPestBanned)
+            } else {
+                listOf(strings.tabPestCheck, strings.tabPestAdd, strings.tabPestBanned)
+            }
             TabPillsRow(
-                tabs = listOf(strings.tabPestCheck, strings.tabPestAdd, strings.tabPestBanned),
-                selectedIndex = activeTab,
+                tabs = tabs,
+                selectedIndex = activeTab.coerceIn(0, tabs.lastIndex),
                 onSelect = { activeTab = it },
             )
         }
 
-        when (activeTab) {
+        val resolvedTab = if (isLocalOnly && activeTab == 1) 2 else activeTab
+        when (resolvedTab) {
             0 -> {
                 item {
                     AqroCard {
