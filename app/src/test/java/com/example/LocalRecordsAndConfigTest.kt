@@ -100,4 +100,18 @@ class LocalRecordsAndConfigTest {
         assertEquals("1234567890-web.apps.googleusercontent.com", getRuntimeWebClientId(context))
         assertFalse(getRuntimeWebClientId(context).isNullOrBlank())
     }
+
+    @Test
+    fun seedCatalogProvidesAdaptedVarietiesForEveryAzerbaijanRegion() {
+        val regions = com.example.data.model.SeedCatalog.regions
+        assertEquals(6, regions.size)
+        regions.forEach { region ->
+            val crops = com.example.data.model.SeedCatalog.cropsForRegion(region.id)
+            assertTrue("Expected crops for ${region.id}", crops.isNotEmpty())
+            crops.forEach { crop ->
+                val list = com.example.data.model.SeedCatalog.varietiesFor(region.id, crop.id)
+                assertTrue("Expected varieties for ${region.id} / ${crop.id}", list.isNotEmpty())
+            }
+        }
+    }
 }

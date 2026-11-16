@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Grass
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.LocalFlorist
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PhotoCamera
@@ -284,6 +285,13 @@ fun LocalToolsApp(
                     )
                 }
 
+                composable(NavRoutes.SEEDS) {
+                    SeedsScreen(
+                        language = language,
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+
                 composable(NavRoutes.LINKS) {
                     LinksScreen(
                         customLinks = emptyList(),
@@ -340,6 +348,7 @@ private fun LocalToolsHomeScreen(
         LocalToolTile(NavRoutes.EQUIPMENT, strings.tileEquipmentTitle, strings.tileEquipmentSub, Icons.Filled.Agriculture, PotassiumPlum, "local_tile_equipment"),
         LocalToolTile(NavRoutes.FINANCE, strings.tileFinanceTitle, strings.tileFinanceSub, Icons.Filled.AccountBalanceWallet, Color(0xFF0F766E), "local_tile_finance"),
         LocalToolTile(NavRoutes.GALLERY, strings.tileGalleryTitle, strings.tileGallerySub, Icons.Filled.PhotoCamera, Color(0xFF0284C7), "local_tile_gallery"),
+        LocalToolTile(NavRoutes.SEEDS, strings.tileSeedsTitle, strings.tileSeedsSub, Icons.Filled.LocalFlorist, Color(0xFF15803D), "local_tile_seeds"),
         LocalToolTile(NavRoutes.LINKS, strings.tileLinksTitle, strings.tileLinksSub, Icons.Filled.Link, Color(0xFF4F46E5), "local_tile_links"),
     )
 

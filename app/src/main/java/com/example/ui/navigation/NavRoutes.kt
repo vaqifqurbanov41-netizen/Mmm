@@ -14,5 +14,6 @@ object NavRoutes {
     const val HARVEST = "harvest"
     const val LINKS = "links"
     const val GALLERY = "gallery"
+    const val SEEDS = "seeds"
     const val PROFILE = "profile"
 }

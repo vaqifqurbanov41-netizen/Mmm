@@ -16,6 +16,7 @@ import com.example.i18n.StringsAz
 import com.example.i18n.StringsEn
 import com.example.i18n.StringsRu
 import com.example.ui.screens.AuthScreen
+import com.example.ui.screens.SeedsScreen
 import com.example.ui.theme.AqroMeslehetTheme
 import androidx.compose.runtime.CompositionLocalProvider
 import com.example.i18n.LocalStrings
@@ -64,7 +65,7 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun `authScreen shows sign in, local mode button, and expandable sha1 troubleshooting card`() {
+    fun `authScreen shows sign in, browser google fallback, local mode button, and expandable sha1 troubleshooting card`() {
         var continuedLocal = false
         composeTestRule.setContent {
             CompositionLocalProvider(LocalStrings provides StringsAz) {
@@ -81,7 +82,8 @@ class ExampleRobolectricTest {
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("auth_screen").assertIsDisplayed()
         composeTestRule.onNodeWithTag("google_sign_in_button").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("auth_continue_local_btn").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("web_google_sign_in_button").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithTag("auth_continue_local_btn").performScrollTo().assertIsDisplayed()
 
         composeTestRule.onNodeWithTag("auth_troubleshoot_toggle_btn").performScrollTo().performClick()
         composeTestRule.waitForIdle()
@@ -91,6 +93,33 @@ class ExampleRobolectricTest {
 
         composeTestRule.onNodeWithTag("auth_continue_local_btn").performScrollTo().performClick()
         assertTrue(continuedLocal)
+    }
+
+    @Test
+    fun `seedsScreen selects region crop recommends varieties and opens variety detail dialog`() {
+        composeTestRule.setContent {
+            CompositionLocalProvider(LocalStrings provides StringsAz) {
+                AqroMeslehetTheme {
+                    SeedsScreen(
+                        language = AppLanguage.AZ,
+                        onBack = {},
+                    )
+                }
+            }
+        }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("seeds_screen").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("seed_region_chip_lankaran_astara").performScrollTo().performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("seed_crop_chip_rice").performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("seeds_screen").performScrollToNode(hasTestTag("seed_detail_btn_hashimi_rice"))
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("seed_detail_btn_hashimi_rice").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("seed_detail_dialog").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("seed_detail_close_btn").performClick()
     }
 
     @Test
@@ -147,5 +176,14 @@ class ExampleRobolectricTest {
         composeTestRule.onNodeWithTag("photo_gallery_screen").assertIsDisplayed()
         composeTestRule.onNodeWithTag("take_photo_btn").assertIsDisplayed()
         composeTestRule.onNodeWithTag("import_photo_btn").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("back_button").performClick()
+        composeTestRule.waitForIdle()
+
+        // Open Seeds & Varieties advisor from Local Tools grid
+        composeTestRule.onNodeWithTag("local_home_list").performScrollToNode(hasTestTag("local_tiles_grid"))
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("local_tile_seeds").performScrollTo().performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("seeds_screen").assertIsDisplayed()
     }
 }

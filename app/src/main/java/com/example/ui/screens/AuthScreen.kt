@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Eco
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.Warning
@@ -50,6 +51,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -72,7 +74,9 @@ import com.example.data.firebase.getSigningSha1
 import com.example.data.firebase.saveAndInitializeFirebaseFromJson
 import com.example.i18n.AppLanguage
 import com.example.i18n.LocalStrings
+import com.example.ui.auth.consumePendingWebSignInResult
 import com.example.ui.auth.onGoogleSignInClicked
+import com.example.ui.auth.signInWithGoogleWebBrowser
 import com.example.ui.components.DangerBannerBox
 import com.example.ui.components.KTN_TELEGRAM_BOT_URL
 import com.example.ui.components.openExternalUrl
@@ -99,6 +103,21 @@ fun AuthScreen(
     var showTroubleshoot by remember { mutableStateOf(false) }
     var configNotice by remember { mutableStateOf<String?>(null) }
     val sha1Fingerprint = remember(context) { getSigningSha1(context) }
+
+    LaunchedEffect(Unit) {
+        consumePendingWebSignInResult(
+            context = context,
+            onAuthSuccess = {
+                isLoading = false
+                onAuthSuccess()
+            },
+            onAuthError = { msg ->
+                isLoading = false
+                errorMessage = msg
+                showTroubleshoot = true
+            },
+        )
+    }
 
     val updateJsonLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -290,9 +309,63 @@ fun AuthScreen(
             Spacer(modifier = Modifier.height(10.dp))
 
             OutlinedButton(
+                onClick = {
+                    errorMessage = null
+                    configNotice = null
+                    isLoading = true
+                    signInWithGoogleWebBrowser(
+                        context = context,
+                        onAuthSuccess = {
+                            isLoading = false
+                            onAuthSuccess()
+                        },
+                        onAuthError = { msg ->
+                            isLoading = false
+                            errorMessage = msg
+                            showTroubleshoot = true
+                        },
+                        scope = scope,
+                    )
+                },
+                enabled = !isLoading,
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(
+                    1.dp,
+                    if (errorMessage != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primary.copy(alpha = 0.45f),
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .testTag("web_google_sign_in_button"),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Public,
+                    contentDescription = null,
+                    modifier = Modifier.padding(end = 8.dp).size(18.dp),
+                )
+                Text(
+                    text = strings.btnGoogleWebFallback,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+
+            if (errorMessage != null) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = strings.googleWebFallbackHint,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = extra.muted,
+                    textAlign = TextAlign.Center,
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            OutlinedButton(
                 onClick = onContinueLocalMode,
                 shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)),
+                border = BorderStroke(1.dp, extra.line),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(48.dp)

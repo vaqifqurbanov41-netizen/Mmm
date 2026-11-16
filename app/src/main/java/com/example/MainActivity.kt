@@ -62,6 +62,7 @@ import com.example.ui.screens.PesticideScreen
 import com.example.ui.screens.PhotoGalleryScreen
 import com.example.ui.screens.ProfileScreen
 import com.example.ui.screens.ScannerScreen
+import com.example.ui.screens.SeedsScreen
 import com.example.ui.screens.SubsidyScreen
 import com.example.ui.screens.WeatherScreen
 import com.example.ui.theme.AqroMeslehetTheme
@@ -433,6 +434,17 @@ private fun AuthenticatedMainApp(
                         language = language,
                         store = localRecordsStore,
                         onBack = { navController.popBackStack() },
+                    )
+                }
+
+                composable(NavRoutes.SEEDS) {
+                    SeedsScreen(
+                        language = language,
+                        onBack = { navController.popBackStack() },
+                        onAskAiAboutVariety = { prompt ->
+                            navigateTo(NavRoutes.CHAT)
+                            viewModel.sendAiQuestion(prompt, language)
+                        },
                     )
                 }
 

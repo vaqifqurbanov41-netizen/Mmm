@@ -22,6 +22,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthException
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
+import com.google.firebase.auth.OAuthProvider
 import com.google.firebase.auth.auth
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
@@ -64,6 +65,54 @@ fun resolveWebClientId(context: Context): String? {
         if (fromRes != null) return fromRes
     }
     return null
+}
+
+fun consumePendingWebSignInResult(
+    context: Context,
+    onAuthSuccess: () -> Unit,
+    onAuthError: (String) -> Unit,
+) {
+    if (FirebaseApp.getApps(context).isEmpty()) return
+    val pendingTask = runCatching { Firebase.auth.pendingAuthResult }.getOrNull() ?: return
+    pendingTask
+        .addOnSuccessListener { onAuthSuccess() }
+        .addOnFailureListener { e ->
+            Log.e(AUTH_TAG, "Pending web Google OAuth result failed", e)
+            onAuthError(e.localizedMessage ?: "Google OAuth sign-in failed")
+        }
+}
+
+fun signInWithGoogleWebBrowser(
+    context: Context,
+    onAuthSuccess: () -> Unit,
+    onAuthError: (String) -> Unit,
+    scope: CoroutineScope,
+) {
+    if (FirebaseApp.getApps(context).isEmpty()) {
+        onAuthError("Firebase is not initialized: app/google-services.json missing")
+        return
+    }
+    val activity = context.findActivity()
+    if (activity == null) {
+        onAuthError("Activity context unavailable for browser sign-in")
+        return
+    }
+    val provider = OAuthProvider.newBuilder("google.com")
+        .addCustomParameter("prompt", "select_account")
+        .build()
+
+    scope.launch {
+        try {
+            Firebase.auth.startActivityForSignInWithProvider(activity, provider).await()
+            onAuthSuccess()
+        } catch (e: FirebaseAuthException) {
+            Log.e(AUTH_TAG, "Browser Google OAuth failed [${e.errorCode}]: ${e.message}", e)
+            onAuthError("[${e.errorCode}] ${e.localizedMessage ?: "Google OAuth failed"}")
+        } catch (e: Exception) {
+            Log.e(AUTH_TAG, "Browser Google OAuth failed", e)
+            onAuthError(e.localizedMessage ?: "Browser Google sign-in cancelled or failed")
+        }
+    }
 }
 
 fun attemptAutoSignIn(

@@ -442,6 +442,29 @@ interface AppStrings {
     val sha1CopiedMsg: String
     val firebaseQuickHelpLink: String
     val btnUpdateGoogleServices: String
+    val btnGoogleWebFallback: String
+    val googleWebFallbackHint: String
+
+    // Seed & Variety Advisor
+    val tileSeedsTitle: String
+    val tileSeedsSub: String
+    val seedsScreenTitle: String
+    val seedsStepRegion: String
+    val seedsStepCrop: String
+    val seedsRecommendedTitle: String
+    val seedsCountFormat: String
+    val seedDetailBtn: String
+    val seedOriginLabel: String
+    val seedSowingTimeLabel: String
+    val seedSeedingRateLabel: String
+    val seedVegetationLabel: String
+    val seedYieldLabel: String
+    val seedResistanceLabel: String
+    val seedSoilIrrigationLabel: String
+    val seedAgronomyTipLabel: String
+    val seedRegionsLabel: String
+    val seedShareBtn: String
+    val seedAskAiBtn: String
 }
 
 val LocalStrings = staticCompositionLocalOf<AppStrings> {
