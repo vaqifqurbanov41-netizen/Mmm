@@ -27,6 +27,12 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    function isAdmin() {
+      return isSignedIn() &&
+             request.auth.token.email == 'vaqifqurbanov494@gmail.com' &&
+             request.auth.token.email_verified == true;
+    }
+
     function isValidTimestamp(ts) {
       return ts is timestamp && ts <= request.time;
     }
@@ -96,6 +102,16 @@ service cloud.firestore {
       return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
              data.name is string && data.name.size() >= 1 && data.name.size() <= 140 &&
              data.url is string && data.url.size() >= 4 && data.url.size() <= 500;
+    }
+
+    function isValidAdminEntry(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.createdByEmail == 'vaqifqurbanov494@gmail.com' &&
+             data.category in ['notice', 'seed', 'station', 'calendar'] &&
+             data.region is string && data.region.size() <= 140 &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 160 &&
+             data.details is string && data.details.size() >= 1 && data.details.size() <= 2000 &&
+             data.contactOrUrl is string && data.contactOrUrl.size() <= 300;
     }
 
     match /users/{userId} {
@@ -288,6 +304,31 @@ service cloud.firestore {
 
         allow delete: if isOwner(userId) && isValidId(linkId);
       }
+    }
+
+    match /adminEntries/{entryId} {
+      allow get: if isSignedIn() && isValidId(entryId);
+      allow list: if isSignedIn();
+
+      allow create: if isAdmin() &&
+                       isValidId(entryId) &&
+                       incoming().userId == request.auth.uid &&
+                       incoming().keys().hasAll(['userId', 'createdByEmail', 'category', 'region', 'title', 'details', 'contactOrUrl', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'createdByEmail', 'category', 'region', 'title', 'details', 'contactOrUrl', 'createdAt', 'updatedAt']) &&
+                       isValidTimestamp(incoming().createdAt) &&
+                       isValidTimestamp(incoming().updatedAt) &&
+                       isValidAdminEntry(incoming());
+
+      allow update: if isAdmin() &&
+                       isValidId(entryId) &&
+                       isValidAdminEntry(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdByEmail == existing().createdByEmail &&
+                       incoming().createdAt == existing().createdAt &&
+                       isValidTimestamp(incoming().updatedAt) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['category', 'region', 'title', 'details', 'contactOrUrl', 'updatedAt']);
+
+      allow delete: if isAdmin() && isValidId(entryId);
     }
   }
 }

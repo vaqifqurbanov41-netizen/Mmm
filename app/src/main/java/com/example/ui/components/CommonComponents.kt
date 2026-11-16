@@ -267,6 +267,11 @@ fun AqroBottomBar(
                     currentRoute == NavRoutes.FINANCE ||
                     currentRoute == NavRoutes.HARVEST ||
                     currentRoute == NavRoutes.GALLERY ||
+                    currentRoute == NavRoutes.SEEDS ||
+                    currentRoute == NavRoutes.AGRO_CALENDAR ||
+                    currentRoute == NavRoutes.INSURANCE ||
+                    currentRoute == NavRoutes.STATIONS ||
+                    currentRoute == NavRoutes.ADMIN ||
                     currentRoute == NavRoutes.LINKS ||
                     currentRoute == NavRoutes.WEATHER ||
                     currentRoute == NavRoutes.CHAT,

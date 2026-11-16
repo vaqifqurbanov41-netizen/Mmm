@@ -54,18 +54,22 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.material.icons.filled.AdminPanelSettings
+import com.example.data.model.AdminContentItem
 import com.example.data.model.AgriRegion
 import com.example.data.model.SeedCatalog
 import com.example.data.model.SeedVariety
 import com.example.i18n.AppLanguage
 import com.example.i18n.LocalStrings
 import com.example.ui.components.ScreenTopBar
+import com.example.ui.components.openExternalUrl
 import com.example.ui.theme.LocalAqroColors
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SeedsScreen(
     language: AppLanguage,
+    adminSeedEntries: List<AdminContentItem> = emptyList(),
     onBack: () -> Unit,
     onAskAiAboutVariety: ((String) -> Unit)? = null,
 ) {
@@ -388,6 +392,60 @@ fun SeedsScreen(
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.Bold,
                         )
+                    }
+                }
+            }
+        }
+
+        if (adminSeedEntries.isNotEmpty()) {
+            items(adminSeedEntries, key = { "admin_seed_${it.id}" }) { item ->
+                Card(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = extra.pale),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("admin_seed_card_${item.id}"),
+                ) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.padding(16.dp),
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.AdminPanelSettings,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Text(
+                                text = item.title,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.ExtraBold,
+                            )
+                        }
+                        if (item.region.isNotBlank()) {
+                            Text(
+                                text = item.region,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                        Text(
+                            text = item.details,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        if (item.contactOrUrl.isNotBlank()) {
+                            TextButton(
+                                onClick = { openExternalUrl(context, item.contactOrUrl) },
+                            ) {
+                                Text(item.contactOrUrl, fontWeight = FontWeight.Bold)
+                            }
+                        }
                     }
                 }
             }

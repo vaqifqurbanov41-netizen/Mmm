@@ -15,6 +15,8 @@ import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential.Companion.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
+import com.example.data.firebase.getActiveFirebaseProjectId
+import com.example.data.firebase.getRuntimeFirebaseProjectId
 import com.example.data.firebase.getRuntimeWebClientId
 import com.google.firebase.Firebase
 import com.google.firebase.FirebaseApp
@@ -50,7 +52,12 @@ fun FirebaseAuth.authStateFlow(): Flow<FirebaseUser?> = callbackFlow {
 }
 
 fun resolveWebClientId(context: Context): String? {
-    getRuntimeWebClientId(context)?.let { return it }
+    val activeProject = getActiveFirebaseProjectId(context)
+    val runtimeProject = getRuntimeFirebaseProjectId(context)
+    val runtimeWebId = getRuntimeWebClientId(context)
+    if (runtimeWebId != null && (activeProject == null || runtimeProject == activeProject)) {
+        return runtimeWebId
+    }
     val resId = context.resources.getIdentifier(
         "default_web_client_id",
         "string",
@@ -64,7 +71,20 @@ fun resolveWebClientId(context: Context): String? {
         }
         if (fromRes != null) return fromRes
     }
-    return null
+    return runtimeWebId
+}
+
+fun isShaOrCertMismatchError(message: String?): Boolean {
+    val lower = message?.lowercase().orEmpty()
+    return lower.contains("invalid_cert_hash") ||
+        lower.contains("certificate hash") ||
+        lower.contains("account reauth failed") ||
+        lower.contains("[16]") ||
+        lower.contains("16:") ||
+        lower.contains("28444") ||
+        lower.contains("developer") ||
+        lower.contains("sha-1") ||
+        lower.contains("sha1")
 }
 
 fun consumePendingWebSignInResult(

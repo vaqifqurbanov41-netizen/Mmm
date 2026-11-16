@@ -27,11 +27,22 @@ private const val KEY_PROJECT_ID = "project_id"
 private const val KEY_PROJECT_NUMBER = "project_number"
 private const val KEY_STORAGE_BUCKET = "storage_bucket"
 private const val KEY_WEB_CLIENT_ID = "web_client_id"
+private const val KEY_HAS_MATCHING_SHA1 = "has_matching_sha1"
 
 private const val DEFAULT_DEBUG_SHA1 = "EC:A9:CD:7B:88:34:CF:8F:37:4C:5E:D6:6E:C3:BA:F5:06:18:72:31"
+private const val DEFAULT_DEBUG_SHA256 = "74:19:5D:F7:59:5A:13:2B:7D:68:74:3E:59:23:8D:46:14:1F:D3:5E:8E:AF:54:AB:C3:F8:ED:E8:EC:6E:A4:6A"
+private const val AI_STUDIO_FIREBASE_PROJECT_ID = "gen-lang-client-0387086288"
+private const val AI_STUDIO_FIRESTORE_DB_ID = "ai-studio-android-aqromslh-892d166e-8482-4e99-87aa-793ae6666b78"
+
+data class FirebaseJsonDiagnostics(
+    val projectId: String,
+    val hasWebClientId: Boolean,
+    val hasMatchingSha1: Boolean,
+    val hasMatchingPackage: Boolean,
+)
 
 @Suppress("DEPRECATION")
-fun getSigningSha1(context: Context): String {
+private fun getSigningCertBytes(context: Context): ByteArray? {
     return try {
         val pm = context.packageManager
         val signatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -46,11 +57,29 @@ fun getSigningSha1(context: Context): String {
                 PackageManager.GET_SIGNATURES,
             ).signatures
         }
-        val certBytes = signatures?.firstOrNull()?.toByteArray() ?: return DEFAULT_DEBUG_SHA1
+        signatures?.firstOrNull()?.toByteArray()
+    } catch (_: Exception) {
+        null
+    }
+}
+
+fun getSigningSha1(context: Context): String {
+    return try {
+        val certBytes = getSigningCertBytes(context) ?: return DEFAULT_DEBUG_SHA1
         val digest = MessageDigest.getInstance("SHA-1").digest(certBytes)
         digest.joinToString(":") { byte -> "%02X".format(byte) }
     } catch (_: Exception) {
         DEFAULT_DEBUG_SHA1
+    }
+}
+
+fun getSigningSha256(context: Context): String {
+    return try {
+        val certBytes = getSigningCertBytes(context) ?: return DEFAULT_DEBUG_SHA256
+        val digest = MessageDigest.getInstance("SHA-256").digest(certBytes)
+        digest.joinToString(":") { byte -> "%02X".format(byte) }
+    } catch (_: Exception) {
+        DEFAULT_DEBUG_SHA256
     }
 }
 
@@ -59,22 +88,114 @@ fun getRuntimeWebClientId(context: Context): String? {
     return prefs.getString(KEY_WEB_CLIENT_ID, null)?.takeIf { it.isNotBlank() }
 }
 
+fun getRuntimeFirebaseProjectId(context: Context): String? {
+    val prefs = context.getSharedPreferences(RUNTIME_FIREBASE_PREFS, Context.MODE_PRIVATE)
+    return prefs.getString(KEY_PROJECT_ID, null)?.takeIf { it.isNotBlank() }
+}
+
+fun hasRuntimeFirebaseOverride(context: Context): Boolean {
+    val prefs = context.getSharedPreferences(RUNTIME_FIREBASE_PREFS, Context.MODE_PRIVATE)
+    return !prefs.getString(KEY_APP_ID, null).isNullOrBlank()
+}
+
+fun getRuntimeHasMatchingSha1(context: Context): Boolean? {
+    val prefs = context.getSharedPreferences(RUNTIME_FIREBASE_PREFS, Context.MODE_PRIVATE)
+    return if (prefs.contains(KEY_HAS_MATCHING_SHA1)) {
+        prefs.getBoolean(KEY_HAS_MATCHING_SHA1, false)
+    } else {
+        null
+    }
+}
+
 fun getActiveFirebaseProjectId(context: Context): String? {
     val fromApp = runCatching { FirebaseApp.getApps(context).firstOrNull()?.options?.projectId }
         .getOrNull()
         ?.takeIf { it.isNotBlank() }
     if (fromApp != null) return fromApp
-    val prefs = context.getSharedPreferences(RUNTIME_FIREBASE_PREFS, Context.MODE_PRIVATE)
-    return prefs.getString(KEY_PROJECT_ID, null)?.takeIf { it.isNotBlank() }
+    return getRuntimeFirebaseProjectId(context)
+}
+
+fun resolveFirestoreDatabaseId(context: Context): String {
+    val projectId = getActiveFirebaseProjectId(context)
+    if (!projectId.isNullOrBlank() && projectId != AI_STUDIO_FIREBASE_PROJECT_ID) {
+        return "(default)"
+    }
+    val resId = context.resources.getIdentifier("firestore_database_id", "string", context.packageName)
+    return if (resId != 0) {
+        context.getString(resId)
+    } else {
+        AI_STUDIO_FIRESTORE_DB_ID
+    }
 }
 
 fun clearRuntimeFirebaseConfig(context: Context) {
     context.getSharedPreferences(RUNTIME_FIREBASE_PREFS, Context.MODE_PRIVATE).edit().clear().apply()
 }
 
+fun sanitizeGoogleServicesJson(rawText: String): String {
+    return rawText
+        .trim()
+        .removePrefix("\uFEFF")
+        .replace('\u201C', '"')
+        .replace('\u201D', '"')
+        .replace('\u2018', '\'')
+        .replace('\u2019', '\'')
+        .replace(Regex("[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F]"), "")
+}
+
+fun inspectFirebaseJson(context: Context, jsonText: String): FirebaseJsonDiagnostics? {
+    return try {
+        val root = JSONObject(sanitizeGoogleServicesJson(jsonText))
+        val projectId = root.getJSONObject("project_info").getString("project_id").trim()
+        val clients = root.getJSONArray("client")
+        var selectedClient: JSONObject? = null
+        var matchingPkg = false
+        for (i in 0 until clients.length()) {
+            val c = clients.getJSONObject(i)
+            val pkg = c.optJSONObject("client_info")
+                ?.optJSONObject("android_client_info")
+                ?.optString("package_name")
+            if (pkg == context.packageName) {
+                selectedClient = c
+                matchingPkg = true
+                break
+            }
+        }
+        val client = selectedClient ?: clients.getJSONObject(0)
+        val oauthClients = client.optJSONArray("oauth_client")
+        val expectedHash = getSigningSha1(context).replace(":", "").lowercase()
+        var hasWebClient = false
+        var hasSha1Match = false
+        if (oauthClients != null) {
+            for (i in 0 until oauthClients.length()) {
+                val oc = oauthClients.getJSONObject(i)
+                when (oc.optInt("client_type")) {
+                    3 -> if (oc.optString("client_id", "").isNotBlank()) hasWebClient = true
+                    1 -> {
+                        val hash = oc.optJSONObject("android_info")
+                            ?.optString("certificate_hash", "")
+                            ?.replace(":", "")
+                            ?.lowercase()
+                        if (hash == expectedHash) hasSha1Match = true
+                    }
+                }
+            }
+        }
+        FirebaseJsonDiagnostics(
+            projectId = projectId,
+            hasWebClientId = hasWebClient,
+            hasMatchingSha1 = hasSha1Match,
+            hasMatchingPackage = matchingPkg,
+        )
+    } catch (_: Exception) {
+        null
+    }
+}
+
 fun saveAndInitializeFirebaseFromJson(context: Context, jsonText: String): Result<String> {
     return try {
-        val root = JSONObject(jsonText.trim())
+        val cleaned = sanitizeGoogleServicesJson(jsonText)
+        val root = JSONObject(cleaned)
         val projectInfo = root.getJSONObject("project_info")
         val projectId = projectInfo.getString("project_id").trim()
         val projectNumber = projectInfo.optString("project_number", "").trim()
@@ -97,13 +218,21 @@ fun saveAndInitializeFirebaseFromJson(context: Context, jsonText: String): Resul
         val apiKey = client.getJSONArray("api_key").getJSONObject(0).getString("current_key").trim()
 
         var webClientId = ""
+        var hasMatchingSha1 = false
+        val expectedHash = getSigningSha1(context).replace(":", "").lowercase()
         val oauthClients = client.optJSONArray("oauth_client")
         if (oauthClients != null) {
             for (i in 0 until oauthClients.length()) {
                 val oc = oauthClients.getJSONObject(i)
-                if (oc.optInt("client_type") == 3) {
-                    webClientId = oc.optString("client_id", "").trim()
-                    break
+                when (oc.optInt("client_type")) {
+                    3 -> if (webClientId.isEmpty()) webClientId = oc.optString("client_id", "").trim()
+                    1 -> {
+                        val hash = oc.optJSONObject("android_info")
+                            ?.optString("certificate_hash", "")
+                            ?.replace(":", "")
+                            ?.lowercase()
+                        if (hash == expectedHash) hasMatchingSha1 = true
+                    }
                 }
             }
         }
@@ -120,7 +249,7 @@ fun saveAndInitializeFirebaseFromJson(context: Context, jsonText: String): Resul
         if (storageBucket.isNotBlank()) optionsBuilder.setStorageBucket(storageBucket)
 
         val existing = FirebaseApp.getApps(context).firstOrNull { it.name == FirebaseApp.DEFAULT_APP_NAME }
-        if (existing != null && existing.options.projectId != projectId) {
+        if (existing != null) {
             runCatching { existing.delete() }
         }
         if (FirebaseApp.getApps(context).isEmpty()) {
@@ -134,6 +263,7 @@ fun saveAndInitializeFirebaseFromJson(context: Context, jsonText: String): Resul
             .putString(KEY_PROJECT_NUMBER, projectNumber)
             .putString(KEY_STORAGE_BUCKET, storageBucket)
             .putString(KEY_WEB_CLIENT_ID, webClientId)
+            .putBoolean(KEY_HAS_MATCHING_SHA1, hasMatchingSha1)
             .apply()
 
         Result.success(projectId)

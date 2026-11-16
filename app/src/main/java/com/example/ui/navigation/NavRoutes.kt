@@ -15,5 +15,9 @@ object NavRoutes {
     const val LINKS = "links"
     const val GALLERY = "gallery"
     const val SEEDS = "seeds"
+    const val AGRO_CALENDAR = "agro_calendar"
+    const val INSURANCE = "insurance"
+    const val STATIONS = "stations"
+    const val ADMIN = "admin"
     const val PROFILE = "profile"
 }

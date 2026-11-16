@@ -168,3 +168,55 @@ test("Owner can update profile while preserving userId and createdAt", async () 
     })
   );
 });
+
+test("Only verified admin vaqifqurbanov494@gmail.com can write adminEntries while signed-in users can read", async () => {
+  const adminUid = "admin_vaqif_1";
+  const adminDb = getDb(
+    testEnv.authenticatedContext(adminUid, {
+      email: "vaqifqurbanov494@gmail.com",
+      email_verified: true,
+    })
+  );
+  const aliceDb = getDb(
+    testEnv.authenticatedContext(ALICE_UID, {
+      email: "farmer@example.com",
+      email_verified: true,
+    })
+  );
+  const unauthDb = getDb(testEnv.unauthenticatedContext());
+
+  const adminDoc = adminDb.collection("adminEntries").doc("entry_1");
+  await assertSucceeds(
+    adminDoc.set({
+      userId: adminUid,
+      createdByEmail: "vaqifqurbanov494@gmail.com",
+      category: "notice",
+      region: "Aran",
+      title: "Pambıq suvarma xəbərdarlığı",
+      details: "Bu həftə axşam saatlarında suvarma aparın.",
+      contactOrUrl: "",
+      createdAt: tsNow(),
+      updatedAt: tsNow(),
+    })
+  );
+
+  // Regular signed-in user can read, cannot create or delete
+  await assertSucceeds(aliceDb.collection("adminEntries").get());
+  await assertFails(
+    aliceDb.collection("adminEntries").doc("entry_2").set({
+      userId: ALICE_UID,
+      createdByEmail: "vaqifqurbanov494@gmail.com",
+      category: "notice",
+      region: "Aran",
+      title: "Unauthorized",
+      details: "Should fail",
+      contactOrUrl: "",
+      createdAt: tsNow(),
+      updatedAt: tsNow(),
+    })
+  );
+  await assertFails(aliceDb.collection("adminEntries").doc("entry_1").delete());
+  await assertFails(unauthDb.collection("adminEntries").get());
+  await assertSucceeds(adminDoc.delete());
+});
+

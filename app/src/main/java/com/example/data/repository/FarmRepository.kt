@@ -1,9 +1,11 @@
 package com.example.data.repository
 
 import android.content.Context
-import com.example.R
 import com.example.data.firebase.OperationType
 import com.example.data.firebase.handleFirestoreError
+import com.example.data.firebase.resolveFirestoreDatabaseId
+import com.example.data.model.ADMIN_EMAIL
+import com.example.data.model.AdminContentItem
 import com.example.data.model.CustomLink
 import com.example.data.model.CustomPesticide
 import com.example.data.model.EquipmentItem
@@ -12,6 +14,7 @@ import com.example.data.model.FarmerProfile
 import com.example.data.model.FinanceEntry
 import com.example.data.model.HarvestEntry
 import com.example.data.model.SubsidyDeclaration
+import com.example.data.model.isAdminEmail
 import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.auth
@@ -35,7 +38,7 @@ class FarmRepository(
 ) {
     constructor(context: Context) : this(
         FirebaseFirestore.getInstance(
-            context.applicationContext.getString(R.string.firestore_database_id)
+            resolveFirestoreDatabaseId(context.applicationContext)
         ),
         Firebase.auth,
     )
@@ -411,6 +414,82 @@ class FarmRepository(
     }
 
     suspend fun deleteCustomLink(id: String) = deleteSubDoc("customLinks", id)
+
+    // Admin Global Entries (Read: signed-in users; Write: verified admin email only)
+    fun observeAdminEntries(): Flow<List<AdminContentItem>> = flow {
+        requireUserId()
+        emitAll(
+            db.collection("adminEntries")
+                .snapshots()
+                .map { snapshot ->
+                    snapshot.toObjects(
+                        AdminContentItem::class.java,
+                        DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
+                    )
+                }
+                .catch { error ->
+                    val firestoreError = generateSequence(error) { it.cause }
+                        .filterIsInstance<FirebaseFirestoreException>()
+                        .firstOrNull()
+                    if (firestoreError == null && error is CancellationException) throw error
+                    val exceptionToLog = firestoreError ?: (error as? Exception)
+                    if (exceptionToLog != null && auth.currentUser != null) {
+                        handleFirestoreError(exceptionToLog, OperationType.LIST, "adminEntries")
+                    }
+                    emit(emptyList())
+                }
+        )
+    }
+
+    suspend fun addAdminEntry(
+        category: String,
+        region: String,
+        title: String,
+        details: String,
+        contactOrUrl: String,
+    ): String {
+        val uid = requireUserId()
+        val email = auth.currentUser?.email
+        require(isAdminEmail(email)) { "Admin access restricted to $ADMIN_EMAIL" }
+        val docId = newDocId()
+        val docRef = db.collection("adminEntries").document(docId)
+        val safeCategory = if (category in setOf("notice", "seed", "station", "calendar")) category else "notice"
+        val payload = mapOf(
+            "userId" to uid,
+            "createdByEmail" to ADMIN_EMAIL,
+            "category" to safeCategory,
+            "region" to region.trim().take(140),
+            "title" to title.trim().take(160),
+            "details" to details.trim().take(2000),
+            "contactOrUrl" to contactOrUrl.trim().take(300),
+            "createdAt" to FieldValue.serverTimestamp(),
+            "updatedAt" to FieldValue.serverTimestamp(),
+        )
+        try {
+            docRef.set(payload).await()
+            return docId
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.CREATE, docRef.path)
+            throw e
+        }
+    }
+
+    suspend fun deleteAdminEntry(id: String) {
+        requireUserId()
+        require(isAdminEmail(auth.currentUser?.email)) { "Admin access restricted to $ADMIN_EMAIL" }
+        require(id.isNotBlank()) { "Document ID must not be blank" }
+        val docRef = db.collection("adminEntries").document(id)
+        try {
+            docRef.delete().await()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.DELETE, docRef.path)
+            throw e
+        }
+    }
 
     private suspend fun deleteSubDoc(collectionName: String, docId: String) {
         val uid = requireUserId()

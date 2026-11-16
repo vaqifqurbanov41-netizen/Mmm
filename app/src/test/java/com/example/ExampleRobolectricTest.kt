@@ -11,16 +11,25 @@ import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.firebase.getSigningSha1
+import androidx.compose.runtime.CompositionLocalProvider
+import com.example.data.model.ADMIN_EMAIL
+import com.example.data.model.AdminContentItem
 import com.example.i18n.AppLanguage
+import com.example.i18n.LocalStrings
 import com.example.i18n.StringsAz
 import com.example.i18n.StringsEn
 import com.example.i18n.StringsRu
+import com.example.ui.screens.AdminScreen
+import com.example.ui.screens.AgroCalendarScreen
 import com.example.ui.screens.AuthScreen
+import com.example.ui.screens.HomeScreen
+import com.example.ui.screens.InsuranceCalcScreen
 import com.example.ui.screens.SeedsScreen
+import com.example.ui.screens.StationsScreen
 import com.example.ui.theme.AqroMeslehetTheme
-import androidx.compose.runtime.CompositionLocalProvider
-import com.example.i18n.LocalStrings
+import com.example.ui.viewmodel.WeatherUiState
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -88,8 +97,11 @@ class ExampleRobolectricTest {
         composeTestRule.onNodeWithTag("auth_troubleshoot_toggle_btn").performScrollTo().performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("auth_troubleshoot_card").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithTag("copy_pkg_button").performScrollTo().performClick()
         composeTestRule.onNodeWithTag("copy_sha1_button").performScrollTo().performClick()
+        composeTestRule.onNodeWithTag("copy_sha256_button").performScrollTo().performClick()
         composeTestRule.onNodeWithTag("auth_update_google_services_btn").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithTag("auth_paste_google_services_btn").performScrollTo().assertIsDisplayed()
 
         composeTestRule.onNodeWithTag("auth_continue_local_btn").performScrollTo().performClick()
         assertTrue(continuedLocal)
@@ -185,5 +197,178 @@ class ExampleRobolectricTest {
         composeTestRule.onNodeWithTag("local_tile_seeds").performScrollTo().performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("seeds_screen").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("back_button").performClick()
+        composeTestRule.waitForIdle()
+
+        // Open Yonca Agro Calendar, Insurance Calculator, and Stations from Local Tools grid
+        composeTestRule.onNodeWithTag("local_home_list").performScrollToNode(hasTestTag("local_tiles_grid"))
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("local_tile_calendar").performScrollTo().performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("agro_calendar_screen").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("back_button").performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("local_home_list").performScrollToNode(hasTestTag("local_tiles_grid"))
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("local_tile_insurance").performScrollTo().performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("insurance_calc_screen").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("back_button").performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("local_home_list").performScrollToNode(hasTestTag("local_tiles_grid"))
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("local_tile_stations").performScrollTo().performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("stations_screen").assertIsDisplayed()
+    }
+
+    @Test
+    fun `yoncaScreensRenderAndInteractCorrectly`() {
+        composeTestRule.setContent {
+            CompositionLocalProvider(LocalStrings provides StringsAz) {
+                AqroMeslehetTheme {
+                    AgroCalendarScreen(
+                        language = AppLanguage.AZ,
+                        adminCalendarNotes = listOf(
+                            AdminContentItem(id = "c1", category = "calendar", region = "Aran", title = "Ekspert qeydi", details = "Test təqvim qeydi")
+                        ),
+                        onBack = {},
+                    )
+                }
+            }
+        }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("agro_calendar_screen").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("admin_calendar_note_c1").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("calendar_month_card_1").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("calendar_category_btn").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("calendar_category_item_forage").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("calendar_month_card_1").assertIsDisplayed()
+    }
+
+    @Test
+    fun `insuranceAndStationsScreensWorkAndAdminIsRestrictedToOwnerEmail`() {
+        var publishedTitle = ""
+        composeTestRule.setContent {
+            CompositionLocalProvider(LocalStrings provides StringsAz) {
+                AqroMeslehetTheme {
+                    AdminScreen(
+                        userEmail = ADMIN_EMAIL,
+                        entries = emptyList(),
+                        onPublishEntry = { _, _, title, _, _ -> publishedTitle = title },
+                        onDeleteEntry = {},
+                        onBack = {},
+                    )
+                }
+            }
+        }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("admin_screen").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("admin_cat_seed").performClick()
+        composeTestRule.onNodeWithTag("admin_title_input").performTextInput("Yeni Sort 2026")
+        composeTestRule.onNodeWithTag("admin_details_input").performTextInput("Aran bölgəsi üçün yüksək məhsuldarlıq")
+        composeTestRule.onNodeWithTag("admin_publish_btn").performScrollTo().performClick()
+        assertEquals("Yeni Sort 2026", publishedTitle)
+    }
+
+    @Test
+    fun `homeScreenShowsAdminTileOnlyForOwnerEmail`() {
+        composeTestRule.setContent {
+            CompositionLocalProvider(LocalStrings provides StringsAz) {
+                AqroMeslehetTheme {
+                    HomeScreen(
+                        fields = emptyList(),
+                        weatherState = WeatherUiState(),
+                        equipmentAlerts = emptyList(),
+                        onNavigate = {},
+                        userEmail = "farmer@example.com",
+                        adminEntries = listOf(
+                            AdminContentItem(id = "n1", category = "notice", title = "Mövsüm elanı", details = "Suvarma cədvəli yeniləndi")
+                        ),
+                    )
+                }
+            }
+        }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("home_admin_notice_n1").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("tile_admin").assertDoesNotExist()
+    }
+
+    @Test
+    fun `homeScreenDisplaysAdminTileForOwnerAndAdminScreenBlocksOthers`() {
+        composeTestRule.setContent {
+            CompositionLocalProvider(LocalStrings provides StringsAz) {
+                AqroMeslehetTheme {
+                    HomeScreen(
+                        fields = emptyList(),
+                        weatherState = WeatherUiState(),
+                        equipmentAlerts = emptyList(),
+                        onNavigate = {},
+                        userEmail = ADMIN_EMAIL,
+                        adminEntries = emptyList(),
+                    )
+                }
+            }
+        }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("home_tiles_grid").performScrollTo()
+        composeTestRule.onNodeWithTag("tile_admin").assertIsDisplayed()
+    }
+
+    @Test
+    fun `adminScreenShowsRestrictedCardForNonAdminUser`() {
+        composeTestRule.setContent {
+            CompositionLocalProvider(LocalStrings provides StringsAz) {
+                AqroMeslehetTheme {
+                    AdminScreen(
+                        userEmail = "notadmin@gmail.com",
+                        entries = emptyList(),
+                        onPublishEntry = { _, _, _, _, _ -> },
+                        onDeleteEntry = {},
+                        onBack = {},
+                    )
+                }
+            }
+        }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("admin_restricted_card").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("admin_publish_btn").assertDoesNotExist()
+    }
+
+    @Test
+    fun `insuranceCalcAndStationsScreensRenderAllElements`() {
+        composeTestRule.setContent {
+            CompositionLocalProvider(LocalStrings provides StringsAz) {
+                AqroMeslehetTheme {
+                    InsuranceCalcScreen(language = AppLanguage.AZ, onBack = {})
+                }
+            }
+        }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("insurance_calc_screen").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("insurance_calc_screen").performScrollToNode(hasTestTag("insurance_result_card"))
+        composeTestRule.onNodeWithTag("insurance_result_card").assertIsDisplayed()
+    }
+
+    @Test
+    fun `stationsScreenShowsAllSevenServiceCenters`() {
+        composeTestRule.setContent {
+            CompositionLocalProvider(LocalStrings provides StringsAz) {
+                AqroMeslehetTheme {
+                    StationsScreen(language = AppLanguage.AZ, onBack = {})
+                }
+            }
+        }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("stations_screen").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("station_card_fertilizer").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("stations_screen").performScrollToNode(hasTestTag("station_card_lab"))
+        composeTestRule.onNodeWithTag("station_card_lab").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("station_dialog_maps_btn").assertIsDisplayed()
     }
 }

@@ -22,8 +22,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Agriculture
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Grass
 import androidx.compose.material.icons.filled.Link
@@ -34,6 +36,8 @@ import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.RequestQuote
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Spa
+import androidx.compose.material.icons.filled.Storefront
+import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.Card
@@ -55,7 +59,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.lazy.items
+import com.example.data.model.AdminContentItem
 import com.example.data.model.FarmField
+import com.example.data.model.isAdminEmail
 import com.example.i18n.LocalStrings
 import com.example.ui.components.KTN_TELEGRAM_BOT_URL
 import com.example.ui.components.formatNumber
@@ -88,26 +95,36 @@ fun HomeScreen(
     weatherState: WeatherUiState,
     equipmentAlerts: List<EquipmentAlert>,
     onNavigate: (String) -> Unit,
+    userEmail: String? = null,
+    adminEntries: List<AdminContentItem> = emptyList(),
 ) {
     val strings = LocalStrings.current
     val extra = LocalAqroColors.current
     val context = LocalContext.current
 
     val totalHa = fields.sumOf { it.sizeHa }
+    val showAdminTile = isAdminEmail(userEmail)
+    val adminNotices = adminEntries.filter { it.category == "notice" }
 
-    val tiles = listOf(
-        HomeMenuTile(NavRoutes.NPK, strings.tileNpkTitle, strings.tileNpkSub, Icons.Filled.Grass, EmeraldPrimary, "tile_npk"),
-        HomeMenuTile(NavRoutes.WEATHER, strings.tileWeatherTitle, strings.tileWeatherSub, Icons.Filled.WbSunny, Color(0xFF2F80ED), "tile_weather"),
-        HomeMenuTile(NavRoutes.PESTICIDE, strings.tilePestTitle, strings.tilePestSub, Icons.Filled.Science, WarningAmber, "tile_pesticide"),
-        HomeMenuTile(NavRoutes.FIELDS, strings.tileFieldsTitle, strings.tileFieldsSub, Icons.Filled.Map, Color(0xFF1F8A70), "tile_fields"),
-        HomeMenuTile(NavRoutes.SUBSIDY, strings.tileSubsidyTitle, strings.tileSubsidySub, Icons.Filled.RequestQuote, PhosphorusAmber, "tile_subsidy"),
-        HomeMenuTile(NavRoutes.EQUIPMENT, strings.tileEquipmentTitle, strings.tileEquipmentSub, Icons.Filled.Agriculture, PotassiumPlum, "tile_equipment"),
-        HomeMenuTile(NavRoutes.FINANCE, strings.tileFinanceTitle, strings.tileFinanceSub, Icons.Filled.AccountBalanceWallet, Color(0xFF0F766E), "tile_finance"),
-        HomeMenuTile(NavRoutes.HARVEST, strings.tileHarvestTitle, strings.tileHarvestSub, Icons.Filled.Spa, EmeraldBright, "tile_harvest"),
-        HomeMenuTile(NavRoutes.GALLERY, strings.tileGalleryTitle, strings.tileGallerySub, Icons.Filled.PhotoCamera, Color(0xFF0284C7), "tile_gallery"),
-        HomeMenuTile(NavRoutes.SEEDS, strings.tileSeedsTitle, strings.tileSeedsSub, Icons.Filled.LocalFlorist, Color(0xFF15803D), "tile_seeds"),
-        HomeMenuTile(NavRoutes.LINKS, strings.tileLinksTitle, strings.tileLinksSub, Icons.Filled.Link, Color(0xFF4F46E5), "tile_links"),
-    )
+    val tiles = buildList {
+        add(HomeMenuTile(NavRoutes.NPK, strings.tileNpkTitle, strings.tileNpkSub, Icons.Filled.Grass, EmeraldPrimary, "tile_npk"))
+        add(HomeMenuTile(NavRoutes.WEATHER, strings.tileWeatherTitle, strings.tileWeatherSub, Icons.Filled.WbSunny, Color(0xFF2F80ED), "tile_weather"))
+        add(HomeMenuTile(NavRoutes.PESTICIDE, strings.tilePestTitle, strings.tilePestSub, Icons.Filled.Science, WarningAmber, "tile_pesticide"))
+        add(HomeMenuTile(NavRoutes.FIELDS, strings.tileFieldsTitle, strings.tileFieldsSub, Icons.Filled.Map, Color(0xFF1F8A70), "tile_fields"))
+        add(HomeMenuTile(NavRoutes.AGRO_CALENDAR, strings.tileCalendarTitle, strings.tileCalendarSub, Icons.Filled.CalendarMonth, Color(0xFF7E22CE), "tile_calendar"))
+        add(HomeMenuTile(NavRoutes.INSURANCE, strings.tileInsuranceTitle, strings.tileInsuranceSub, Icons.Filled.VerifiedUser, Color(0xFF0369A1), "tile_insurance"))
+        add(HomeMenuTile(NavRoutes.STATIONS, strings.tileStationsTitle, strings.tileStationsSub, Icons.Filled.Storefront, Color(0xFF0D9488), "tile_stations"))
+        add(HomeMenuTile(NavRoutes.SUBSIDY, strings.tileSubsidyTitle, strings.tileSubsidySub, Icons.Filled.RequestQuote, PhosphorusAmber, "tile_subsidy"))
+        add(HomeMenuTile(NavRoutes.EQUIPMENT, strings.tileEquipmentTitle, strings.tileEquipmentSub, Icons.Filled.Agriculture, PotassiumPlum, "tile_equipment"))
+        add(HomeMenuTile(NavRoutes.FINANCE, strings.tileFinanceTitle, strings.tileFinanceSub, Icons.Filled.AccountBalanceWallet, Color(0xFF0F766E), "tile_finance"))
+        add(HomeMenuTile(NavRoutes.HARVEST, strings.tileHarvestTitle, strings.tileHarvestSub, Icons.Filled.Spa, EmeraldBright, "tile_harvest"))
+        add(HomeMenuTile(NavRoutes.GALLERY, strings.tileGalleryTitle, strings.tileGallerySub, Icons.Filled.PhotoCamera, Color(0xFF0284C7), "tile_gallery"))
+        add(HomeMenuTile(NavRoutes.SEEDS, strings.tileSeedsTitle, strings.tileSeedsSub, Icons.Filled.LocalFlorist, Color(0xFF15803D), "tile_seeds"))
+        add(HomeMenuTile(NavRoutes.LINKS, strings.tileLinksTitle, strings.tileLinksSub, Icons.Filled.Link, Color(0xFF4F46E5), "tile_links"))
+        if (showAdminTile) {
+            add(HomeMenuTile(NavRoutes.ADMIN, strings.tileAdminTitle, strings.tileAdminSub, Icons.Filled.AdminPanelSettings, Color(0xFFB45309), "tile_admin"))
+        }
+    }
 
     LazyColumn(
         contentPadding = PaddingValues(16.dp),
@@ -420,9 +437,71 @@ fun HomeScreen(
             }
         }
 
-        // 9-Tile Adaptive Menu Grid
+        // Admin Published Notices (visible to all signed-in users)
+        if (adminNotices.isNotEmpty()) {
+            items(adminNotices, key = { "home_notice_${it.id}" }) { notice ->
+                Card(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = extra.pale),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .let { mod ->
+                            if (notice.contactOrUrl.isNotBlank()) {
+                                mod.clip(RoundedCornerShape(18.dp)).clickable { openExternalUrl(context, notice.contactOrUrl) }
+                            } else {
+                                mod
+                            }
+                        }
+                        .testTag("home_admin_notice_${notice.id}"),
+                ) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.padding(14.dp),
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.AdminPanelSettings,
+                                contentDescription = strings.adminPublishedBannerTitle,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Text(
+                                text = strings.adminPublishedBannerTitle,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            if (notice.region.isNotBlank()) {
+                                Text(
+                                    text = "• ${notice.region}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = extra.muted,
+                                )
+                            }
+                        }
+                        Text(
+                            text = notice.title,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            text = notice.details,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                }
+            }
+        }
+
+        // Adaptive Menu Grid
         item {
-            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth().testTag("home_tiles_grid")) {
                 val cols = if (maxWidth >= 600.dp) 4 else 3
                 val rows = tiles.chunked(cols)
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {

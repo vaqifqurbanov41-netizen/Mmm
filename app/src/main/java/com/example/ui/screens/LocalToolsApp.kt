@@ -25,6 +25,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Agriculture
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Grass
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
@@ -35,6 +36,8 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.RequestQuote
 import androidx.compose.material.icons.filled.Science
+import androidx.compose.material.icons.filled.Storefront
+import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.Card
@@ -292,6 +295,28 @@ fun LocalToolsApp(
                     )
                 }
 
+                composable(NavRoutes.AGRO_CALENDAR) {
+                    AgroCalendarScreen(
+                        language = language,
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+
+                composable(NavRoutes.INSURANCE) {
+                    InsuranceCalcScreen(
+                        language = language,
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+
+                composable(NavRoutes.STATIONS) {
+                    StationsScreen(
+                        language = language,
+                        onNavigateToTool = navigateTo,
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+
                 composable(NavRoutes.LINKS) {
                     LinksScreen(
                         customLinks = emptyList(),
@@ -344,6 +369,9 @@ private fun LocalToolsHomeScreen(
         LocalToolTile(NavRoutes.NPK, strings.tileNpkTitle, strings.tileNpkSub, Icons.Filled.Grass, EmeraldPrimary, "local_tile_npk"),
         LocalToolTile(NavRoutes.WEATHER, strings.tileWeatherTitle, strings.tileWeatherSub, Icons.Filled.WbSunny, Color(0xFF2F80ED), "local_tile_weather"),
         LocalToolTile(NavRoutes.PESTICIDE, strings.tilePestTitle, strings.tilePestSub, Icons.Filled.Science, WarningAmber, "local_tile_pesticide"),
+        LocalToolTile(NavRoutes.AGRO_CALENDAR, strings.tileCalendarTitle, strings.tileCalendarSub, Icons.Filled.CalendarMonth, Color(0xFF7E22CE), "local_tile_calendar"),
+        LocalToolTile(NavRoutes.INSURANCE, strings.tileInsuranceTitle, strings.tileInsuranceSub, Icons.Filled.VerifiedUser, Color(0xFF0369A1), "local_tile_insurance"),
+        LocalToolTile(NavRoutes.STATIONS, strings.tileStationsTitle, strings.tileStationsSub, Icons.Filled.Storefront, Color(0xFF0D9488), "local_tile_stations"),
         LocalToolTile(NavRoutes.SUBSIDY, strings.tileSubsidyTitle, strings.tileSubsidySub, Icons.Filled.RequestQuote, PhosphorusAmber, "local_tile_subsidy"),
         LocalToolTile(NavRoutes.EQUIPMENT, strings.tileEquipmentTitle, strings.tileEquipmentSub, Icons.Filled.Agriculture, PotassiumPlum, "local_tile_equipment"),
         LocalToolTile(NavRoutes.FINANCE, strings.tileFinanceTitle, strings.tileFinanceSub, Icons.Filled.AccountBalanceWallet, Color(0xFF0F766E), "local_tile_finance"),
@@ -666,7 +694,11 @@ private fun LocalBottomBar(
                     currentRoute == NavRoutes.SUBSIDY ||
                     currentRoute == NavRoutes.EQUIPMENT ||
                     currentRoute == NavRoutes.FINANCE ||
-                    currentRoute == NavRoutes.GALLERY,
+                    currentRoute == NavRoutes.GALLERY ||
+                    currentRoute == NavRoutes.SEEDS ||
+                    currentRoute == NavRoutes.AGRO_CALENDAR ||
+                    currentRoute == NavRoutes.INSURANCE ||
+                    currentRoute == NavRoutes.STATIONS,
                 tag = "local_nav_tools",
                 onClick = { onNavigate(NavRoutes.NPK) },
                 modifier = Modifier.weight(1f),

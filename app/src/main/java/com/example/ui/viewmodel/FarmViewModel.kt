@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.ai.AiRepository
 import com.example.data.ai.ChatHistoryTurn
 import com.example.data.local.PreferencesStore
+import com.example.data.model.AdminContentItem
 import com.example.data.model.CustomLink
 import com.example.data.model.CustomPesticide
 import com.example.data.model.EquipmentItem
@@ -139,6 +140,10 @@ class FarmViewModel(
 
     val customLinks: StateFlow<List<CustomLink>> = repository.observeCustomLinks()
         .map { list -> list.sortedBy { it.name } }
+        .safeStateIn(emptyList())
+
+    val adminEntries: StateFlow<List<AdminContentItem>> = repository.observeAdminEntries()
+        .map { list -> list.sortedByDescending { it.createdAt?.seconds ?: 0L } }
         .safeStateIn(emptyList())
 
     // Weather state
@@ -519,6 +524,18 @@ class FarmViewModel(
     }
 
     suspend fun deleteCustomLink(id: String) = repository.deleteCustomLink(id)
+
+    suspend fun addAdminEntry(
+        category: String,
+        region: String,
+        title: String,
+        details: String,
+        contactOrUrl: String,
+    ) {
+        repository.addAdminEntry(category, region, title, details, contactOrUrl)
+    }
+
+    suspend fun deleteAdminEntry(id: String) = repository.deleteAdminEntry(id)
 
     fun exportBackupJson(): String = BackupManager.exportToJson(
         fields = fields.value,

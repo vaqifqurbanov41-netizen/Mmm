@@ -69,12 +69,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.credentials.CredentialManager
+import com.example.data.firebase.clearRuntimeFirebaseConfig
 import com.example.data.firebase.configureAppCheck
+import com.example.data.firebase.ensureFirebaseInitialized
+import com.example.data.firebase.getActiveFirebaseProjectId
 import com.example.data.firebase.getSigningSha1
+import com.example.data.firebase.getSigningSha256
+import com.example.data.firebase.hasRuntimeFirebaseOverride
+import com.example.data.firebase.inspectFirebaseJson
 import com.example.data.firebase.saveAndInitializeFirebaseFromJson
 import com.example.i18n.AppLanguage
 import com.example.i18n.LocalStrings
 import com.example.ui.auth.consumePendingWebSignInResult
+import com.example.ui.auth.isShaOrCertMismatchError
 import com.example.ui.auth.onGoogleSignInClicked
 import com.example.ui.auth.signInWithGoogleWebBrowser
 import com.example.ui.components.DangerBannerBox
@@ -102,7 +109,82 @@ fun AuthScreen(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var showTroubleshoot by remember { mutableStateOf(false) }
     var configNotice by remember { mutableStateOf<String?>(null) }
+    var showPasteDialog by remember { mutableStateOf(false) }
+    var pastedJson by remember { mutableStateOf("") }
+    var hasRuntimeConfig by remember(context) { mutableStateOf(hasRuntimeFirebaseOverride(context)) }
+    var activeProjectId by remember(context) { mutableStateOf(getActiveFirebaseProjectId(context)) }
     val sha1Fingerprint = remember(context) { getSigningSha1(context) }
+    val sha256Fingerprint = remember(context) { getSigningSha256(context) }
+
+    fun applyImportedJson(rawJson: String) {
+        val diag = inspectFirebaseJson(context, rawJson)
+        val res = saveAndInitializeFirebaseFromJson(context, rawJson)
+        res.onSuccess { projectId ->
+            configureAppCheck(context, null)
+            hasRuntimeConfig = hasRuntimeFirebaseOverride(context)
+            activeProjectId = getActiveFirebaseProjectId(context) ?: projectId
+            if (diag != null && !diag.hasMatchingSha1) {
+                configNotice = null
+                errorMessage = String.format(
+                    currentLanguage.locale,
+                    strings.googleServicesMissingShaWarning,
+                    projectId,
+                )
+                showTroubleshoot = true
+            } else if (diag != null && !diag.hasWebClientId) {
+                configNotice = null
+                errorMessage = String.format(
+                    currentLanguage.locale,
+                    strings.googleServicesMissingWebClientWarning,
+                    projectId,
+                )
+                showTroubleshoot = true
+            } else {
+                errorMessage = null
+                configNotice = String.format(
+                    currentLanguage.locale,
+                    strings.googleServicesImportSuccess,
+                    projectId,
+                )
+            }
+        }.onFailure {
+            configNotice = null
+            errorMessage = strings.googleServicesImportError
+        }
+    }
+
+    if (showPasteDialog) {
+        AlertDialog(
+            onDismissRequest = { showPasteDialog = false },
+            title = { Text(strings.googleServicesPasteTitle, fontWeight = FontWeight.Bold) },
+            text = {
+                OutlinedTextField(
+                    value = pastedJson,
+                    onValueChange = { pastedJson = it },
+                    placeholder = { Text(strings.googleServicesPasteHint) },
+                    minLines = 5,
+                    maxLines = 10,
+                    modifier = Modifier.fillMaxWidth().testTag("auth_paste_google_services_input"),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showPasteDialog = false
+                        applyImportedJson(pastedJson)
+                    },
+                    modifier = Modifier.testTag("auth_confirm_paste_google_services_btn"),
+                ) {
+                    Text(strings.save, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPasteDialog = false }) {
+                    Text(strings.cancel)
+                }
+            },
+        )
+    }
 
     LaunchedEffect(Unit) {
         consumePendingWebSignInResult(
@@ -135,19 +217,7 @@ fun AuthScreen(
                     configNotice = null
                     errorMessage = strings.googleServicesImportError
                 } else {
-                    val res = saveAndInitializeFirebaseFromJson(context, content)
-                    res.onSuccess { projectId ->
-                        configureAppCheck(context, null)
-                        errorMessage = null
-                        configNotice = String.format(
-                            currentLanguage.locale,
-                            strings.googleServicesImportSuccess,
-                            projectId,
-                        )
-                    }.onFailure {
-                        configNotice = null
-                        errorMessage = strings.googleServicesImportError
-                    }
+                    applyImportedJson(content)
                 }
             }
         }
@@ -421,62 +491,74 @@ fun AuthScreen(
                             color = MaterialTheme.colorScheme.onSurface,
                             fontWeight = FontWeight.Bold,
                         )
+
+                        if (isShaOrCertMismatchError(errorMessage)) {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = extra.warningContainer,
+                                modifier = Modifier.fillMaxWidth().testTag("sha_mismatch_diagnosis_box"),
+                            ) {
+                                Text(
+                                    text = strings.shaMismatchDiagnosisMsg,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(10.dp),
+                                )
+                            }
+                        }
+
+                        if (!activeProjectId.isNullOrBlank()) {
+                            Text(
+                                text = "${strings.activeFirebaseProjectLabel}: $activeProjectId",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontFamily = FontFamily.Monospace,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+
                         Text(
                             text = strings.signInTroubleBody,
                             style = MaterialTheme.typography.bodySmall,
                             color = extra.muted,
                         )
-                        Text(
-                            text = "${strings.packageNameLabel}: ${context.packageName}",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontFamily = FontFamily.Monospace,
-                            color = MaterialTheme.colorScheme.onSurface,
+
+                        FingerprintCopyRow(
+                            label = strings.packageNameLabel,
+                            value = context.packageName,
+                            copyLabel = strings.btnCopyPkg,
+                            testTag = "copy_pkg_button",
+                            onCopy = {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                clipboard?.setPrimaryClip(ClipData.newPlainText("Package", context.packageName))
+                                Toast.makeText(context, strings.pkgCopiedMsg, Toast.LENGTH_SHORT).show()
+                            },
                         )
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = extra.pale,
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = strings.sha1Label,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        fontWeight = FontWeight.Bold,
-                                    )
-                                    Text(
-                                        text = sha1Fingerprint,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontFamily = FontFamily.Monospace,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                    )
-                                }
-                                TextButton(
-                                    onClick = {
-                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                                        clipboard?.setPrimaryClip(ClipData.newPlainText("SHA-1", sha1Fingerprint))
-                                        Toast.makeText(context, strings.sha1CopiedMsg, Toast.LENGTH_SHORT).show()
-                                    },
-                                    modifier = Modifier.testTag("copy_sha1_button"),
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.ContentCopy,
-                                        contentDescription = strings.btnCopySha1,
-                                        modifier = Modifier.size(16.dp).padding(end = 4.dp),
-                                    )
-                                    Text(
-                                        text = strings.btnCopySha1,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                    )
-                                }
-                            }
-                        }
+
+                        FingerprintCopyRow(
+                            label = strings.sha1Label,
+                            value = sha1Fingerprint,
+                            copyLabel = strings.btnCopySha1,
+                            testTag = "copy_sha1_button",
+                            onCopy = {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                clipboard?.setPrimaryClip(ClipData.newPlainText("SHA-1", sha1Fingerprint))
+                                Toast.makeText(context, strings.sha1CopiedMsg, Toast.LENGTH_SHORT).show()
+                            },
+                        )
+
+                        FingerprintCopyRow(
+                            label = strings.sha256Label,
+                            value = sha256Fingerprint,
+                            copyLabel = strings.btnCopySha256,
+                            testTag = "copy_sha256_button",
+                            onCopy = {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                clipboard?.setPrimaryClip(ClipData.newPlainText("SHA-256", sha256Fingerprint))
+                                Toast.makeText(context, strings.sha256CopiedMsg, Toast.LENGTH_SHORT).show()
+                            },
+                        )
 
                         OutlinedButton(
                             onClick = { updateJsonLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) },
@@ -497,8 +579,102 @@ fun AuthScreen(
                                 fontWeight = FontWeight.Bold,
                             )
                         }
+
+                        OutlinedButton(
+                            onClick = { showPasteDialog = true },
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, extra.line),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("auth_paste_google_services_btn"),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Code,
+                                contentDescription = null,
+                                modifier = Modifier.padding(end = 6.dp).size(16.dp),
+                            )
+                            Text(
+                                text = strings.btnPasteGoogleServices,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+
+                        if (hasRuntimeConfig) {
+                            TextButton(
+                                onClick = {
+                                    clearRuntimeFirebaseConfig(context)
+                                    hasRuntimeConfig = false
+                                    ensureFirebaseInitialized(context)
+                                    activeProjectId = getActiveFirebaseProjectId(context)
+                                    errorMessage = null
+                                    configNotice = strings.firebaseConfigResetMsg
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("auth_reset_firebase_btn"),
+                            ) {
+                                Text(
+                                    text = strings.btnResetFirebaseConfig,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = extra.muted,
+                                )
+                            }
+                        }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FingerprintCopyRow(
+    label: String,
+    value: String,
+    copyLabel: String,
+    testTag: String,
+    onCopy: () -> Unit,
+) {
+    val extra = LocalAqroColors.current
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = extra.pale,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    text = value,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+            TextButton(
+                onClick = onCopy,
+                modifier = Modifier.testTag(testTag),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.ContentCopy,
+                    contentDescription = copyLabel,
+                    modifier = Modifier.size(16.dp).padding(end = 4.dp),
+                )
+                Text(
+                    text = copyLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                )
             }
         }
     }

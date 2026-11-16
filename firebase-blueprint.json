@@ -121,6 +121,23 @@
         "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp on update" }
       },
       "required": ["userId", "name", "url", "createdAt", "updatedAt"]
+    },
+    "AdminContentItem": {
+      "title": "AdminContentItem",
+      "description": "Global farmer advisory, seed variety, service station, or calendar note published by admin",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Admin Firebase Auth UID" },
+        "createdByEmail": { "type": "string", "description": "Admin email address" },
+        "category": { "type": "string", "enum": ["notice", "seed", "station", "calendar"], "description": "Entry category" },
+        "region": { "type": "string", "description": "Applicable region or crop tag" },
+        "title": { "type": "string", "description": "Headline or variety/station name" },
+        "details": { "type": "string", "description": "Detailed advisory or address text" },
+        "contactOrUrl": { "type": "string", "description": "Optional phone number or HTTPS URL" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp on creation" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp on update" }
+      },
+      "required": ["userId", "createdByEmail", "category", "region", "title", "details", "contactOrUrl", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -155,6 +172,10 @@
     "/users/{userId}/customLinks/{linkId}": {
       "schema": { "$ref": "#/entities/CustomLink" },
       "description": "Custom bookmarks belonging to the authenticated user"
+    },
+    "/adminEntries/{entryId}": {
+      "schema": { "$ref": "#/entities/AdminContentItem" },
+      "description": "Global content published exclusively by admin email vaqifqurbanov494@gmail.com"
     }
   }
 }

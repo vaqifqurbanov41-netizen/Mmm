@@ -440,6 +440,17 @@ interface AppStrings {
     val sha1Label: String
     val btnCopySha1: String
     val sha1CopiedMsg: String
+    val sha256Label: String
+    val btnCopySha256: String
+    val sha256CopiedMsg: String
+    val btnCopyPkg: String
+    val pkgCopiedMsg: String
+    val activeFirebaseProjectLabel: String
+    val shaMismatchDiagnosisMsg: String
+    val googleServicesMissingShaWarning: String
+    val googleServicesMissingWebClientWarning: String
+    val btnResetFirebaseConfig: String
+    val firebaseConfigResetMsg: String
     val firebaseQuickHelpLink: String
     val btnUpdateGoogleServices: String
     val btnGoogleWebFallback: String
@@ -465,6 +476,68 @@ interface AppStrings {
     val seedRegionsLabel: String
     val seedShareBtn: String
     val seedAskAiBtn: String
+
+    // Yonca Features: Agrotechnological Calendar, Agricultural Insurance, Stations
+    val tileCalendarTitle: String
+    val tileCalendarSub: String
+    val agroCalendarTitle: String
+    val agroCategoryLabel: String
+    val agroCropLabel: String
+    val currentMonthBadge: String
+    val agroAskAiMonthBtn: String
+
+    val tileInsuranceTitle: String
+    val tileInsuranceSub: String
+    val insuranceTitle: String
+    val insuranceSubtitle: String
+    val insuranceRegionLabel: String
+    val insuranceCropLabel: String
+    val insuranceAreaLabel: String
+    val insuranceYieldLabel: String
+    val insurancePriceLabel: String
+    val insurancePackageLabel: String
+    val insurancePkgBasic: String
+    val insurancePkgExtended: String
+    val insuranceSubsidyToggle: String
+    val insuranceTotalSumLabel: String
+    val insuranceGrossPremiumLabel: String
+    val insuranceStateSupportLabel: String
+    val insuranceFarmerPaysLabel: String
+    val insurancePerHaFormat: String
+    val insuranceOfficialBtn: String
+
+    val tileStationsTitle: String
+    val tileStationsSub: String
+    val stationsTitle: String
+    val stationsSubtitle: String
+    val stationsDistrictHint: String
+    val stationsSearchMapsBtn: String
+    val stationsOpenPortalBtn: String
+    val stationsOpenToolBtn: String
+
+    // Admin Panel (vaqifqurbanov494@gmail.com only)
+    val tileAdminTitle: String
+    val tileAdminSub: String
+    val adminTitle: String
+    val adminSubtitle: String
+    val adminCategoryLabel: String
+    val adminCatNotice: String
+    val adminCatSeed: String
+    val adminCatStation: String
+    val adminCatCalendar: String
+    val adminRegionCropLabel: String
+    val adminRegionCropHint: String
+    val adminEntryTitleLabel: String
+    val adminEntryTitleHint: String
+    val adminDetailsLabel: String
+    val adminDetailsHint: String
+    val adminContactLabel: String
+    val adminContactHint: String
+    val adminPublishBtn: String
+    val adminPublishedListTitle: String
+    val adminEmptyList: String
+    val adminPublishedBannerTitle: String
+    val adminSavedMsg: String
 }
 
 val LocalStrings = staticCompositionLocalOf<AppStrings> {

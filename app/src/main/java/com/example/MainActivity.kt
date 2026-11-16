@@ -33,6 +33,7 @@ import androidx.navigation.compose.rememberNavController
 import com.example.data.ai.FirebaseAiRepository
 import com.example.data.firebase.configureAppCheck
 import com.example.data.firebase.ensureFirebaseInitialized
+import com.example.data.firebase.resolveFirestoreDatabaseId
 import com.example.data.local.LocalRecordsStore
 import com.example.data.local.PreferencesStore
 import com.example.data.remote.OpenMeteoService
@@ -47,6 +48,8 @@ import com.example.ui.components.AqroBottomBar
 import com.example.ui.components.AqroTopHeader
 import com.example.ui.components.formatNumber
 import com.example.ui.navigation.NavRoutes
+import com.example.ui.screens.AdminScreen
+import com.example.ui.screens.AgroCalendarScreen
 import com.example.ui.screens.AuthScreen
 import com.example.ui.screens.ChatScreen
 import com.example.ui.screens.EquipmentScreen
@@ -55,6 +58,7 @@ import com.example.ui.screens.FinanceScreen
 import com.example.ui.screens.FirebaseConfigMissingScreen
 import com.example.ui.screens.HarvestScreen
 import com.example.ui.screens.HomeScreen
+import com.example.ui.screens.InsuranceCalcScreen
 import com.example.ui.screens.LinksScreen
 import com.example.ui.screens.LocalToolsApp
 import com.example.ui.screens.NpkScreen
@@ -63,6 +67,7 @@ import com.example.ui.screens.PhotoGalleryScreen
 import com.example.ui.screens.ProfileScreen
 import com.example.ui.screens.ScannerScreen
 import com.example.ui.screens.SeedsScreen
+import com.example.ui.screens.StationsScreen
 import com.example.ui.screens.SubsidyScreen
 import com.example.ui.screens.WeatherScreen
 import com.example.ui.theme.AqroMeslehetTheme
@@ -188,12 +193,7 @@ private fun AuthenticatedMainApp(
         factory = viewModelFactory {
             initializer {
                 val app = checkNotNull(this[APPLICATION_KEY])
-                val dbResId = app.resources.getIdentifier("firestore_database_id", "string", app.packageName)
-                val databaseId = if (dbResId != 0) {
-                    app.getString(dbResId)
-                } else {
-                    "ai-studio-android-aqromslh-892d166e-8482-4e99-87aa-793ae6666b78"
-                }
+                val databaseId = resolveFirestoreDatabaseId(app.applicationContext)
                 val db = FirebaseFirestore.getInstance(databaseId)
                 FarmViewModel(
                     repository = FarmRepository(db, Firebase.auth),
@@ -214,6 +214,7 @@ private fun AuthenticatedMainApp(
     val declarations by viewModel.declarations.collectAsStateWithLifecycle()
     val customPesticides by viewModel.customPesticides.collectAsStateWithLifecycle()
     val customLinks by viewModel.customLinks.collectAsStateWithLifecycle()
+    val adminEntries by viewModel.adminEntries.collectAsStateWithLifecycle()
     val weatherState by viewModel.weatherState.collectAsStateWithLifecycle()
 
     val mapPoints by viewModel.mapPoints.collectAsStateWithLifecycle()
@@ -304,6 +305,8 @@ private fun AuthenticatedMainApp(
                         weatherState = weatherState,
                         equipmentAlerts = equipmentAlerts,
                         onNavigate = navigateTo,
+                        userEmail = userEmail,
+                        adminEntries = adminEntries,
                     )
                 }
 
@@ -440,11 +443,50 @@ private fun AuthenticatedMainApp(
                 composable(NavRoutes.SEEDS) {
                     SeedsScreen(
                         language = language,
+                        adminSeedEntries = adminEntries.filter { it.category == "seed" },
                         onBack = { navController.popBackStack() },
                         onAskAiAboutVariety = { prompt ->
                             navigateTo(NavRoutes.CHAT)
                             viewModel.sendAiQuestion(prompt, language)
                         },
+                    )
+                }
+
+                composable(NavRoutes.AGRO_CALENDAR) {
+                    AgroCalendarScreen(
+                        language = language,
+                        adminCalendarNotes = adminEntries.filter { it.category == "calendar" },
+                        onBack = { navController.popBackStack() },
+                        onAskAiAboutMonth = { prompt ->
+                            navigateTo(NavRoutes.CHAT)
+                            viewModel.sendAiQuestion(prompt, language)
+                        },
+                    )
+                }
+
+                composable(NavRoutes.INSURANCE) {
+                    InsuranceCalcScreen(
+                        language = language,
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+
+                composable(NavRoutes.STATIONS) {
+                    StationsScreen(
+                        language = language,
+                        adminStations = adminEntries.filter { it.category == "station" },
+                        onNavigateToTool = navigateTo,
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+
+                composable(NavRoutes.ADMIN) {
+                    AdminScreen(
+                        userEmail = userEmail,
+                        entries = adminEntries,
+                        onPublishEntry = viewModel::addAdminEntry,
+                        onDeleteEntry = viewModel::deleteAdminEntry,
+                        onBack = { navController.popBackStack() },
                     )
                 }
 

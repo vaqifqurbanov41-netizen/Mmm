@@ -102,3 +102,22 @@ data class CustomLink(
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null,
 )
+
+const val ADMIN_EMAIL = "vaqifqurbanov494@gmail.com"
+
+fun isAdminEmail(email: String?): Boolean =
+    email?.trim()?.equals(ADMIN_EMAIL, ignoreCase = true) == true
+
+@IgnoreExtraProperties
+data class AdminContentItem(
+    @DocumentId val id: String = "",
+    val userId: String = "",
+    val createdByEmail: String = "",
+    val category: String = "notice", // "notice", "seed", "station", "calendar"
+    val region: String = "",
+    val title: String = "",
+    val details: String = "",
+    val contactOrUrl: String = "",
+    @ServerTimestamp val createdAt: Timestamp? = null,
+    @ServerTimestamp val updatedAt: Timestamp? = null,
+)
