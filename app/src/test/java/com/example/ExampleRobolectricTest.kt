@@ -10,9 +10,15 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
+import com.example.data.firebase.getSigningSha1
+import com.example.i18n.AppLanguage
 import com.example.i18n.StringsAz
 import com.example.i18n.StringsEn
 import com.example.i18n.StringsRu
+import com.example.ui.screens.AuthScreen
+import com.example.ui.theme.AqroMeslehetTheme
+import androidx.compose.runtime.CompositionLocalProvider
+import com.example.i18n.LocalStrings
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -35,6 +41,9 @@ class ExampleRobolectricTest {
         val appName = context.getString(R.string.app_name)
         assertEquals("AqroMəsləhət", appName)
 
+        val sha1 = getSigningSha1(context)
+        assertTrue(sha1.contains(":"))
+
         assertEquals("Vaqif Qurbanov", StringsAz.creatorName)
         assertEquals("Vaqif Qurbanov", StringsEn.creatorName)
         assertEquals("Вагиф Гурбанов", StringsRu.creatorName)
@@ -52,6 +61,36 @@ class ExampleRobolectricTest {
         val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
         assertTrue(controller.get() != null)
         controller.pause().stop().destroy()
+    }
+
+    @Test
+    fun `authScreen shows sign in, local mode button, and expandable sha1 troubleshooting card`() {
+        var continuedLocal = false
+        composeTestRule.setContent {
+            CompositionLocalProvider(LocalStrings provides StringsAz) {
+                AqroMeslehetTheme {
+                    AuthScreen(
+                        currentLanguage = AppLanguage.AZ,
+                        onSelectLanguage = {},
+                        onAuthSuccess = {},
+                        onContinueLocalMode = { continuedLocal = true },
+                    )
+                }
+            }
+        }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("auth_screen").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("google_sign_in_button").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("auth_continue_local_btn").assertIsDisplayed()
+
+        composeTestRule.onNodeWithTag("auth_troubleshoot_toggle_btn").performScrollTo().performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("auth_troubleshoot_card").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithTag("copy_sha1_button").performScrollTo().performClick()
+        composeTestRule.onNodeWithTag("auth_update_google_services_btn").performScrollTo().assertIsDisplayed()
+
+        composeTestRule.onNodeWithTag("auth_continue_local_btn").performScrollTo().performClick()
+        assertTrue(continuedLocal)
     }
 
     @Test

@@ -428,4 +428,12 @@ object StringsAz : AppStrings {
     override val googleServicesPasteHint = "Layihədəki app/google-services.json faylının bütün mətnini bura yapışdırın..."
     override val googleServicesImportSuccess = "Firebase uğurla aktivləşdirildi (%s)! İndi Google ilə daxil ola bilərsiniz."
     override val googleServicesImportError = "Düzgün google-services.json faylı seçilmədi və ya mətn yararsızdır."
+    override val signInTroubleTitle = "Google Girişi Niyə Bağlanır və ya Ləğv Edilir?"
+    override val signInTroubleBody = "1. Firebase Console → Authentication → Sign-in method → Google aktiv olmalıdır (Support email seçilməlidir).\n2. Project Settings → Android tətbiqinə aşağıdakı SHA-1 əlavə edilib yeni google-services.json yüklənməlidir.\n3. Telefonda aktiv Google hesabı və Google Play Services yenilənməsi olmalıdır."
+    override val packageNameLabel = "Paket adı (Package name)"
+    override val sha1Label = "APK SHA-1 barmaq izi"
+    override val btnCopySha1 = "SHA-1 kopyala"
+    override val sha1CopiedMsg = "SHA-1 panoya kopyalandı!"
+    override val firebaseQuickHelpLink = "Firebase SHA-1 və giriş köməyi"
+    override val btnUpdateGoogleServices = "google-services.json yenilə"
 }

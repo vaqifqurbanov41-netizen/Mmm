@@ -2,6 +2,8 @@ package com.example.data.firebase
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.util.Log
 import com.example.BuildConfig
 import com.google.firebase.FirebaseApp
@@ -9,6 +11,7 @@ import com.google.firebase.FirebaseOptions
 import com.google.firebase.appcheck.FirebaseAppCheck
 import com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory
 import com.google.firebase.appcheck.recaptcha.RecaptchaAppCheckProviderFactory
+import java.security.MessageDigest
 import org.json.JSONObject
 
 private const val TAG = "AppCheckInit"
@@ -25,9 +28,48 @@ private const val KEY_PROJECT_NUMBER = "project_number"
 private const val KEY_STORAGE_BUCKET = "storage_bucket"
 private const val KEY_WEB_CLIENT_ID = "web_client_id"
 
+private const val DEFAULT_DEBUG_SHA1 = "EC:A9:CD:7B:88:34:CF:8F:37:4C:5E:D6:6E:C3:BA:F5:06:18:72:31"
+
+@Suppress("DEPRECATION")
+fun getSigningSha1(context: Context): String {
+    return try {
+        val pm = context.packageManager
+        val signatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val info = pm.getPackageInfo(
+                context.packageName,
+                PackageManager.GET_SIGNING_CERTIFICATES,
+            )
+            info.signingInfo?.apkContentsSigners ?: info.signingInfo?.signingCertificateHistory
+        } else {
+            pm.getPackageInfo(
+                context.packageName,
+                PackageManager.GET_SIGNATURES,
+            ).signatures
+        }
+        val certBytes = signatures?.firstOrNull()?.toByteArray() ?: return DEFAULT_DEBUG_SHA1
+        val digest = MessageDigest.getInstance("SHA-1").digest(certBytes)
+        digest.joinToString(":") { byte -> "%02X".format(byte) }
+    } catch (_: Exception) {
+        DEFAULT_DEBUG_SHA1
+    }
+}
+
 fun getRuntimeWebClientId(context: Context): String? {
     val prefs = context.getSharedPreferences(RUNTIME_FIREBASE_PREFS, Context.MODE_PRIVATE)
     return prefs.getString(KEY_WEB_CLIENT_ID, null)?.takeIf { it.isNotBlank() }
+}
+
+fun getActiveFirebaseProjectId(context: Context): String? {
+    val fromApp = runCatching { FirebaseApp.getApps(context).firstOrNull()?.options?.projectId }
+        .getOrNull()
+        ?.takeIf { it.isNotBlank() }
+    if (fromApp != null) return fromApp
+    val prefs = context.getSharedPreferences(RUNTIME_FIREBASE_PREFS, Context.MODE_PRIVATE)
+    return prefs.getString(KEY_PROJECT_ID, null)?.takeIf { it.isNotBlank() }
+}
+
+fun clearRuntimeFirebaseConfig(context: Context) {
+    context.getSharedPreferences(RUNTIME_FIREBASE_PREFS, Context.MODE_PRIVATE).edit().clear().apply()
 }
 
 fun saveAndInitializeFirebaseFromJson(context: Context, jsonText: String): Result<String> {
@@ -77,6 +119,10 @@ fun saveAndInitializeFirebaseFromJson(context: Context, jsonText: String): Resul
         if (projectNumber.isNotBlank()) optionsBuilder.setGcmSenderId(projectNumber)
         if (storageBucket.isNotBlank()) optionsBuilder.setStorageBucket(storageBucket)
 
+        val existing = FirebaseApp.getApps(context).firstOrNull { it.name == FirebaseApp.DEFAULT_APP_NAME }
+        if (existing != null && existing.options.projectId != projectId) {
+            runCatching { existing.delete() }
+        }
         if (FirebaseApp.getApps(context).isEmpty()) {
             FirebaseApp.initializeApp(context.applicationContext, optionsBuilder.build())
         }

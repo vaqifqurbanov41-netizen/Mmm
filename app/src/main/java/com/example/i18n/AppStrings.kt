@@ -434,6 +434,14 @@ interface AppStrings {
     val googleServicesPasteHint: String
     val googleServicesImportSuccess: String
     val googleServicesImportError: String
+    val signInTroubleTitle: String
+    val signInTroubleBody: String
+    val packageNameLabel: String
+    val sha1Label: String
+    val btnCopySha1: String
+    val sha1CopiedMsg: String
+    val firebaseQuickHelpLink: String
+    val btnUpdateGoogleServices: String
 }
 
 val LocalStrings = staticCompositionLocalOf<AppStrings> {

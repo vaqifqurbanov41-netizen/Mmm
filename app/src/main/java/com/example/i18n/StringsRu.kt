@@ -428,4 +428,12 @@ object StringsRu : AppStrings {
     override val googleServicesPasteHint = "Вставьте сюда полное содержимое файла app/google-services.json..."
     override val googleServicesImportSuccess = "Firebase активирован (%s)! Теперь можно войти через Google."
     override val googleServicesImportError = "Неверный файл или формат google-services.json."
+    override val signInTroubleTitle = "Почему отменяется вход через Google?"
+    override val signInTroubleBody = "1. В Firebase Console → Authentication → Sign-in method должен быть включён Google (и выбран Support email).\n2. Добавьте указанный ниже SHA-1 в Project Settings → Android-приложение и скачайте обновлённый google-services.json.\n3. Убедитесь, что на телефоне добавлен Google-аккаунт и обновлён Google Play Services."
+    override val packageNameLabel = "Имя пакета (Package name)"
+    override val sha1Label = "Отпечаток APK SHA-1"
+    override val btnCopySha1 = "Копировать SHA-1"
+    override val sha1CopiedMsg = "SHA-1 скопирован!"
+    override val firebaseQuickHelpLink = "Помощь по Firebase SHA-1 и входу"
+    override val btnUpdateGoogleServices = "Обновить google-services.json"
 }

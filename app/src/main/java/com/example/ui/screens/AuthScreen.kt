@@ -1,5 +1,11 @@
 package com.example.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -21,11 +27,16 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Eco
+import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -34,8 +45,10 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -49,17 +62,13 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.credentials.CredentialManager
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.material.icons.filled.Code
-import androidx.compose.material.icons.filled.UploadFile
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.TextButton
+import com.example.data.firebase.configureAppCheck
+import com.example.data.firebase.getSigningSha1
 import com.example.data.firebase.saveAndInitializeFirebaseFromJson
 import com.example.i18n.AppLanguage
 import com.example.i18n.LocalStrings
@@ -77,6 +86,7 @@ fun AuthScreen(
     currentLanguage: AppLanguage,
     onSelectLanguage: (AppLanguage) -> Unit,
     onAuthSuccess: () -> Unit,
+    onContinueLocalMode: () -> Unit = {},
 ) {
     val strings = LocalStrings.current
     val extra = LocalAqroColors.current
@@ -86,6 +96,43 @@ fun AuthScreen(
 
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var showTroubleshoot by remember { mutableStateOf(false) }
+    var configNotice by remember { mutableStateOf<String?>(null) }
+    val sha1Fingerprint = remember(context) { getSigningSha1(context) }
+
+    val updateJsonLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val content = withContext(Dispatchers.IO) {
+                    runCatching {
+                        context.contentResolver.openInputStream(uri)?.use {
+                            it.bufferedReader().readText()
+                        }.orEmpty()
+                    }.getOrDefault("")
+                }
+                if (content.isBlank()) {
+                    configNotice = null
+                    errorMessage = strings.googleServicesImportError
+                } else {
+                    val res = saveAndInitializeFirebaseFromJson(context, content)
+                    res.onSuccess { projectId ->
+                        configureAppCheck(context, null)
+                        errorMessage = null
+                        configNotice = String.format(
+                            currentLanguage.locale,
+                            strings.googleServicesImportSuccess,
+                            projectId,
+                        )
+                    }.onFailure {
+                        configNotice = null
+                        errorMessage = strings.googleServicesImportError
+                    }
+                }
+            }
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -93,7 +140,8 @@ fun AuthScreen(
             .background(MaterialTheme.colorScheme.background)
             .statusBarsPadding()
             .navigationBarsPadding()
-            .padding(20.dp),
+            .padding(20.dp)
+            .testTag("auth_screen"),
     ) {
         LanguageSwitcherPills(
             currentLanguage = currentLanguage,
@@ -106,8 +154,10 @@ fun AuthScreen(
             verticalArrangement = Arrangement.Center,
             modifier = Modifier
                 .align(Alignment.Center)
+                .padding(top = 48.dp)
                 .widthIn(max = 460.dp)
-                .fillMaxWidth(),
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState()),
         ) {
             Box(
                 contentAlignment = Alignment.Center,
@@ -154,16 +204,34 @@ fun AuthScreen(
                 textAlign = TextAlign.Center,
             )
 
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
             if (errorMessage != null) {
                 DangerBannerBox(text = errorMessage!!)
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+
+            if (configNotice != null) {
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = extra.pale,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text = configNotice!!,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(12.dp),
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
             }
 
             Button(
                 onClick = {
                     errorMessage = null
+                    configNotice = null
                     isLoading = true
                     onGoogleSignInClicked(
                         context = context,
@@ -175,11 +243,19 @@ fun AuthScreen(
                         onAuthError = { msg ->
                             isLoading = false
                             errorMessage = msg
+                            showTroubleshoot = true
                         },
                         scope = scope,
-                        onAuthCancelled = {
+                        onAuthCancelled = { detail ->
                             isLoading = false
-                            errorMessage = strings.signInCancelledMsg
+                            errorMessage = if (!detail.isNullOrBlank() &&
+                                !detail.equals("activity is cancelled by the user.", ignoreCase = true)
+                            ) {
+                                "${strings.signInCancelledMsg}\n($detail)"
+                            } else {
+                                strings.signInCancelledMsg
+                            }
+                            showTroubleshoot = true
                         },
                     )
                 },
@@ -208,6 +284,147 @@ fun AuthScreen(
                         style = MaterialTheme.typography.titleMedium,
                         color = Color.White,
                     )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            OutlinedButton(
+                onClick = onContinueLocalMode,
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .testTag("auth_continue_local_btn"),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Build,
+                    contentDescription = null,
+                    modifier = Modifier.padding(end = 8.dp).size(18.dp),
+                )
+                Text(
+                    text = strings.openLocalToolsBtn,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            TextButton(
+                onClick = { showTroubleshoot = !showTroubleshoot },
+                modifier = Modifier.testTag("auth_troubleshoot_toggle_btn"),
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.HelpOutline,
+                    contentDescription = null,
+                    modifier = Modifier.padding(end = 6.dp).size(18.dp),
+                )
+                Text(
+                    text = strings.firebaseQuickHelpLink,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+
+            if (showTroubleshoot) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    border = BorderStroke(1.dp, extra.line),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("auth_troubleshoot_card"),
+                ) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(14.dp),
+                    ) {
+                        Text(
+                            text = strings.signInTroubleTitle,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            text = strings.signInTroubleBody,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = extra.muted,
+                        )
+                        Text(
+                            text = "${strings.packageNameLabel}: ${context.packageName}",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = extra.pale,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = strings.sha1Label,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                    Text(
+                                        text = sha1Fingerprint,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                }
+                                TextButton(
+                                    onClick = {
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                        clipboard?.setPrimaryClip(ClipData.newPlainText("SHA-1", sha1Fingerprint))
+                                        Toast.makeText(context, strings.sha1CopiedMsg, Toast.LENGTH_SHORT).show()
+                                    },
+                                    modifier = Modifier.testTag("copy_sha1_button"),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.ContentCopy,
+                                        contentDescription = strings.btnCopySha1,
+                                        modifier = Modifier.size(16.dp).padding(end = 4.dp),
+                                    )
+                                    Text(
+                                        text = strings.btnCopySha1,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
+                            }
+                        }
+
+                        OutlinedButton(
+                            onClick = { updateJsonLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) },
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, extra.line),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("auth_update_google_services_btn"),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.UploadFile,
+                                contentDescription = null,
+                                modifier = Modifier.padding(end = 6.dp).size(16.dp),
+                            )
+                            Text(
+                                text = strings.btnUpdateGoogleServices,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
                 }
             }
         }

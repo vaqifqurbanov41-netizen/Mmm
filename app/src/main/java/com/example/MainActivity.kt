@@ -12,18 +12,15 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.credentials.CredentialManager
 import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -45,7 +42,6 @@ import com.example.i18n.LocalStrings
 import com.example.i18n.StringsAz
 import com.example.i18n.StringsEn
 import com.example.i18n.StringsRu
-import com.example.ui.auth.attemptAutoSignIn
 import com.example.ui.auth.authStateFlow
 import com.example.ui.components.AqroBottomBar
 import com.example.ui.components.AqroTopHeader
@@ -122,46 +118,31 @@ fun AqroRootApp(
 
     CompositionLocalProvider(LocalStrings provides strings) {
         AqroMeslehetTheme(themePreference = themePref) {
-            if (!isFirebaseReady) {
-                var continueInLocalMode by remember { mutableStateOf(false) }
-                if (continueInLocalMode) {
-                    LocalToolsApp(
-                        language = language,
-                        themePreference = themePref,
-                        onSelectLanguage = settingsViewModel::setLanguage,
-                        onSelectTheme = settingsViewModel::setThemePreference,
-                        onToggleDark = settingsViewModel::toggleLightDark,
-                        onOpenFirebaseSetup = { continueInLocalMode = false },
-                    )
-                } else {
-                    FirebaseConfigMissingScreen(
-                        currentLanguage = language,
-                        onSelectLanguage = settingsViewModel::setLanguage,
-                        onContinueLocalMode = { continueInLocalMode = true },
-                        onFirebaseActivated = {
-                            configureAppCheck(context, null)
-                            isFirebaseReady = ensureFirebaseInitialized(context)
-                        },
-                    )
-                }
+            var continueInLocalMode by remember { mutableStateOf(false) }
+
+            if (continueInLocalMode) {
+                LocalToolsApp(
+                    language = language,
+                    themePreference = themePref,
+                    onSelectLanguage = settingsViewModel::setLanguage,
+                    onSelectTheme = settingsViewModel::setThemePreference,
+                    onToggleDark = settingsViewModel::toggleLightDark,
+                    onOpenFirebaseSetup = { continueInLocalMode = false },
+                )
+            } else if (!isFirebaseReady) {
+                FirebaseConfigMissingScreen(
+                    currentLanguage = language,
+                    onSelectLanguage = settingsViewModel::setLanguage,
+                    onContinueLocalMode = { continueInLocalMode = true },
+                    onFirebaseActivated = {
+                        configureAppCheck(context, null)
+                        isFirebaseReady = ensureFirebaseInitialized(context)
+                    },
+                )
             } else {
-                val scope = rememberCoroutineScope()
-                val credentialManager = remember(context) { CredentialManager.create(context) }
                 val auth = remember(authOverride) { authOverride ?: Firebase.auth }
                 val currentUser by auth.authStateFlow()
                     .collectAsStateWithLifecycle(initialValue = auth.currentUser)
-
-                LaunchedEffect(auth) {
-                    if (auth.currentUser == null) {
-                        attemptAutoSignIn(
-                            context = context,
-                            credentialManager = credentialManager,
-                            onAuthSuccess = {},
-                            onUnauthenticated = {},
-                            scope = scope,
-                        )
-                    }
-                }
 
                 val user = currentUser
                 if (user == null) {
@@ -169,6 +150,7 @@ fun AqroRootApp(
                         currentLanguage = language,
                         onSelectLanguage = settingsViewModel::setLanguage,
                         onAuthSuccess = {},
+                        onContinueLocalMode = { continueInLocalMode = true },
                     )
                 } else {
                     key(user.uid) {

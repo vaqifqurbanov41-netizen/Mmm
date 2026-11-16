@@ -428,4 +428,12 @@ object StringsEn : AppStrings {
     override val googleServicesPasteHint = "Paste the full contents of app/google-services.json here..."
     override val googleServicesImportSuccess = "Firebase activated (%s)! You can now sign in with Google."
     override val googleServicesImportError = "Invalid google-services.json file or JSON format."
+    override val signInTroubleTitle = "Why Is Google Sign-In Cancelling?"
+    override val signInTroubleBody = "1. In Firebase Console → Authentication → Sign-in method, Google must be enabled (with a Support email set).\n2. Add the APK SHA-1 fingerprint below in Project Settings → Your Android app and re-download google-services.json.\n3. Ensure a Google account is signed in on the device and Google Play Services is up to date."
+    override val packageNameLabel = "Package name"
+    override val sha1Label = "APK SHA-1 fingerprint"
+    override val btnCopySha1 = "Copy SHA-1"
+    override val sha1CopiedMsg = "SHA-1 copied to clipboard!"
+    override val firebaseQuickHelpLink = "Firebase SHA-1 & sign-in help"
+    override val btnUpdateGoogleServices = "Update google-services.json"
 }
