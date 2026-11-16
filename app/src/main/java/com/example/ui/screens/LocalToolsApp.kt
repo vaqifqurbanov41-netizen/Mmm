@@ -22,14 +22,19 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material.icons.filled.Agriculture
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Grass
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.RequestQuote
 import androidx.compose.material.icons.filled.Science
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -59,11 +64,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.example.data.local.LocalRecordsStore
 import com.example.data.local.PreferencesStore
+import com.example.data.local.collectEquipmentAlerts
+import com.example.data.local.evaluateEquipmentStatus
 import com.example.data.remote.OpenMeteoService
 import com.example.i18n.AppLanguage
 import com.example.i18n.LocalStrings
@@ -72,11 +81,16 @@ import com.example.ui.components.KTN_TELEGRAM_BOT_URL
 import com.example.ui.components.formatNumber
 import com.example.ui.components.openExternalUrl
 import com.example.ui.navigation.NavRoutes
+import com.example.ui.theme.DangerBorder
+import com.example.ui.theme.DangerRed
 import com.example.ui.theme.EmeraldPrimary
 import com.example.ui.theme.LocalAqroColors
 import com.example.ui.theme.PhosphorusAmber
+import com.example.ui.theme.PotassiumPlum
 import com.example.ui.theme.ThemePreference
 import com.example.ui.theme.WarningAmber
+import com.example.ui.viewmodel.EquipmentAlert
+import com.example.ui.viewmodel.EquipmentStatus
 import com.example.ui.viewmodel.WeatherUiState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
@@ -94,7 +108,12 @@ fun LocalToolsApp(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val preferencesStore = remember(context) { PreferencesStore(context.applicationContext) }
+    val localRecordsStore = remember(context) { LocalRecordsStore(context.applicationContext) }
     val weatherService = remember { OpenMeteoService.create() }
+
+    val localEquipment by localRecordsStore.equipment.collectAsStateWithLifecycle()
+    val localFinance by localRecordsStore.finance.collectAsStateWithLifecycle()
+    val equipmentAlerts = remember(localEquipment) { collectEquipmentAlerts(localEquipment) }
 
     var weatherState by remember { mutableStateOf(WeatherUiState()) }
 
@@ -154,11 +173,14 @@ fun LocalToolsApp(
                 farmerFirstName = "",
                 language = language,
                 weatherTempText = weatherTempPill,
-                hasAlertDot = weatherState.hasAnyHazard,
+                hasAlertDot = weatherState.hasAnyHazard || equipmentAlerts.isNotEmpty(),
                 isDark = extraColors.isDark,
                 onWeatherClick = { navigateTo(NavRoutes.WEATHER) },
                 onThemeToggle = { onToggleDark(extraColors.isDark) },
-                onNotificationsClick = { navigateTo(NavRoutes.WEATHER) },
+                onNotificationsClick = {
+                    val dest = if (weatherState.hasAnyHazard) NavRoutes.WEATHER else NavRoutes.EQUIPMENT
+                    navigateTo(dest)
+                },
             )
         },
         bottomBar = {
@@ -184,6 +206,7 @@ fun LocalToolsApp(
             ) {
                 composable(NavRoutes.HOME) {
                     LocalToolsHomeScreen(
+                        equipmentAlerts = equipmentAlerts,
                         onNavigate = navigateTo,
                         onOpenFirebaseSetup = onOpenFirebaseSetup,
                     )
@@ -223,6 +246,41 @@ fun LocalToolsApp(
                         onDeleteDeclaration = {},
                         onBack = { navController.popBackStack() },
                         isLocalOnly = true,
+                    )
+                }
+
+                composable(NavRoutes.EQUIPMENT) {
+                    EquipmentScreen(
+                        equipment = localEquipment,
+                        computeStatus = ::evaluateEquipmentStatus,
+                        onSaveEquipment = { existing, name, model, plate, insp, ins ->
+                            localRecordsStore.saveEquipment(existing, name, model, plate, insp, ins)
+                        },
+                        onDeleteEquipment = { id -> localRecordsStore.deleteEquipment(id) },
+                        onExportJson = { localRecordsStore.exportBackupJson() },
+                        onImportJson = { json -> localRecordsStore.importBackupJson(json) },
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+
+                composable(NavRoutes.FINANCE) {
+                    FinanceScreen(
+                        language = language,
+                        fields = emptyList(),
+                        entries = localFinance,
+                        onAddFinance = { type, date, field, amt, cat ->
+                            localRecordsStore.addFinance(type, date, field, amt, cat)
+                        },
+                        onDeleteFinance = { id -> localRecordsStore.deleteFinance(id) },
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+
+                composable(NavRoutes.GALLERY) {
+                    PhotoGalleryScreen(
+                        language = language,
+                        store = localRecordsStore,
+                        onBack = { navController.popBackStack() },
                     )
                 }
 
@@ -266,6 +324,7 @@ private data class LocalToolTile(
 
 @Composable
 private fun LocalToolsHomeScreen(
+    equipmentAlerts: List<EquipmentAlert>,
     onNavigate: (String) -> Unit,
     onOpenFirebaseSetup: () -> Unit,
 ) {
@@ -278,14 +337,16 @@ private fun LocalToolsHomeScreen(
         LocalToolTile(NavRoutes.WEATHER, strings.tileWeatherTitle, strings.tileWeatherSub, Icons.Filled.WbSunny, Color(0xFF2F80ED), "local_tile_weather"),
         LocalToolTile(NavRoutes.PESTICIDE, strings.tilePestTitle, strings.tilePestSub, Icons.Filled.Science, WarningAmber, "local_tile_pesticide"),
         LocalToolTile(NavRoutes.SUBSIDY, strings.tileSubsidyTitle, strings.tileSubsidySub, Icons.Filled.RequestQuote, PhosphorusAmber, "local_tile_subsidy"),
+        LocalToolTile(NavRoutes.EQUIPMENT, strings.tileEquipmentTitle, strings.tileEquipmentSub, Icons.Filled.Agriculture, PotassiumPlum, "local_tile_equipment"),
+        LocalToolTile(NavRoutes.FINANCE, strings.tileFinanceTitle, strings.tileFinanceSub, Icons.Filled.AccountBalanceWallet, Color(0xFF0F766E), "local_tile_finance"),
+        LocalToolTile(NavRoutes.GALLERY, strings.tileGalleryTitle, strings.tileGallerySub, Icons.Filled.PhotoCamera, Color(0xFF0284C7), "local_tile_gallery"),
         LocalToolTile(NavRoutes.LINKS, strings.tileLinksTitle, strings.tileLinksSub, Icons.Filled.Link, Color(0xFF4F46E5), "local_tile_links"),
-        LocalToolTile(NavRoutes.PROFILE, strings.navProfile, strings.settingsTitle, Icons.Filled.Person, EmeraldPrimary, "local_tile_profile"),
     )
 
     LazyColumn(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().testTag("local_home_list"),
     ) {
         // Hero Card
         item {
@@ -378,7 +439,55 @@ private fun LocalToolsHomeScreen(
             }
         }
 
-        // Local Mode Info Banner with Setup Guide shortcut
+        // Equipment Expiration Alert Banner (if any overdue or due soon)
+        if (equipmentAlerts.isNotEmpty()) {
+            item {
+                val hasOverdue = equipmentAlerts.any { it.status == EquipmentStatus.OVERDUE }
+                val bg = if (hasOverdue) extra.dangerContainer else extra.warningContainer
+                val border = if (hasOverdue) DangerBorder else WarningAmber.copy(alpha = 0.5f)
+                val tint = if (hasOverdue) DangerRed else WarningAmber
+                Card(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = bg),
+                    border = BorderStroke(1.dp, border),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .clickable { onNavigate(NavRoutes.EQUIPMENT) },
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Icon(
+                            imageVector = if (hasOverdue) Icons.Filled.Warning else Icons.Filled.NotificationsActive,
+                            contentDescription = null,
+                            tint = tint,
+                            modifier = Modifier.size(22.dp),
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = strings.alertEquipmentTitle,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Text(
+                                text = equipmentAlerts.joinToString(", ") {
+                                    val badge = if (it.status == EquipmentStatus.OVERDUE) strings.eqStatusOverdue else strings.eqStatusSoon
+                                    "${it.itemName} ($badge)"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (hasOverdue) extra.onDangerContainer else extra.muted,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Local Mode Info Banner with clean full-width text layout + Setup Action
         item {
             Card(
                 shape = RoundedCornerShape(18.dp),
@@ -386,35 +495,46 @@ private fun LocalToolsHomeScreen(
                 border = BorderStroke(1.dp, WarningAmber.copy(alpha = 0.45f)),
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Info,
-                        contentDescription = null,
-                        tint = WarningAmber,
-                        modifier = Modifier.size(22.dp),
-                    )
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = strings.localModeBannerTitle,
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
+                Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.Top,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Info,
+                            contentDescription = null,
+                            tint = WarningAmber,
+                            modifier = Modifier.padding(top = 2.dp).size(22.dp),
                         )
-                        Text(
-                            text = strings.localModeBannerSub,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = extra.muted,
-                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = strings.localModeBannerTitle,
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = strings.localModeBannerSub,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = extra.muted,
+                            )
+                        }
                     }
-                    TextButton(onClick = onOpenFirebaseSetup) {
-                        Text(
-                            text = strings.localModeSetupAction,
-                            fontWeight = FontWeight.Bold,
-                        )
+                    Row(
+                        horizontalArrangement = Arrangement.End,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        TextButton(
+                            onClick = onOpenFirebaseSetup,
+                            modifier = Modifier.testTag("local_mode_setup_btn"),
+                        ) {
+                            Text(
+                                text = strings.localModeSetupAction,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
                     }
                 }
             }
@@ -422,7 +542,7 @@ private fun LocalToolsHomeScreen(
 
         // Working Local Tool Tiles
         item {
-            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth().testTag("local_tiles_grid")) {
                 val cols = if (maxWidth >= 600.dp) 3 else 2
                 val rows = tiles.chunked(cols)
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -534,14 +654,17 @@ private fun LocalBottomBar(
                 selected = currentRoute == NavRoutes.NPK ||
                     currentRoute == NavRoutes.WEATHER ||
                     currentRoute == NavRoutes.PESTICIDE ||
-                    currentRoute == NavRoutes.SUBSIDY,
+                    currentRoute == NavRoutes.SUBSIDY ||
+                    currentRoute == NavRoutes.EQUIPMENT ||
+                    currentRoute == NavRoutes.FINANCE ||
+                    currentRoute == NavRoutes.GALLERY,
                 tag = "local_nav_tools",
                 onClick = { onNavigate(NavRoutes.NPK) },
                 modifier = Modifier.weight(1f),
             )
             LocalNavTab(
                 icon = Icons.Filled.Link,
-                label = strings.tileLinksTitle,
+                label = strings.navLinks,
                 selected = currentRoute == NavRoutes.LINKS,
                 tag = "local_nav_links",
                 onClick = { onNavigate(NavRoutes.LINKS) },

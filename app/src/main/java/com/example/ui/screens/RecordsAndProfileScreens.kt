@@ -3,9 +3,11 @@ package com.example.ui.screens
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -31,12 +33,14 @@ import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Spa
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -58,6 +62,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.credentials.CredentialManager
 import com.example.data.model.CustomLink
@@ -95,6 +100,7 @@ fun FinanceScreen(
 ) {
     val strings = LocalStrings.current
     val extra = LocalAqroColors.current
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
     var typeIndex by remember { mutableIntStateOf(0) } // 0=expense, 1=income
@@ -105,9 +111,82 @@ fun FinanceScreen(
     var formError by remember { mutableStateOf<String?>(null) }
     var pendingDelete by remember { mutableStateOf<FinanceEntry?>(null) }
 
-    val totalIncome = entries.filter { it.type == "income" }.sumOf { it.amount }
-    val totalExpense = entries.filter { it.type != "income" }.sumOf { it.amount }
+    var filterTypeIndex by remember { mutableIntStateOf(0) } // 0=all, 1=income, 2=expense
+    var selectedMonth by remember { mutableStateOf("") } // "" = all periods
+
+    val availableMonths = remember(entries) {
+        entries.mapNotNull { e ->
+            val trimmed = e.date.trim()
+            if (trimmed.length >= 7 && trimmed[4] == '-') trimmed.substring(0, 7) else null
+        }.distinct().sortedDescending()
+    }
+
+    val periodEntries = remember(entries, selectedMonth) {
+        if (selectedMonth.isBlank()) entries
+        else entries.filter { it.date.trim().startsWith(selectedMonth) }
+    }
+
+    val filteredEntries = remember(periodEntries, filterTypeIndex) {
+        when (filterTypeIndex) {
+            1 -> periodEntries.filter { it.type == "income" }
+            2 -> periodEntries.filter { it.type != "income" }
+            else -> periodEntries
+        }
+    }
+
+    val totalIncome = periodEntries.filter { it.type == "income" }.sumOf { it.amount }
+    val totalExpense = periodEntries.filter { it.type != "income" }.sumOf { it.amount }
     val netBalance = totalIncome - totalExpense
+
+    val categoryBreakdown = remember(filteredEntries, strings) {
+        val grouped = filteredEntries.groupBy { entry ->
+            val cat = entry.category.ifBlank {
+                if (entry.type == "income") strings.financeIncome else strings.financeExpense
+            }
+            (entry.type == "income") to cat
+        }.map { (key, list) ->
+            Triple(key.first, key.second, list.sumOf { it.amount })
+        }.sortedByDescending { it.third }
+        grouped
+    }
+
+    val quickCategories = if (typeIndex == 1) strings.financeIncomeCategories else strings.financeExpenseCategories
+
+    fun shareAccountingReport() {
+        val periodLabel = if (selectedMonth.isBlank()) strings.financePeriodAll else selectedMonth
+        val report = buildString {
+            appendLine("${strings.appName} — ${strings.financeTitle} ($periodLabel)")
+            appendLine("------------------------------")
+            appendLine("${strings.financeIncomeLabel}: +${formatNumber(totalIncome, 2)} ${strings.aznCurrency}")
+            appendLine("${strings.financeExpenseLabel}: -${formatNumber(totalExpense, 2)} ${strings.aznCurrency}")
+            val sign = if (netBalance >= 0) "+" else ""
+            appendLine("${strings.financeNetBalanceLabel}: $sign${formatNumber(netBalance, 2)} ${strings.aznCurrency}")
+            if (categoryBreakdown.isNotEmpty()) {
+                appendLine()
+                appendLine(strings.financeByCategoryTitle)
+                categoryBreakdown.forEach { (isInc, cat, sum) ->
+                    val prefix = if (isInc) "+" else "-"
+                    appendLine("• $cat: $prefix${formatNumber(sum, 2)} ${strings.aznCurrency}")
+                }
+            }
+            if (filteredEntries.isNotEmpty()) {
+                appendLine()
+                filteredEntries.take(25).forEach { e ->
+                    val prefix = if (e.type == "income") "+" else "-"
+                    val meta = listOf(e.date, e.category, e.fieldName).filter { it.isNotBlank() }.joinToString(" | ")
+                    appendLine("$prefix${formatNumber(e.amount, 2)} ${strings.aznCurrency} — $meta")
+                }
+            }
+        }
+        runCatching {
+            val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_SUBJECT, "${strings.appName} — ${strings.financeTitle}")
+                putExtra(Intent.EXTRA_TEXT, report)
+            }
+            context.startActivity(Intent.createChooser(sendIntent, strings.financeShareReport))
+        }
+    }
 
     ConfirmDeleteDialog(
         visible = pendingDelete != null,
@@ -125,23 +204,112 @@ fun FinanceScreen(
     LazyColumn(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().testTag("finance_screen"),
     ) {
         item {
             ScreenTopBar(title = strings.financeTitle, onBack = onBack)
         }
 
+        // Accounting Summary KPI Card + Share Report
         item {
             AqroCard(containerColor = extra.pale) {
-                Text(
-                    text = String.format(language.locale, strings.financeSummaryFormat, totalIncome, totalExpense, netBalance),
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = if (netBalance >= 0) EmeraldPrimary else DangerRed,
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text = String.format(language.locale, strings.financeRecordCountFormat, periodEntries.size),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = extra.muted,
+                    )
+                    if (periodEntries.isNotEmpty()) {
+                        OutlinedButton(
+                            onClick = ::shareAccountingReport,
+                            modifier = Modifier.testTag("finance_share_report_btn"),
+                        ) {
+                            Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.size(6.dp))
+                            Text(strings.financeShareReport, style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    AccountingKpiCell(
+                        label = strings.financeIncomeLabel,
+                        value = "+${formatNumber(totalIncome, 2)}",
+                        currency = strings.aznCurrency,
+                        accent = EmeraldPrimary,
+                        modifier = Modifier.weight(1f),
+                    )
+                    AccountingKpiCell(
+                        label = strings.financeExpenseLabel,
+                        value = "-${formatNumber(totalExpense, 2)}",
+                        currency = strings.aznCurrency,
+                        accent = DangerRed,
+                        modifier = Modifier.weight(1f),
+                    )
+                    AccountingKpiCell(
+                        label = strings.financeNetBalanceLabel,
+                        value = "${if (netBalance >= 0) "+" else ""}${formatNumber(netBalance, 2)}",
+                        currency = strings.aznCurrency,
+                        accent = if (netBalance >= 0) EmeraldPrimary else DangerRed,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+
+                if (availableMonths.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    ) {
+                        val allSelected = selectedMonth.isBlank()
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = if (allSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
+                            border = BorderStroke(1.dp, if (allSelected) MaterialTheme.colorScheme.primary else extra.line),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .clickable { selectedMonth = "" },
+                        ) {
+                            Text(
+                                text = strings.financePeriodAll,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (allSelected) Color.White else MaterialTheme.colorScheme.onSurface,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            )
+                        }
+                        availableMonths.forEach { m ->
+                            val isSel = selectedMonth == m
+                            Surface(
+                                shape = RoundedCornerShape(50),
+                                color = if (isSel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
+                                border = BorderStroke(1.dp, if (isSel) MaterialTheme.colorScheme.primary else extra.line),
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(50))
+                                    .clickable { selectedMonth = m },
+                            ) {
+                                Text(
+                                    text = m,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (isSel) Color.White else MaterialTheme.colorScheme.onSurface,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
 
+        // Add Accounting Record Form
         item {
             AqroCard {
                 Text(strings.financeTypeLabel, style = MaterialTheme.typography.labelLarge)
@@ -156,6 +324,7 @@ fun FinanceScreen(
                     value = date,
                     onValueChange = { date = it },
                     label = { Text(strings.financeDateLabel) },
+                    placeholder = { Text("YYYY-MM-DD") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -188,6 +357,31 @@ fun FinanceScreen(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                ) {
+                    quickCategories.forEach { quickCat ->
+                        val activeCat = category.equals(quickCat, ignoreCase = true)
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = if (activeCat) MaterialTheme.colorScheme.primary else extra.pale,
+                            border = BorderStroke(1.dp, if (activeCat) MaterialTheme.colorScheme.primary else extra.line),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .clickable { category = quickCat },
+                        ) {
+                            Text(
+                                text = quickCat,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (activeCat) Color.White else MaterialTheme.colorScheme.onSurface,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     OutlinedTextField(
                         value = amountText,
@@ -203,7 +397,7 @@ fun FinanceScreen(
                         label = { Text(strings.financeCategoryLabel) },
                         placeholder = { Text(strings.financeCategoryHint) },
                         singleLine = true,
-                        modifier = Modifier.weight(1.2f),
+                        modifier = Modifier.weight(1.2f).testTag("finance_category_input"),
                     )
                 }
                 if (formError != null) {
@@ -218,8 +412,11 @@ fun FinanceScreen(
                             formError = strings.invalidInput
                         } else {
                             val type = if (typeIndex == 1) "income" else "expense"
+                            val finalCategory = category.ifBlank {
+                                if (type == "income") strings.financeIncome else strings.financeExpense
+                            }
                             scope.launch {
-                                onAddFinance(type, date, fieldName, amt, category)
+                                onAddFinance(type, date, fieldName, amt, finalCategory)
                                 amountText = ""
                                 category = ""
                                 formError = null
@@ -233,14 +430,74 @@ fun FinanceScreen(
             }
         }
 
-        if (entries.isEmpty()) {
+        // Category Breakdown Card
+        if (categoryBreakdown.isNotEmpty()) {
+            item {
+                val maxCatAmount = categoryBreakdown.maxOf { it.third }.coerceAtLeast(1.0)
+                AqroCard {
+                    Text(
+                        text = strings.financeByCategoryTitle,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        categoryBreakdown.forEach { (isInc, catName, sum) ->
+                            val barColor = if (isInc) EmeraldPrimary else DangerRed
+                            val prefix = if (isInc) "+" else "-"
+                            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Row(
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text(
+                                        text = catName,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier.weight(1f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        text = "$prefix${formatNumber(sum, 2)} ${strings.aznCurrency}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = barColor,
+                                    )
+                                }
+                                LinearProgressIndicator(
+                                    progress = { (sum / maxCatAmount).toFloat().coerceIn(0.05f, 1f) },
+                                    color = barColor,
+                                    trackColor = barColor.copy(alpha = 0.14f),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(6.dp)
+                                        .clip(RoundedCornerShape(3.dp)),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Type Filter Pills
+        item {
+            TabPillsRow(
+                tabs = listOf(strings.financeAllTab, strings.financeIncome, strings.financeExpense),
+                selectedIndex = filterTypeIndex,
+                onSelect = { filterTypeIndex = it },
+            )
+        }
+
+        if (filteredEntries.isEmpty()) {
             item {
                 AqroCard {
                     EmptyStateMessage(icon = Icons.Filled.AccountBalanceWallet, message = strings.financeEmpty)
                 }
             }
         } else {
-            items(entries, key = { it.id }) { item ->
+            items(filteredEntries, key = { it.id }) { item ->
                 val isIncome = item.type == "income"
                 AqroCard {
                     Row(
@@ -256,7 +513,7 @@ fun FinanceScreen(
                                 color = if (isIncome) EmeraldPrimary else DangerRed,
                             )
                             Text(
-                                text = listOf(item.date, item.fieldName, item.category).filter { it.isNotBlank() }.joinToString(" • "),
+                                text = listOf(item.category, item.fieldName, item.date).filter { it.isNotBlank() }.joinToString(" • "),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = extra.muted,
                             )
@@ -267,6 +524,47 @@ fun FinanceScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun AccountingKpiCell(
+    label: String,
+    value: String,
+    currency: String,
+    accent: Color,
+    modifier: Modifier = Modifier,
+) {
+    val extra = LocalAqroColors.current
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.28f)),
+        modifier = modifier,
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = extra.muted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = value,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.ExtraBold,
+                color = accent,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = currency,
+                style = MaterialTheme.typography.labelSmall,
+                color = accent.copy(alpha = 0.8f),
+            )
         }
     }
 }

@@ -434,48 +434,11 @@ class FarmViewModel(
     }
 
     // Equipment alert evaluation
-    fun computeEquipmentStatus(dateStr: String): EquipmentStatus? {
-        if (dateStr.isBlank()) return null
-        return try {
-            val fmt = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { isLenient = false }
-            val targetDate = fmt.parse(dateStr.trim()) ?: return null
-            val todayCal = Calendar.getInstance().apply {
-                set(Calendar.HOUR_OF_DAY, 0)
-                set(Calendar.MINUTE, 0)
-                set(Calendar.SECOND, 0)
-                set(Calendar.MILLISECOND, 0)
-            }
-            val targetCal = Calendar.getInstance().apply {
-                time = targetDate
-                set(Calendar.HOUR_OF_DAY, 0)
-                set(Calendar.MINUTE, 0)
-                set(Calendar.SECOND, 0)
-                set(Calendar.MILLISECOND, 0)
-            }
-            val daysLeft = TimeUnit.MILLISECONDS.toDays(targetCal.timeInMillis - todayCal.timeInMillis)
-            when {
-                daysLeft < 0 -> EquipmentStatus.OVERDUE
-                daysLeft <= 30 -> EquipmentStatus.SOON
-                else -> EquipmentStatus.VALID
-            }
-        } catch (_: Exception) {
-            null
-        }
-    }
+    fun computeEquipmentStatus(dateStr: String): EquipmentStatus? =
+        com.example.data.local.evaluateEquipmentStatus(dateStr)
 
-    fun getEquipmentAlerts(items: List<EquipmentItem>): List<EquipmentAlert> {
-        val alerts = mutableListOf<EquipmentAlert>()
-        items.forEach { item ->
-            val insp = computeEquipmentStatus(item.inspectionDate)
-            val ins = computeEquipmentStatus(item.insuranceDate)
-            if (insp == EquipmentStatus.OVERDUE || ins == EquipmentStatus.OVERDUE) {
-                alerts.add(EquipmentAlert(item.name, EquipmentStatus.OVERDUE))
-            } else if (insp == EquipmentStatus.SOON || ins == EquipmentStatus.SOON) {
-                alerts.add(EquipmentAlert(item.name, EquipmentStatus.SOON))
-            }
-        }
-        return alerts
-    }
+    fun getEquipmentAlerts(items: List<EquipmentItem>): List<EquipmentAlert> =
+        com.example.data.local.collectEquipmentAlerts(items)
 
     // Firestore CRUD Actions
     suspend fun saveProfile(fullName: String, phone: String, place: String) {

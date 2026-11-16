@@ -70,6 +70,7 @@ interface AppStrings {
     val navTools: String
     val navScanner: String
     val navFields: String
+    val navLinks: String
     val navProfile: String
 
     // Home Dashboard
@@ -104,6 +105,8 @@ interface AppStrings {
     val tileFinanceSub: String
     val tileHarvestTitle: String
     val tileHarvestSub: String
+    val tileGalleryTitle: String
+    val tileGallerySub: String
     val tileLinksTitle: String
     val tileLinksSub: String
 
@@ -334,6 +337,29 @@ interface AppStrings {
     val btnAddFinance: String
     val financeSummaryFormat: String
     val financeEmpty: String
+    val financeAllTab: String
+    val financeByCategoryTitle: String
+    val financeShareReport: String
+    val financeIncomeLabel: String
+    val financeExpenseLabel: String
+    val financeNetBalanceLabel: String
+    val financePeriodAll: String
+    val financeRecordCountFormat: String
+    val financeExpenseCategories: List<String>
+    val financeIncomeCategories: List<String>
+
+    // Offline Camera & Photo Gallery
+    val galleryTitle: String
+    val btnTakePhoto: String
+    val btnImportPhoto: String
+    val galleryEmpty: String
+    val photoCaptionLabel: String
+    val photoCaptionHint: String
+    val btnSharePhoto: String
+    val cameraPermissionNeeded: String
+    val cameraPermissionDenied: String
+    val photoSavedMsg: String
+    val photoCountFormat: String
 
     // Harvest Screen
     val harvestTitle: String
@@ -402,6 +428,12 @@ interface AppStrings {
     val localModeBannerTitle: String
     val localModeBannerSub: String
     val localModeSetupAction: String
+    val btnImportGoogleServices: String
+    val btnPasteGoogleServices: String
+    val googleServicesPasteTitle: String
+    val googleServicesPasteHint: String
+    val googleServicesImportSuccess: String
+    val googleServicesImportError: String
 }
 
 val LocalStrings = staticCompositionLocalOf<AppStrings> {

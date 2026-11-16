@@ -369,7 +369,7 @@ fun EquipmentScreen(
     LazyColumn(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().testTag("equipment_screen"),
     ) {
         item {
             ScreenTopBar(title = strings.equipmentTitle, onBack = onBack)

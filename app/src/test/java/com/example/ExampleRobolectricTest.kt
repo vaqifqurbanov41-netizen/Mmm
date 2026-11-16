@@ -2,9 +2,13 @@ package com.example
 
 import android.content.Context
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
 import com.example.i18n.StringsAz
 import com.example.i18n.StringsEn
@@ -51,18 +55,58 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun `aqroRootApp renders missing firebase setup screen and opens local tools mode cleanly`() {
+    fun `aqroRootApp renders missing firebase screen opens local tools and navigates equipment finance and gallery`() {
         composeTestRule.setContent {
             AqroRootApp(firebaseReadyOverride = false)
         }
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("firebase_missing_screen").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("import_google_services_file_btn").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithTag("paste_google_services_btn").performScrollTo().assertIsDisplayed()
+
         composeTestRule.onNodeWithTag("auth_lang_en").performClick()
         composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("firebase_missing_screen").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("open_local_tools_btn").performClick()
+        composeTestRule.onNodeWithTag("open_local_tools_btn").performScrollTo().performClick()
         composeTestRule.waitForIdle()
+
         composeTestRule.onNodeWithTag("local_tools_app").assertIsDisplayed()
         composeTestRule.onNodeWithTag("local_home_telegram_bot_card").assertIsDisplayed()
+
+        // Scroll LazyColumn to reveal the tiles grid, then open Equipment
+        composeTestRule.onNodeWithTag("local_home_list").performScrollToNode(hasTestTag("local_tiles_grid"))
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("local_tile_equipment").performScrollTo().performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("eq_name_input").performTextInput("John Deere 6120M")
+        composeTestRule.onNodeWithTag("save_equipment_btn").performScrollTo().performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("equipment_screen").performScrollToNode(hasTestTag("back_button"))
+        composeTestRule.onNodeWithTag("back_button").performClick()
+        composeTestRule.waitForIdle()
+
+        // Open Finance (Simple Accounting)
+        composeTestRule.onNodeWithTag("local_home_list").performScrollToNode(hasTestTag("local_tiles_grid"))
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("local_tile_finance").performScrollTo().performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("finance_screen").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("finance_amount_input"))
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("finance_amount_input").performTextInput("420")
+        composeTestRule.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("add_finance_btn"))
+        composeTestRule.onNodeWithTag("add_finance_btn").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("finance_screen").performScrollToNode(hasTestTag("back_button"))
+        composeTestRule.onNodeWithTag("back_button").performClick()
+        composeTestRule.waitForIdle()
+
+        // Open Offline Camera & Photo Gallery
+        composeTestRule.onNodeWithTag("local_home_list").performScrollToNode(hasTestTag("local_tiles_grid"))
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("local_tile_gallery").performScrollTo().performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("photo_gallery_screen").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("take_photo_btn").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("import_photo_btn").assertIsDisplayed()
     }
 }

@@ -266,6 +266,7 @@ fun AqroBottomBar(
                     currentRoute == NavRoutes.EQUIPMENT ||
                     currentRoute == NavRoutes.FINANCE ||
                     currentRoute == NavRoutes.HARVEST ||
+                    currentRoute == NavRoutes.GALLERY ||
                     currentRoute == NavRoutes.LINKS ||
                     currentRoute == NavRoutes.WEATHER ||
                     currentRoute == NavRoutes.CHAT,

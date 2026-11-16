@@ -12,6 +12,7 @@ import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential.Companion.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
+import com.example.data.firebase.getRuntimeWebClientId
 import com.google.firebase.Firebase
 import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
@@ -43,12 +44,15 @@ private fun resolveWebClientId(context: Context): String? {
         "string",
         context.packageName,
     )
-    if (resId == 0) return null
-    return try {
-        context.getString(resId).takeIf { it.isNotBlank() }
-    } catch (_: Exception) {
-        null
+    if (resId != 0) {
+        val fromRes = try {
+            context.getString(resId).takeIf { it.isNotBlank() }
+        } catch (_: Exception) {
+            null
+        }
+        if (fromRes != null) return fromRes
     }
+    return getRuntimeWebClientId(context)
 }
 
 fun attemptAutoSignIn(

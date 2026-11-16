@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Grass
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.RequestQuote
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Spa
@@ -102,6 +103,7 @@ fun HomeScreen(
         HomeMenuTile(NavRoutes.EQUIPMENT, strings.tileEquipmentTitle, strings.tileEquipmentSub, Icons.Filled.Agriculture, PotassiumPlum, "tile_equipment"),
         HomeMenuTile(NavRoutes.FINANCE, strings.tileFinanceTitle, strings.tileFinanceSub, Icons.Filled.AccountBalanceWallet, Color(0xFF0F766E), "tile_finance"),
         HomeMenuTile(NavRoutes.HARVEST, strings.tileHarvestTitle, strings.tileHarvestSub, Icons.Filled.Spa, EmeraldBright, "tile_harvest"),
+        HomeMenuTile(NavRoutes.GALLERY, strings.tileGalleryTitle, strings.tileGallerySub, Icons.Filled.PhotoCamera, Color(0xFF0284C7), "tile_gallery"),
         HomeMenuTile(NavRoutes.LINKS, strings.tileLinksTitle, strings.tileLinksSub, Icons.Filled.Link, Color(0xFF4F46E5), "tile_links"),
     )
 

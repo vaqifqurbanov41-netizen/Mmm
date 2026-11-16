@@ -53,6 +53,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.credentials.CredentialManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.UploadFile
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
+import com.example.data.firebase.saveAndInitializeFirebaseFromJson
 import com.example.i18n.AppLanguage
 import com.example.i18n.LocalStrings
 import com.example.ui.auth.onGoogleSignInClicked
@@ -60,6 +68,9 @@ import com.example.ui.components.DangerBannerBox
 import com.example.ui.components.KTN_TELEGRAM_BOT_URL
 import com.example.ui.components.openExternalUrl
 import com.example.ui.theme.LocalAqroColors
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun AuthScreen(
@@ -241,10 +252,83 @@ fun FirebaseConfigMissingScreen(
     currentLanguage: AppLanguage,
     onSelectLanguage: (AppLanguage) -> Unit,
     onContinueLocalMode: () -> Unit = {},
+    onFirebaseActivated: () -> Unit = {},
 ) {
     val strings = LocalStrings.current
     val extra = LocalAqroColors.current
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    var configError by remember { mutableStateOf<String?>(null) }
+    var configSuccess by remember { mutableStateOf<String?>(null) }
+    var showPasteDialog by remember { mutableStateOf(false) }
+    var pastedJson by remember { mutableStateOf("") }
+
+    fun applyConfigJson(rawJson: String) {
+        val result = saveAndInitializeFirebaseFromJson(context, rawJson)
+        result.onSuccess { projectId ->
+            configError = null
+            configSuccess = String.format(currentLanguage.locale, strings.googleServicesImportSuccess, projectId)
+            onFirebaseActivated()
+        }.onFailure {
+            configSuccess = null
+            configError = strings.googleServicesImportError
+        }
+    }
+
+    val jsonFileLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val content = withContext(Dispatchers.IO) {
+                    runCatching {
+                        context.contentResolver.openInputStream(uri)?.use {
+                            it.bufferedReader().readText()
+                        }.orEmpty()
+                    }.getOrDefault("")
+                }
+                if (content.isBlank()) {
+                    configError = strings.googleServicesImportError
+                } else {
+                    applyConfigJson(content)
+                }
+            }
+        }
+    }
+
+    if (showPasteDialog) {
+        AlertDialog(
+            onDismissRequest = { showPasteDialog = false },
+            title = { Text(strings.googleServicesPasteTitle, fontWeight = FontWeight.Bold) },
+            text = {
+                OutlinedTextField(
+                    value = pastedJson,
+                    onValueChange = { pastedJson = it },
+                    placeholder = { Text(strings.googleServicesPasteHint) },
+                    minLines = 5,
+                    maxLines = 10,
+                    modifier = Modifier.fillMaxWidth().testTag("paste_google_services_input"),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showPasteDialog = false
+                        applyConfigJson(pastedJson)
+                    },
+                    modifier = Modifier.testTag("confirm_paste_google_services_btn"),
+                ) {
+                    Text(strings.save, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPasteDialog = false }) {
+                    Text(strings.cancel)
+                }
+            },
+        )
+    }
 
     val (title, subtitle, stepsTitle) = when (currentLanguage) {
         AppLanguage.AZ -> Triple(
@@ -372,6 +456,74 @@ fun FirebaseConfigMissingScreen(
                     style = MaterialTheme.typography.titleMedium,
                     color = Color.White,
                 )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            OutlinedButton(
+                onClick = { jsonFileLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) },
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .testTag("import_google_services_file_btn"),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.UploadFile,
+                    contentDescription = null,
+                    modifier = Modifier.padding(end = 8.dp).size(18.dp),
+                )
+                Text(
+                    text = strings.btnImportGoogleServices,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            OutlinedButton(
+                onClick = { showPasteDialog = true },
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, extra.line),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .testTag("paste_google_services_btn"),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Code,
+                    contentDescription = null,
+                    modifier = Modifier.padding(end = 8.dp).size(18.dp),
+                )
+                Text(
+                    text = strings.btnPasteGoogleServices,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+
+            if (configError != null) {
+                Spacer(modifier = Modifier.height(10.dp))
+                DangerBannerBox(text = configError!!)
+            }
+
+            if (configSuccess != null) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = extra.pale,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text = configSuccess!!,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(12.dp),
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(10.dp))

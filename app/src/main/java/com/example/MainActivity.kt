@@ -36,6 +36,7 @@ import androidx.navigation.compose.rememberNavController
 import com.example.data.ai.FirebaseAiRepository
 import com.example.data.firebase.configureAppCheck
 import com.example.data.firebase.ensureFirebaseInitialized
+import com.example.data.local.LocalRecordsStore
 import com.example.data.local.PreferencesStore
 import com.example.data.remote.OpenMeteoService
 import com.example.data.repository.FarmRepository
@@ -62,6 +63,7 @@ import com.example.ui.screens.LinksScreen
 import com.example.ui.screens.LocalToolsApp
 import com.example.ui.screens.NpkScreen
 import com.example.ui.screens.PesticideScreen
+import com.example.ui.screens.PhotoGalleryScreen
 import com.example.ui.screens.ProfileScreen
 import com.example.ui.screens.ScannerScreen
 import com.example.ui.screens.SubsidyScreen
@@ -112,8 +114,10 @@ fun AqroRootApp(
     }
 
     val context = LocalContext.current
-    val isFirebaseReady = remember(context, authOverride, firebaseReadyOverride) {
-        firebaseReadyOverride ?: (authOverride != null || ensureFirebaseInitialized(context))
+    var isFirebaseReady by remember(context, authOverride, firebaseReadyOverride) {
+        mutableStateOf(
+            firebaseReadyOverride ?: (authOverride != null || ensureFirebaseInitialized(context))
+        )
     }
 
     CompositionLocalProvider(LocalStrings provides strings) {
@@ -134,6 +138,10 @@ fun AqroRootApp(
                         currentLanguage = language,
                         onSelectLanguage = settingsViewModel::setLanguage,
                         onContinueLocalMode = { continueInLocalMode = true },
+                        onFirebaseActivated = {
+                            configureAppCheck(context, null)
+                            isFirebaseReady = ensureFirebaseInitialized(context)
+                        },
                     )
                 }
             } else {
@@ -190,12 +198,19 @@ private fun AuthenticatedMainApp(
     onSelectTheme: (ThemePreference) -> Unit,
     onToggleDark: (Boolean) -> Unit,
 ) {
+    val context = LocalContext.current
+    val localRecordsStore = remember(context) { LocalRecordsStore(context.applicationContext) }
     val viewModel: FarmViewModel = viewModel(
         key = currentUserId,
         factory = viewModelFactory {
             initializer {
                 val app = checkNotNull(this[APPLICATION_KEY])
-                val databaseId = app.getString(R.string.firestore_database_id)
+                val dbResId = app.resources.getIdentifier("firestore_database_id", "string", app.packageName)
+                val databaseId = if (dbResId != 0) {
+                    app.getString(dbResId)
+                } else {
+                    "ai-studio-android-aqromslh-892d166e-8482-4e99-87aa-793ae6666b78"
+                }
                 val db = FirebaseFirestore.getInstance(databaseId)
                 FarmViewModel(
                     repository = FarmRepository(db, Firebase.auth),
@@ -427,6 +442,14 @@ private fun AuthenticatedMainApp(
                         entries = harvests,
                         onAddHarvest = viewModel::addHarvest,
                         onDeleteHarvest = viewModel::deleteHarvest,
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+
+                composable(NavRoutes.GALLERY) {
+                    PhotoGalleryScreen(
+                        language = language,
+                        store = localRecordsStore,
                         onBack = { navController.popBackStack() },
                     )
                 }
