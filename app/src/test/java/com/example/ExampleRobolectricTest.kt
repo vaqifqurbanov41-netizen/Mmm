@@ -12,6 +12,12 @@ import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.firebase.getSigningSha1
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.onNodeWithText
 import com.example.data.model.ADMIN_EMAIL
 import com.example.data.model.AdminContentItem
 import com.example.i18n.AppLanguage
@@ -19,6 +25,7 @@ import com.example.i18n.LocalStrings
 import com.example.i18n.StringsAz
 import com.example.i18n.StringsEn
 import com.example.i18n.StringsRu
+import com.example.ui.navigation.NavRoutes
 import com.example.ui.screens.AdminScreen
 import com.example.ui.screens.AgroCalendarScreen
 import com.example.ui.screens.AuthScreen
@@ -27,6 +34,7 @@ import com.example.ui.screens.EquipmentScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.InsuranceCalcScreen
 import com.example.ui.screens.NpkScreen
+import com.example.ui.screens.PesticideScreen
 import com.example.ui.screens.SeedsScreen
 import com.example.ui.screens.StationsScreen
 import com.example.ui.theme.AqroMeslehetTheme
@@ -154,6 +162,7 @@ class ExampleRobolectricTest {
         composeTestRule.waitForIdle()
 
         composeTestRule.onNodeWithTag("local_tools_app").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("local_home_list").performScrollToNode(hasTestTag("local_home_telegram_bot_card"))
         composeTestRule.onNodeWithTag("local_home_telegram_bot_card").assertIsDisplayed()
 
         // Scroll LazyColumn to reveal the tiles grid, then open Equipment
@@ -457,5 +466,112 @@ class ExampleRobolectricTest {
         composeTestRule.onNodeWithTag("npk_screen").assertIsDisplayed()
         composeTestRule.onNodeWithTag("npk_screen").performScrollToNode(hasTestTag("npk_calc_button"))
         composeTestRule.onNodeWithTag("npk_calc_button").assertIsDisplayed()
+    }
+
+    @Test
+    fun `pesticideScreenShowsActiveIngredientPerCropAndSearchesPreparationsSeparately`() {
+        composeTestRule.setContent {
+            CompositionLocalProvider(LocalStrings provides StringsAz) {
+                AqroMeslehetTheme {
+                    PesticideScreen(
+                        language = AppLanguage.AZ,
+                        customPesticides = emptyList(),
+                        onAddCustomPesticide = { _, _, _, _, _, _ -> },
+                        onDeleteCustomPesticide = {},
+                        onBack = {},
+                        isLocalOnly = true,
+                    )
+                }
+            }
+        }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("pesticide_screen").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("pest_crop_chip_potato").performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("pesticide_screen").performScrollToNode(hasTestTag("pest_active_ingredient_text_potato_colorado"))
+        composeTestRule.onNodeWithTag("pest_active_ingredient_text_potato_colorado")
+            .assertIsDisplayed()
+            .assertTextContains("Tiametoksam", substring = true)
+        composeTestRule.onNodeWithText("Aktara 25 WG", substring = true).assertDoesNotExist()
+
+        composeTestRule.onNodeWithTag("pesticide_screen").performScrollToNode(hasTestTag("pest_find_prep_by_ingredient_btn"))
+        composeTestRule.onNodeWithTag("pest_find_prep_by_ingredient_btn").performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("prep_search_input").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("pesticide_screen").performScrollToNode(hasTestTag("prep_card_aktara_25"))
+        composeTestRule.onNodeWithTag("prep_card_aktara_25").assertIsDisplayed()
+    }
+
+    @Test
+    fun `homeScreenCustomizesAndResetsModuleVisibility`() {
+        composeTestRule.setContent {
+            var hidden by remember { mutableStateOf(emptySet<String>()) }
+            CompositionLocalProvider(LocalStrings provides StringsAz) {
+                AqroMeslehetTheme {
+                    HomeScreen(
+                        fields = emptyList(),
+                        weatherState = WeatherUiState(),
+                        equipmentAlerts = emptyList(),
+                        onNavigate = {},
+                        hiddenModules = hidden,
+                        onToggleModuleVisible = { route, visible ->
+                            hidden = if (visible) hidden - route else hidden + route
+                        },
+                        onResetModules = { hidden = emptySet() },
+                    )
+                }
+            }
+        }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("home_screen_list").performScrollToNode(hasTestTag("tile_pesticide"))
+        composeTestRule.onNodeWithTag("tile_pesticide").assertIsDisplayed()
+
+        composeTestRule.onNodeWithTag("home_screen_list").performScrollToNode(hasTestTag("customize_modules_btn"))
+        composeTestRule.onNodeWithTag("customize_modules_btn").performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("modules_visibility_dialog_list")
+            .performScrollToNode(hasTestTag("module_switch_${NavRoutes.PESTICIDE}"))
+        composeTestRule.onNodeWithTag("module_switch_${NavRoutes.PESTICIDE}").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("close_modules_dialog_btn").performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("tile_pesticide").assertDoesNotExist()
+
+        composeTestRule.onNodeWithTag("customize_modules_btn").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("reset_modules_btn").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("close_modules_dialog_btn").performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("home_screen_list").performScrollToNode(hasTestTag("tile_pesticide"))
+        composeTestRule.onNodeWithTag("tile_pesticide").assertIsDisplayed()
+    }
+
+    @Test
+    fun `localToolsAppSupportsOfflineAiAgronomistChat`() {
+        composeTestRule.setContent {
+            AqroRootApp(firebaseReadyOverride = false)
+        }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("auth_lang_az").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("open_local_tools_btn").performScrollTo().performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("local_home_ai_banner").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("ai_chat_input").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("ai_chat_input").performTextInput("Pomidor fitoftoroz")
+        composeTestRule.onNodeWithTag("ai_send_button").performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("ai_chat_list")
+            .performScrollToNode(androidx.compose.ui.test.hasText("Mankozeb", substring = true))
+        composeTestRule.onNodeWithText("Mankozeb", substring = true).assertExists()
     }
 }

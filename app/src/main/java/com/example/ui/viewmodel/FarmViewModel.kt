@@ -6,6 +6,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.ai.AiRepository
 import com.example.data.ai.ChatHistoryTurn
+import com.example.data.ai.OfflineAgronomistAdvisor
+import com.example.data.firebase.isAppCheckTokenError
 import com.example.data.local.PreferencesStore
 import com.example.data.model.AdminContentItem
 import com.example.data.model.CustomLink
@@ -393,10 +395,15 @@ class FarmViewModel(
             } catch (e: Exception) {
                 Log.e(TAG, "AI chat error", e)
                 val errText = e.localizedMessage ?: "AI error"
+                val offlineAnswer = OfflineAgronomistAdvisor.answerOffline(
+                    question = trimmed,
+                    language = language,
+                    aiFailureNote = errText,
+                )
                 _chatMessages.value = _chatMessages.value.map { msg ->
                     if (msg.id == botId) {
                         msg.copy(
-                            text = if (msg.text.isBlank()) errText else "${msg.text}\n\n($errText)",
+                            text = if (msg.text.isBlank()) offlineAnswer else "${msg.text}\n\n($errText)",
                             isStreaming = false,
                         )
                     } else msg
@@ -438,7 +445,22 @@ class FarmViewModel(
                 throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Plant scanner error", e)
-                _scannerError.value = e.localizedMessage ?: "Analysis failed"
+                val errText = e.localizedMessage ?: "Analysis failed"
+                val querySeed = trimmedNote.ifBlank {
+                    when (language) {
+                        AppLanguage.AZ -> "bitki xəstəlik yarpaq ləkə"
+                        AppLanguage.EN -> "plant disease leaf spot"
+                        AppLanguage.RU -> "болезнь растений пятна листьев"
+                    }
+                }
+                _scannerResult.value = OfflineAgronomistAdvisor.answerOffline(
+                    question = querySeed,
+                    language = language,
+                    aiFailureNote = errText,
+                )
+                if (isAppCheckTokenError(errText)) {
+                    _scannerError.value = errText
+                }
             } finally {
                 _isScannerLoading.value = false
             }

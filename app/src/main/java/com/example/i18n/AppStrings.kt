@@ -226,6 +226,8 @@ interface AppStrings {
     val btnSendAi: String
     val btnClearChat: String
     val aiSampleNotice: String
+    val aiOfflineNotice: String
+    val aiOfflineBadge: String
     val aiSampleLabel: String
     val aiQuickPrompts: List<String>
     val scannerTitle: String
@@ -247,9 +249,26 @@ interface AppStrings {
 
     // Pesticide Screen
     val pestTitle: String
+    val tabPestGuide: String
+    val tabPestSearch: String
     val tabPestCheck: String
     val tabPestAdd: String
     val tabPestBanned: String
+    val pestStepCrop: String
+    val pestStepThreat: String
+    val pestFilterAll: String
+    val pestFilterDiseases: String
+    val pestFilterPests: String
+    val pestSymptomsLabel: String
+    val pestActiveIngredientLabel: String
+    val pestGuidanceLabel: String
+    val pestFindPrepByIngredientBtn: String
+    val prepSearchTitle: String
+    val prepSearchLabel: String
+    val prepSearchPlaceholder: String
+    val prepEmptySearch: String
+    val prepRateSectionTitle: String
+    val prepRateSectionSub: String
     val pestCropLabel: String
     val pestCropPlaceholder: String
     val pestNameLabel: String
@@ -561,6 +580,17 @@ interface AppStrings {
     val adminEmptyList: String
     val adminPublishedBannerTitle: String
     val adminSavedMsg: String
+
+    // Module Visibility Customization & Concise Actions
+    val shareShort: String
+    val modulesSectionTitle: String
+    val modulesCustomizeBtn: String
+    val modulesDialogTitle: String
+    val modulesDialogSub: String
+    val modulesShowAllBtn: String
+    val modulesAllHiddenMsg: String
+    val modulesProfileCardTitle: String
+    val modulesProfileCardSub: String
 }
 
 val LocalStrings = staticCompositionLocalOf<AppStrings> {

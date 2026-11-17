@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.example.i18n.AppLanguage
 import com.example.ui.theme.ThemePreference
@@ -26,6 +27,7 @@ class PreferencesStore(private val context: Context) {
         val LAST_LAT = doublePreferencesKey("last_lat")
         val LAST_LON = doublePreferencesKey("last_lon")
         val EQUIPMENT_REMINDER_DAYS = intPreferencesKey("equipment_reminder_days")
+        val HIDDEN_HOME_MODULES = stringSetPreferencesKey("hidden_home_modules")
     }
 
     val languageFlow: Flow<AppLanguage> = context.dataStore.data.map { prefs ->
@@ -46,6 +48,10 @@ class PreferencesStore(private val context: Context) {
         normalizeReminderDays(prefs[Keys.EQUIPMENT_REMINDER_DAYS])
     }
 
+    val hiddenModulesFlow: Flow<Set<String>> = context.dataStore.data.map { prefs ->
+        prefs[Keys.HIDDEN_HOME_MODULES] ?: emptySet()
+    }
+
     suspend fun setLanguage(language: AppLanguage) {
         context.dataStore.edit { it[Keys.LANGUAGE] = language.code }
     }
@@ -64,6 +70,24 @@ class PreferencesStore(private val context: Context) {
     suspend fun setEquipmentReminderDays(days: Int) {
         context.dataStore.edit {
             it[Keys.EQUIPMENT_REMINDER_DAYS] = normalizeReminderDays(days)
+        }
+    }
+
+    suspend fun setModuleVisible(route: String, visible: Boolean) {
+        context.dataStore.edit { prefs ->
+            val current = prefs[Keys.HIDDEN_HOME_MODULES]?.toMutableSet() ?: mutableSetOf()
+            if (visible) {
+                current.remove(route)
+            } else {
+                current.add(route)
+            }
+            prefs[Keys.HIDDEN_HOME_MODULES] = current
+        }
+    }
+
+    suspend fun showAllModules() {
+        context.dataStore.edit { prefs ->
+            prefs.remove(Keys.HIDDEN_HOME_MODULES)
         }
     }
 }

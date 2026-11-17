@@ -7,10 +7,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -23,9 +25,11 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Agriculture
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Grass
@@ -39,6 +43,7 @@ import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.RequestQuote
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Storefront
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.WbSunny
@@ -46,6 +51,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -76,6 +82,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.example.data.ai.OfflineAgronomistAdvisor
 import com.example.data.local.LocalRecordsStore
 import com.example.data.local.PreferencesStore
 import com.example.data.local.collectEquipmentAlerts
@@ -84,8 +91,10 @@ import com.example.data.remote.OpenMeteoService
 import com.example.i18n.AppLanguage
 import com.example.i18n.LocalStrings
 import com.example.notifications.EquipmentReminderManager
+import com.example.ui.components.AqroCard
 import com.example.ui.components.AqroTopHeader
 import com.example.ui.components.KTN_TELEGRAM_BOT_URL
+import com.example.ui.components.ModuleVisibilityDialog
 import com.example.ui.components.formatNumber
 import com.example.ui.components.openExternalUrl
 import com.example.ui.navigation.NavRoutes
@@ -97,6 +106,7 @@ import com.example.ui.theme.PhosphorusAmber
 import com.example.ui.theme.PotassiumPlum
 import com.example.ui.theme.ThemePreference
 import com.example.ui.theme.WarningAmber
+import com.example.ui.viewmodel.ChatMessageUi
 import com.example.ui.viewmodel.EquipmentAlert
 import com.example.ui.viewmodel.EquipmentStatus
 import com.example.ui.viewmodel.WeatherUiState
@@ -122,6 +132,8 @@ fun LocalToolsApp(
     val localEquipment by localRecordsStore.equipment.collectAsStateWithLifecycle()
     val localFinance by localRecordsStore.finance.collectAsStateWithLifecycle()
     val reminderDays by preferencesStore.equipmentReminderDaysFlow.collectAsStateWithLifecycle(initialValue = 7)
+    val hiddenModules by preferencesStore.hiddenModulesFlow.collectAsStateWithLifecycle(initialValue = emptySet())
+    var offlineChatMessages by remember { mutableStateOf<List<ChatMessageUi>>(emptyList()) }
     val strings = LocalStrings.current
     val equipmentAlerts = remember(localEquipment, reminderDays) {
         collectEquipmentAlerts(localEquipment, reminderDays)
@@ -134,6 +146,23 @@ fun LocalToolsApp(
             warningDays = reminderDays,
             strings = strings,
         )
+    }
+
+    fun sendOfflineAiQuestion(question: String, lang: AppLanguage) {
+        val trimmed = question.trim()
+        if (trimmed.isBlank()) return
+        val userMsg = ChatMessageUi(
+            id = "loc_u_${System.currentTimeMillis()}",
+            isUser = true,
+            text = trimmed,
+        )
+        val botMsg = ChatMessageUi(
+            id = "loc_b_${System.currentTimeMillis() + 1}",
+            isUser = false,
+            text = OfflineAgronomistAdvisor.answerOffline(trimmed, lang),
+            isStreaming = false,
+        )
+        offlineChatMessages = offlineChatMessages + userMsg + botMsg
     }
 
     var weatherState by remember { mutableStateOf(WeatherUiState()) }
@@ -232,8 +261,27 @@ fun LocalToolsApp(
                 composable(NavRoutes.HOME) {
                     LocalToolsHomeScreen(
                         equipmentAlerts = equipmentAlerts,
+                        hiddenModules = hiddenModules,
+                        onToggleModuleVisible = { route, visible ->
+                            scope.launch { preferencesStore.setModuleVisible(route, visible) }
+                        },
+                        onResetModules = {
+                            scope.launch { preferencesStore.showAllModules() }
+                        },
                         onNavigate = navigateTo,
                         onOpenFirebaseSetup = onOpenFirebaseSetup,
+                    )
+                }
+
+                composable(NavRoutes.CHAT) {
+                    ChatScreen(
+                        language = language,
+                        messages = offlineChatMessages,
+                        isStreaming = false,
+                        onSendQuestion = ::sendOfflineAiQuestion,
+                        onClearChat = { offlineChatMessages = emptyList() },
+                        onBack = { navController.popBackStack() },
+                        isOfflineOnly = true,
                     )
                 }
 
@@ -364,6 +412,13 @@ fun LocalToolsApp(
                         onBack = { navController.popBackStack() },
                         isLocalOnly = true,
                         onOpenFirebaseSetup = onOpenFirebaseSetup,
+                        hiddenModules = hiddenModules,
+                        onToggleModuleVisible = { route, visible ->
+                            scope.launch { preferencesStore.setModuleVisible(route, visible) }
+                        },
+                        onResetModules = {
+                            scope.launch { preferencesStore.showAllModules() }
+                        },
                     )
                 }
             }
@@ -383,14 +438,18 @@ private data class LocalToolTile(
 @Composable
 private fun LocalToolsHomeScreen(
     equipmentAlerts: List<EquipmentAlert>,
+    hiddenModules: Set<String>,
+    onToggleModuleVisible: (String, Boolean) -> Unit,
+    onResetModules: () -> Unit,
     onNavigate: (String) -> Unit,
     onOpenFirebaseSetup: () -> Unit,
 ) {
     val strings = LocalStrings.current
     val extra = LocalAqroColors.current
     val context = LocalContext.current
+    var showCustomizeDialog by remember { mutableStateOf(false) }
 
-    val tiles = listOf(
+    val allTiles = listOf(
         LocalToolTile(NavRoutes.NPK, strings.tileNpkTitle, strings.tileNpkSub, Icons.Filled.Grass, EmeraldPrimary, "local_tile_npk"),
         LocalToolTile(NavRoutes.WEATHER, strings.tileWeatherTitle, strings.tileWeatherSub, Icons.Filled.WbSunny, Color(0xFF2F80ED), "local_tile_weather"),
         LocalToolTile(NavRoutes.PESTICIDE, strings.tilePestTitle, strings.tilePestSub, Icons.Filled.Science, WarningAmber, "local_tile_pesticide"),
@@ -403,6 +462,16 @@ private fun LocalToolsHomeScreen(
         LocalToolTile(NavRoutes.GALLERY, strings.tileGalleryTitle, strings.tileGallerySub, Icons.Filled.PhotoCamera, Color(0xFF0284C7), "local_tile_gallery"),
         LocalToolTile(NavRoutes.SEEDS, strings.tileSeedsTitle, strings.tileSeedsSub, Icons.Filled.LocalFlorist, Color(0xFF15803D), "local_tile_seeds"),
         LocalToolTile(NavRoutes.LINKS, strings.tileLinksTitle, strings.tileLinksSub, Icons.Filled.Link, Color(0xFF4F46E5), "local_tile_links"),
+    )
+    val tiles = allTiles.filter { it.route !in hiddenModules }
+
+    ModuleVisibilityDialog(
+        visible = showCustomizeDialog,
+        isLocalOnly = true,
+        hiddenModules = hiddenModules,
+        onToggleModule = onToggleModuleVisible,
+        onShowAll = onResetModules,
+        onDismiss = { showCustomizeDialog = false },
     )
 
     LazyColumn(
@@ -436,6 +505,72 @@ private fun LocalToolsHomeScreen(
                             color = Color.White.copy(alpha = 0.9f),
                         )
                     }
+                }
+            }
+        }
+
+        // Offline AI Agronomist Card (powered by local crop-protection catalog)
+        item {
+            Card(
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(20.dp))
+                    .clickable { onNavigate(NavRoutes.CHAT) }
+                    .testTag("local_home_ai_banner"),
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(extra.pale),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.AutoAwesome,
+                            contentDescription = strings.aiBannerTitle,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(26.dp),
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = strings.aiBannerTitle,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            text = strings.aiBannerSub,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = extra.muted,
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = extra.pale,
+                        ) {
+                            Text(
+                                text = strings.aiOfflineBadge,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                            )
+                        }
+                    }
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                        contentDescription = strings.open,
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
                 }
             }
         }
@@ -602,74 +737,115 @@ private fun LocalToolsHomeScreen(
             }
         }
 
+        // Modules Header + Customize Visibility Button
+        item {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    text = strings.modulesSectionTitle,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                )
+                TextButton(
+                    onClick = { showCustomizeDialog = true },
+                    modifier = Modifier.testTag("customize_modules_btn"),
+                ) {
+                    Icon(Icons.Filled.Tune, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.size(4.dp))
+                    Text(strings.modulesCustomizeBtn, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
         // Working Local Tool Tiles
         item {
-            BoxWithConstraints(modifier = Modifier.fillMaxWidth().testTag("local_tiles_grid")) {
-                val cols = if (maxWidth >= 600.dp) 3 else 2
-                val rows = tiles.chunked(cols)
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    rows.forEach { rowItems ->
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            rowItems.forEach { tile ->
-                                Card(
-                                    shape = RoundedCornerShape(18.dp),
-                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                    border = BorderStroke(1.dp, extra.line),
-                                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(114.dp)
-                                        .clip(RoundedCornerShape(18.dp))
-                                        .clickable { onNavigate(tile.route) }
-                                        .testTag(tile.tag),
-                                ) {
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.Center,
+            if (tiles.isEmpty()) {
+                AqroCard {
+                    Text(
+                        text = strings.modulesAllHiddenMsg,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = extra.muted,
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    OutlinedButton(
+                        onClick = onResetModules,
+                        modifier = Modifier.fillMaxWidth().testTag("show_all_modules_inline_btn"),
+                    ) {
+                        Text(strings.modulesShowAllBtn)
+                    }
+                }
+            } else {
+                BoxWithConstraints(modifier = Modifier.fillMaxWidth().testTag("local_tiles_grid")) {
+                    val cols = if (maxWidth >= 600.dp) 3 else 2
+                    val rows = tiles.chunked(cols)
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        rows.forEach { rowItems ->
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                rowItems.forEach { tile ->
+                                    Card(
+                                        shape = RoundedCornerShape(18.dp),
+                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                        border = BorderStroke(1.dp, extra.line),
+                                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
                                         modifier = Modifier
-                                            .fillMaxSize()
-                                            .padding(horizontal = 8.dp, vertical = 10.dp),
+                                            .weight(1f)
+                                            .height(114.dp)
+                                            .clip(RoundedCornerShape(18.dp))
+                                            .clickable { onNavigate(tile.route) }
+                                            .testTag(tile.tag),
                                     ) {
-                                        Box(
-                                            contentAlignment = Alignment.Center,
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.Center,
                                             modifier = Modifier
-                                                .size(40.dp)
-                                                .clip(RoundedCornerShape(12.dp))
-                                                .background(tile.accent.copy(alpha = 0.14f)),
+                                                .fillMaxSize()
+                                                .padding(horizontal = 8.dp, vertical = 10.dp),
                                         ) {
-                                            Icon(
-                                                imageVector = tile.icon,
-                                                contentDescription = tile.title,
-                                                tint = tile.accent,
-                                                modifier = Modifier.size(22.dp),
+                                            Box(
+                                                contentAlignment = Alignment.Center,
+                                                modifier = Modifier
+                                                    .size(40.dp)
+                                                    .clip(RoundedCornerShape(12.dp))
+                                                    .background(tile.accent.copy(alpha = 0.14f)),
+                                            ) {
+                                                Icon(
+                                                    imageVector = tile.icon,
+                                                    contentDescription = tile.title,
+                                                    tint = tile.accent,
+                                                    modifier = Modifier.size(22.dp),
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.height(7.dp))
+                                            Text(
+                                                text = tile.title,
+                                                style = MaterialTheme.typography.labelLarge,
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                fontWeight = FontWeight.Bold,
+                                                textAlign = TextAlign.Center,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                            Text(
+                                                text = tile.subtitle,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = extra.muted,
+                                                textAlign = TextAlign.Center,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
                                             )
                                         }
-                                        Spacer(modifier = Modifier.height(7.dp))
-                                        Text(
-                                            text = tile.title,
-                                            style = MaterialTheme.typography.labelLarge,
-                                            color = MaterialTheme.colorScheme.onSurface,
-                                            fontWeight = FontWeight.Bold,
-                                            textAlign = TextAlign.Center,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
-                                        Text(
-                                            text = tile.subtitle,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = extra.muted,
-                                            textAlign = TextAlign.Center,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
                                     }
                                 }
-                            }
-                            repeat(cols - rowItems.size) {
-                                Spacer(modifier = Modifier.weight(1f))
+                                repeat(cols - rowItems.size) {
+                                    Spacer(modifier = Modifier.weight(1f))
+                                }
                             }
                         }
                     }

@@ -3,12 +3,15 @@ package com.example.ui.screens
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.i18n.AppLanguage
 import com.example.i18n.LocalStrings
@@ -144,23 +148,26 @@ fun NpkScreen(
                 ) {
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.padding(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(IntrinsicSize.Min)
+                            .padding(10.dp),
                     ) {
                         OutlinedTextField(
                             value = fertNName,
                             onValueChange = { fertNName = it },
-                            label = { Text(strings.npkFertNName) },
-                            placeholder = { Text(strings.npkFertNNameHint) },
+                            label = { Text(strings.npkFertNName, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            placeholder = { Text(strings.npkFertNNameHint, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                             singleLine = true,
-                            modifier = Modifier.weight(1.4f),
+                            modifier = Modifier.weight(1.3f).fillMaxHeight(),
                         )
                         OutlinedTextField(
                             value = fertNPct,
                             onValueChange = { fertNPct = it },
-                            label = { Text(strings.npkFertNPct) },
+                            label = { Text(strings.npkFertNPct, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                             singleLine = true,
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier.weight(1f).fillMaxHeight(),
                         )
                     }
                 }
@@ -188,23 +195,25 @@ fun NpkScreen(
                         )
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(IntrinsicSize.Min),
                         ) {
                             OutlinedTextField(
                                 value = fertPPct,
                                 onValueChange = { fertPPct = it },
-                                label = { Text(strings.npkFertPPct) },
+                                label = { Text(strings.npkFertPPct, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                                 singleLine = true,
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier.weight(1f).fillMaxHeight(),
                             )
                             OutlinedTextField(
                                 value = fertPNPct,
                                 onValueChange = { fertPNPct = it },
-                                label = { Text(strings.npkFertPNPct) },
+                                label = { Text(strings.npkFertPNPct, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                                 singleLine = true,
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier.weight(1f).fillMaxHeight(),
                             )
                         }
                     }
@@ -221,30 +230,38 @@ fun NpkScreen(
                 ) {
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.padding(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(IntrinsicSize.Min)
+                            .padding(10.dp),
                     ) {
                         OutlinedTextField(
                             value = fertKName,
                             onValueChange = { fertKName = it },
-                            label = { Text(strings.npkFertKName) },
-                            placeholder = { Text(strings.npkFertKNameHint) },
+                            label = { Text(strings.npkFertKName, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            placeholder = { Text(strings.npkFertKNameHint, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                             singleLine = true,
-                            modifier = Modifier.weight(1.4f),
+                            modifier = Modifier.weight(1.3f).fillMaxHeight(),
                         )
                         OutlinedTextField(
                             value = fertKPct,
                             onValueChange = { fertKPct = it },
-                            label = { Text(strings.npkFertKPct) },
+                            label = { Text(strings.npkFertKPct, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                             singleLine = true,
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier.weight(1f).fillMaxHeight(),
                         )
                     }
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(IntrinsicSize.Min),
+                ) {
                     Button(
                         onClick = {
                             val rawArea = areaText.replace(",", ".").toDoubleOrNull()
@@ -294,9 +311,17 @@ fun NpkScreen(
                             }
                             resultText = lines.joinToString("\n\n")
                         },
-                        modifier = Modifier.weight(1.4f).testTag("npk_calc_button"),
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .heightIn(min = 48.dp)
+                            .testTag("npk_calc_button"),
                     ) {
-                        Text(strings.btnCalculateNpk)
+                        Text(
+                            text = strings.btnCalculateNpk,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
                     OutlinedButton(
                         onClick = {
@@ -307,9 +332,17 @@ fun NpkScreen(
                             resultText = null
                             errorText = null
                         },
-                        modifier = Modifier.weight(0.8f).testTag("npk_reset_button"),
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .heightIn(min = 48.dp)
+                            .testTag("npk_reset_button"),
                     ) {
-                        Text(strings.reset)
+                        Text(
+                            text = strings.reset,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
                 }
             }

@@ -7,12 +7,15 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -49,6 +52,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.i18n.AppLanguage
 import com.example.i18n.LocalStrings
@@ -273,23 +277,25 @@ fun InsuranceCalcScreen(
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(IntrinsicSize.Min),
                 ) {
                     OutlinedTextField(
                         value = yieldText,
                         onValueChange = { yieldText = it },
-                        label = { Text(strings.insuranceYieldLabel) },
+                        label = { Text(strings.insuranceYieldLabel, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         singleLine = true,
-                        modifier = Modifier.weight(1f).testTag("insurance_yield_input"),
+                        modifier = Modifier.weight(1f).fillMaxHeight().testTag("insurance_yield_input"),
                     )
                     OutlinedTextField(
                         value = priceText,
                         onValueChange = { priceText = it },
-                        label = { Text(strings.insurancePriceLabel) },
+                        label = { Text(strings.insurancePriceLabel, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         singleLine = true,
-                        modifier = Modifier.weight(1f).testTag("insurance_price_input"),
+                        modifier = Modifier.weight(1f).fillMaxHeight().testTag("insurance_price_input"),
                     )
                 }
 
@@ -371,12 +377,15 @@ fun InsuranceCalcScreen(
                             text = strings.insuranceFarmerPaysLabel,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.ExtraBold,
+                            modifier = Modifier.weight(1f).padding(end = 8.dp),
                         )
                         Text(
                             text = "${formatNumber(farmerPays, 2)} AZN",
-                            style = MaterialTheme.typography.titleLarge,
+                            style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.ExtraBold,
                             color = MaterialTheme.colorScheme.primary,
+                            softWrap = false,
+                            maxLines = 1,
                         )
                     }
                     Surface(
@@ -395,23 +404,41 @@ fun InsuranceCalcScreen(
                     Spacer(modifier = Modifier.height(4.dp))
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(IntrinsicSize.Min),
                     ) {
                         OutlinedButton(
                             onClick = ::shareEstimate,
-                            modifier = Modifier.weight(1f).testTag("insurance_share_btn"),
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .heightIn(min = 48.dp)
+                                .testTag("insurance_share_btn"),
                         ) {
                             Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text(strings.seedShareBtn)
+                            Text(
+                                text = strings.shareShort,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
                         }
                         Button(
                             onClick = { openExternalUrl(context, "https://asf.gov.az/") },
-                            modifier = Modifier.weight(1f).testTag("insurance_official_btn"),
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .heightIn(min = 48.dp)
+                                .testTag("insurance_official_btn"),
                         ) {
                             Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text(strings.open)
+                            Text(
+                                text = strings.open,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
                         }
                     }
                 }
@@ -435,13 +462,15 @@ private fun InsuranceStatRow(
             text = label,
             style = MaterialTheme.typography.bodyMedium,
             color = extra.muted,
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.weight(1f).padding(end = 8.dp),
         )
         Text(
             text = value,
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Bold,
             color = valueColor,
+            softWrap = false,
+            maxLines = 1,
         )
     }
 }

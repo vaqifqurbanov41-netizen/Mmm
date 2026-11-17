@@ -9,9 +9,11 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -35,6 +37,7 @@ import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Spa
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -45,7 +48,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -82,6 +87,7 @@ import com.example.ui.components.ScreenTopBar
 import com.example.ui.components.TabPillsRow
 import com.example.ui.components.formatNumber
 import com.example.ui.components.openExternalUrl
+import com.example.ui.components.rememberCustomizableModules
 import com.example.ui.components.todayIsoDateString
 import com.example.ui.theme.DangerRed
 import com.example.ui.theme.EmeraldPrimary
@@ -237,28 +243,28 @@ fun FinanceScreen(
                 Spacer(modifier = Modifier.height(10.dp))
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
                 ) {
                     AccountingKpiCell(
                         label = strings.financeIncomeLabel,
                         value = "+${formatNumber(totalIncome, 2)}",
                         currency = strings.aznCurrency,
                         accent = EmeraldPrimary,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
                     )
                     AccountingKpiCell(
                         label = strings.financeExpenseLabel,
                         value = "-${formatNumber(totalExpense, 2)}",
                         currency = strings.aznCurrency,
                         accent = DangerRed,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
                     )
                     AccountingKpiCell(
                         label = strings.financeNetBalanceLabel,
                         value = "${if (netBalance >= 0) "+" else ""}${formatNumber(netBalance, 2)}",
                         currency = strings.aznCurrency,
                         accent = if (netBalance >= 0) EmeraldPrimary else DangerRed,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
                     )
                 }
 
@@ -382,22 +388,25 @@ fun FinanceScreen(
                     }
                 }
                 Spacer(modifier = Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                ) {
                     OutlinedTextField(
                         value = amountText,
                         onValueChange = { amountText = it; formError = null },
-                        label = { Text(strings.financeAmountLabel) },
+                        label = { Text(strings.financeAmountLabel, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         singleLine = true,
-                        modifier = Modifier.weight(1f).testTag("finance_amount_input"),
+                        modifier = Modifier.weight(1f).fillMaxHeight().testTag("finance_amount_input"),
                     )
                     OutlinedTextField(
                         value = category,
                         onValueChange = { category = it },
-                        label = { Text(strings.financeCategoryLabel) },
+                        label = { Text(strings.financeCategoryLabel, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         placeholder = { Text(strings.financeCategoryHint) },
                         singleLine = true,
-                        modifier = Modifier.weight(1.2f).testTag("finance_category_input"),
+                        modifier = Modifier.weight(1.2f).fillMaxHeight().testTag("finance_category_input"),
                     )
                 }
                 if (formError != null) {
@@ -664,22 +673,25 @@ fun HarvestScreen(
                     modifier = Modifier.fillMaxWidth().testTag("harvest_crop_input"),
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                ) {
                     OutlinedTextField(
                         value = qtyText,
                         onValueChange = { qtyText = it; formError = null },
-                        label = { Text(strings.harvestQtyLabel) },
+                        label = { Text(strings.harvestQtyLabel, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         singleLine = true,
-                        modifier = Modifier.weight(1f).testTag("harvest_qty_input"),
+                        modifier = Modifier.weight(1f).fillMaxHeight().testTag("harvest_qty_input"),
                     )
                     OutlinedTextField(
                         value = priceText,
                         onValueChange = { priceText = it },
-                        label = { Text(strings.harvestPriceLabel) },
+                        label = { Text(strings.harvestPriceLabel, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         singleLine = true,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
                     )
                 }
                 if (formError != null) {
@@ -954,6 +966,9 @@ fun ProfileScreen(
     onBack: () -> Unit,
     isLocalOnly: Boolean = false,
     onOpenFirebaseSetup: (() -> Unit)? = null,
+    hiddenModules: Set<String> = emptySet(),
+    onToggleModuleVisible: (String, Boolean) -> Unit = { _, _ -> },
+    onResetModules: () -> Unit = {},
 ) {
     val strings = LocalStrings.current
     val extra = LocalAqroColors.current
@@ -1077,6 +1092,77 @@ fun ProfileScreen(
                     selectedIndex = ThemePreference.entries.indexOf(themePreference),
                     onSelect = { idx -> onSelectTheme(ThemePreference.entries[idx]) },
                 )
+            }
+        }
+
+        // Selective Module Visibility Card
+        item {
+            val modules = rememberCustomizableModules(isLocalOnly)
+            AqroCard(modifier = Modifier.testTag("profile_modules_card")) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Icon(Icons.Filled.Tune, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Text(
+                            text = strings.modulesProfileCardTitle,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                    TextButton(
+                        onClick = onResetModules,
+                        modifier = Modifier.testTag("profile_reset_modules_btn"),
+                    ) {
+                        Text(strings.modulesShowAllBtn, maxLines = 1)
+                    }
+                }
+                Text(
+                    text = strings.modulesProfileCardSub,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = extra.muted,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    modules.forEach { mod ->
+                        val isVisible = mod.route !in hiddenModules
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (isVisible) extra.pale else MaterialTheme.colorScheme.surface,
+                            border = BorderStroke(1.dp, extra.line),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable { onToggleModuleVisible(mod.route, !isVisible) },
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            ) {
+                                Text(
+                                    text = mod.title,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f).padding(end = 8.dp),
+                                )
+                                Switch(
+                                    checked = isVisible,
+                                    onCheckedChange = { checked -> onToggleModuleVisible(mod.route, checked) },
+                                    modifier = Modifier.testTag("profile_module_switch_${mod.route}"),
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
 

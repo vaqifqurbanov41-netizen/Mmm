@@ -35,6 +35,13 @@ class SettingsViewModel(
             initialValue = 40.6782 to 46.3606,
         )
 
+    val hiddenModules: StateFlow<Set<String>> = preferencesStore.hiddenModulesFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000L),
+            initialValue = emptySet(),
+        )
+
     fun setLanguage(language: AppLanguage) {
         viewModelScope.launch {
             preferencesStore.setLanguage(language)
@@ -55,6 +62,18 @@ class SettingsViewModel(
     fun saveCoordinates(lat: Double, lon: Double) {
         viewModelScope.launch {
             preferencesStore.setCoordinates(lat, lon)
+        }
+    }
+
+    fun setModuleVisible(route: String, visible: Boolean) {
+        viewModelScope.launch {
+            preferencesStore.setModuleVisible(route, visible)
+        }
+    }
+
+    fun showAllModules() {
+        viewModelScope.launch {
+            preferencesStore.showAllModules()
         }
     }
 }

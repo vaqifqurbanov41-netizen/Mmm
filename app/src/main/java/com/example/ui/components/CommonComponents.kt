@@ -15,12 +15,15 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -43,6 +46,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
@@ -599,6 +603,135 @@ fun ConfirmDeleteDialog(
         dismissButton = {
             TextButton(onClick = onDismiss) {
                 Text(strings.cancel)
+            }
+        },
+    )
+}
+
+data class CustomizableModuleEntry(
+    val route: String,
+    val title: String,
+    val subtitle: String,
+)
+
+@Composable
+fun rememberCustomizableModules(isLocalOnly: Boolean): List<CustomizableModuleEntry> {
+    val strings = LocalStrings.current
+    return remember(strings, isLocalOnly) {
+        buildList {
+            add(CustomizableModuleEntry(NavRoutes.NPK, strings.tileNpkTitle, strings.tileNpkSub))
+            add(CustomizableModuleEntry(NavRoutes.WEATHER, strings.tileWeatherTitle, strings.tileWeatherSub))
+            add(CustomizableModuleEntry(NavRoutes.PESTICIDE, strings.tilePestTitle, strings.tilePestSub))
+            if (!isLocalOnly) {
+                add(CustomizableModuleEntry(NavRoutes.FIELDS, strings.tileFieldsTitle, strings.tileFieldsSub))
+            }
+            add(CustomizableModuleEntry(NavRoutes.AGRO_CALENDAR, strings.tileCalendarTitle, strings.tileCalendarSub))
+            add(CustomizableModuleEntry(NavRoutes.INSURANCE, strings.tileInsuranceTitle, strings.tileInsuranceSub))
+            add(CustomizableModuleEntry(NavRoutes.STATIONS, strings.tileStationsTitle, strings.tileStationsSub))
+            add(CustomizableModuleEntry(NavRoutes.SUBSIDY, strings.tileSubsidyTitle, strings.tileSubsidySub))
+            add(CustomizableModuleEntry(NavRoutes.EQUIPMENT, strings.tileEquipmentTitle, strings.tileEquipmentSub))
+            add(CustomizableModuleEntry(NavRoutes.FINANCE, strings.tileFinanceTitle, strings.tileFinanceSub))
+            if (!isLocalOnly) {
+                add(CustomizableModuleEntry(NavRoutes.HARVEST, strings.tileHarvestTitle, strings.tileHarvestSub))
+            }
+            add(CustomizableModuleEntry(NavRoutes.GALLERY, strings.tileGalleryTitle, strings.tileGallerySub))
+            add(CustomizableModuleEntry(NavRoutes.SEEDS, strings.tileSeedsTitle, strings.tileSeedsSub))
+            add(CustomizableModuleEntry(NavRoutes.LINKS, strings.tileLinksTitle, strings.tileLinksSub))
+        }
+    }
+}
+
+@Composable
+fun ModuleVisibilityDialog(
+    visible: Boolean,
+    isLocalOnly: Boolean,
+    hiddenModules: Set<String>,
+    onToggleModule: (String, Boolean) -> Unit,
+    onShowAll: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    if (!visible) return
+    val strings = LocalStrings.current
+    val extra = LocalAqroColors.current
+    val modules = rememberCustomizableModules(isLocalOnly)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text(strings.modulesDialogTitle, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = strings.modulesDialogSub,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = extra.muted,
+                )
+            }
+        },
+        text = {
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 340.dp)
+                    .testTag("modules_visibility_dialog_list"),
+            ) {
+                items(modules, key = { it.route }) { mod ->
+                    val isVisible = mod.route !in hiddenModules
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isVisible) extra.pale else MaterialTheme.colorScheme.surface,
+                        border = BorderStroke(1.dp, extra.line),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { onToggleModule(mod.route, !isVisible) },
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        ) {
+                            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                Text(
+                                    text = mod.title,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    text = mod.subtitle,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = extra.muted,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            Switch(
+                                checked = isVisible,
+                                onCheckedChange = { checked -> onToggleModule(mod.route, checked) },
+                                modifier = Modifier.testTag("module_switch_${mod.route}"),
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.testTag("close_modules_dialog_btn"),
+            ) {
+                Text(strings.save, fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onShowAll,
+                modifier = Modifier.testTag("reset_modules_btn"),
+            ) {
+                Text(strings.modulesShowAllBtn)
             }
         },
     )

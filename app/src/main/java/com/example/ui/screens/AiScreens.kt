@@ -15,12 +15,15 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -62,6 +65,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.data.firebase.applyCustomAppCheckDebugToken
 import com.example.data.firebase.getOrCreateAppCheckDebugUuid
@@ -82,6 +86,7 @@ fun ChatScreen(
     onSendQuestion: (String, AppLanguage) -> Unit,
     onClearChat: () -> Unit,
     onBack: () -> Unit,
+    isOfflineOnly: Boolean = false,
 ) {
     val strings = LocalStrings.current
     val extra = LocalAqroColors.current
@@ -92,7 +97,7 @@ fun ChatScreen(
 
     LaunchedEffect(messages.size, messages.lastOrNull()?.text?.length) {
         if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.lastIndex + 1)
+            listState.animateScrollToItem(messages.size + 2)
         }
     }
 
@@ -103,66 +108,65 @@ fun ChatScreen(
     ) {
         ScreenTopBar(title = strings.aiTitle, onBack = onBack)
 
-        Surface(
-            shape = RoundedCornerShape(14.dp),
-            color = extra.pale,
-            border = BorderStroke(1.dp, extra.line),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(10.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.AutoAwesome,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(18.dp),
-                )
-                Text(
-                    text = strings.aiSampleNotice,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Quick Prompts Row
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-        ) {
-            strings.aiQuickPrompts.forEach { prompt ->
-                Surface(
-                    shape = RoundedCornerShape(50),
-                    color = MaterialTheme.colorScheme.surface,
-                    border = BorderStroke(1.dp, extra.line),
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(50))
-                        .clickable { input = prompt },
-                ) {
-                    Text(
-                        text = prompt,
-                        style = MaterialTheme.typography.labelMedium,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(10.dp))
-
         LazyColumn(
             state = listState,
             verticalArrangement = Arrangement.spacedBy(10.dp),
             contentPadding = PaddingValues(vertical = 4.dp),
-            modifier = Modifier.weight(1f),
+            modifier = Modifier
+                .weight(1f)
+                .testTag("ai_chat_list"),
         ) {
+            item {
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = extra.pale,
+                    border = BorderStroke(1.dp, extra.line),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(10.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.AutoAwesome,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Text(
+                            text = if (isOfflineOnly) strings.aiOfflineNotice else strings.aiSampleNotice,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                }
+            }
+            item {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                ) {
+                    strings.aiQuickPrompts.forEach { prompt ->
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = MaterialTheme.colorScheme.surface,
+                            border = BorderStroke(1.dp, extra.line),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .clickable { input = prompt },
+                        ) {
+                            Text(
+                                text = prompt,
+                                style = MaterialTheme.typography.labelMedium,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                            )
+                        }
+                    }
+                }
+            }
             item {
                 ChatBubble(
                     isUser = false,
@@ -200,8 +204,10 @@ fun ChatScreen(
         Spacer(modifier = Modifier.height(8.dp))
 
         Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(IntrinsicSize.Min),
         ) {
             Button(
                 onClick = {
@@ -212,7 +218,11 @@ fun ChatScreen(
                     }
                 },
                 enabled = !isStreaming && input.isNotBlank(),
-                modifier = Modifier.weight(1.4f).testTag("ai_send_button"),
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .heightIn(min = 48.dp)
+                    .testTag("ai_send_button"),
             ) {
                 if (isStreaming) {
                     CircularProgressIndicator(
@@ -223,16 +233,28 @@ fun ChatScreen(
                 } else {
                     Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.size(6.dp))
-                    Text(strings.btnSendAi)
+                    Text(
+                        text = strings.btnSendAi,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
             }
             OutlinedButton(
                 onClick = onClearChat,
-                modifier = Modifier.weight(0.9f).testTag("ai_clear_button"),
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .heightIn(min = 48.dp)
+                    .testTag("ai_clear_button"),
             ) {
                 Icon(Icons.Filled.DeleteSweep, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.size(4.dp))
-                Text(strings.btnClearChat, maxLines = 1)
+                Spacer(modifier = Modifier.size(6.dp))
+                Text(
+                    text = strings.btnClearChat,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }

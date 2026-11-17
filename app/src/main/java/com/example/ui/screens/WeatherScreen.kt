@@ -7,12 +7,15 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -45,6 +48,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.example.i18n.LocalStrings
@@ -104,26 +108,32 @@ fun WeatherScreen(
             AqroCard {
                 Text(strings.weatherCoordsTitle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                ) {
                     OutlinedTextField(
                         value = latText,
                         onValueChange = { latText = it },
-                        label = { Text(strings.latLabel) },
+                        label = { Text(strings.latLabel, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         singleLine = true,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
                     )
                     OutlinedTextField(
                         value = lonText,
                         onValueChange = { lonText = it },
-                        label = { Text(strings.lonLabel) },
+                        label = { Text(strings.lonLabel, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         singleLine = true,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
                     )
                 }
                 Spacer(modifier = Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                ) {
                     OutlinedButton(
                         onClick = {
                             val granted = ContextCompat.checkSelfPermission(
@@ -133,11 +143,15 @@ fun WeatherScreen(
                             if (granted) locateAndFetch()
                             else permLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
                         },
-                        modifier = Modifier.weight(1f).testTag("weather_gps_btn"),
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .heightIn(min = 48.dp)
+                            .testTag("weather_gps_btn"),
                     ) {
                         Icon(Icons.Filled.MyLocation, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.size(6.dp))
-                        Text(strings.btnGpsWeather, maxLines = 1)
+                        Text(strings.btnGpsWeather, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     Button(
                         onClick = {
@@ -146,14 +160,18 @@ fun WeatherScreen(
                             onRefreshWeather(lat, lon)
                         },
                         enabled = !weatherState.isLoading,
-                        modifier = Modifier.weight(1f).testTag("weather_refresh_btn"),
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .heightIn(min = 48.dp)
+                            .testTag("weather_refresh_btn"),
                     ) {
                         if (weatherState.isLoading) {
                             CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                         } else {
                             Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.size(6.dp))
-                            Text(strings.btnRefreshWeather, maxLines = 1)
+                            Text(strings.btnRefreshWeather, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
                 }
@@ -173,33 +191,39 @@ fun WeatherScreen(
         val current = weatherState.response?.current
         if (current != null) {
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                ) {
                     WeatherStatTile(
                         icon = Icons.Filled.Thermostat,
                         label = strings.weatherCurrentTemp,
                         value = "${formatNumber(current.temperature2m, 1)} °C",
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
                     )
                     WeatherStatTile(
                         icon = Icons.Filled.WaterDrop,
                         label = strings.weatherHumidity,
                         value = "${current.humidity2m}%",
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
                     )
                 }
                 Spacer(modifier = Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                ) {
                     WeatherStatTile(
                         icon = Icons.Filled.WbSunny,
                         label = strings.weatherPrecip,
                         value = "${formatNumber(current.precipitation, 1)} mm",
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
                     )
                     WeatherStatTile(
                         icon = Icons.Filled.Air,
                         label = strings.weatherWind,
                         value = "${formatNumber(current.windSpeed10m, 1)} ${strings.weatherWindUnit}",
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
                     )
                 }
             }

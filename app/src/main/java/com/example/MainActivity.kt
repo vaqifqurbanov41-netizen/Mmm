@@ -113,6 +113,7 @@ fun AqroRootApp(
 
     val language by settingsViewModel.language.collectAsStateWithLifecycle()
     val themePref by settingsViewModel.themePreference.collectAsStateWithLifecycle()
+    val hiddenModules by settingsViewModel.hiddenModules.collectAsStateWithLifecycle()
 
     val strings = when (language) {
         AppLanguage.AZ -> StringsAz
@@ -173,6 +174,9 @@ fun AqroRootApp(
                             onSelectLanguage = settingsViewModel::setLanguage,
                             onSelectTheme = settingsViewModel::setThemePreference,
                             onToggleDark = settingsViewModel::toggleLightDark,
+                            hiddenModules = hiddenModules,
+                            onToggleModuleVisible = settingsViewModel::setModuleVisible,
+                            onResetModules = settingsViewModel::showAllModules,
                         )
                     }
                 }
@@ -190,6 +194,9 @@ private fun AuthenticatedMainApp(
     onSelectLanguage: (AppLanguage) -> Unit,
     onSelectTheme: (ThemePreference) -> Unit,
     onToggleDark: (Boolean) -> Unit,
+    hiddenModules: Set<String>,
+    onToggleModuleVisible: (String, Boolean) -> Unit,
+    onResetModules: () -> Unit,
 ) {
     val context = LocalContext.current
     val localRecordsStore = remember(context) { LocalRecordsStore(context.applicationContext) }
@@ -328,6 +335,9 @@ private fun AuthenticatedMainApp(
                         onNavigate = navigateTo,
                         userEmail = userEmail,
                         adminEntries = adminEntries,
+                        hiddenModules = hiddenModules,
+                        onToggleModuleVisible = onToggleModuleVisible,
+                        onResetModules = onResetModules,
                     )
                 }
 
@@ -532,6 +542,9 @@ private fun AuthenticatedMainApp(
                         onSelectTheme = onSelectTheme,
                         onSaveProfile = viewModel::saveProfile,
                         onBack = { navController.popBackStack() },
+                        hiddenModules = hiddenModules,
+                        onToggleModuleVisible = onToggleModuleVisible,
+                        onResetModules = onResetModules,
                     )
                 }
             }

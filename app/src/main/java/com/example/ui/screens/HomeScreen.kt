@@ -7,9 +7,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -37,6 +39,7 @@ import androidx.compose.material.icons.filled.RequestQuote
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Spa
 import androidx.compose.material.icons.filled.Storefront
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.WbSunny
@@ -44,9 +47,15 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -64,7 +73,9 @@ import com.example.data.model.AdminContentItem
 import com.example.data.model.FarmField
 import com.example.data.model.isAdminEmail
 import com.example.i18n.LocalStrings
+import com.example.ui.components.AqroCard
 import com.example.ui.components.KTN_TELEGRAM_BOT_URL
+import com.example.ui.components.ModuleVisibilityDialog
 import com.example.ui.components.formatNumber
 import com.example.ui.components.openExternalUrl
 import com.example.ui.navigation.NavRoutes
@@ -97,16 +108,20 @@ fun HomeScreen(
     onNavigate: (String) -> Unit,
     userEmail: String? = null,
     adminEntries: List<AdminContentItem> = emptyList(),
+    hiddenModules: Set<String> = emptySet(),
+    onToggleModuleVisible: (String, Boolean) -> Unit = { _, _ -> },
+    onResetModules: () -> Unit = {},
 ) {
     val strings = LocalStrings.current
     val extra = LocalAqroColors.current
     val context = LocalContext.current
+    var showCustomizeDialog by remember { mutableStateOf(false) }
 
     val totalHa = fields.sumOf { it.sizeHa }
     val showAdminTile = isAdminEmail(userEmail)
     val adminNotices = adminEntries.filter { it.category == "notice" }
 
-    val tiles = buildList {
+    val allTiles = buildList {
         add(HomeMenuTile(NavRoutes.NPK, strings.tileNpkTitle, strings.tileNpkSub, Icons.Filled.Grass, EmeraldPrimary, "tile_npk"))
         add(HomeMenuTile(NavRoutes.WEATHER, strings.tileWeatherTitle, strings.tileWeatherSub, Icons.Filled.WbSunny, Color(0xFF2F80ED), "tile_weather"))
         add(HomeMenuTile(NavRoutes.PESTICIDE, strings.tilePestTitle, strings.tilePestSub, Icons.Filled.Science, WarningAmber, "tile_pesticide"))
@@ -125,6 +140,16 @@ fun HomeScreen(
             add(HomeMenuTile(NavRoutes.ADMIN, strings.tileAdminTitle, strings.tileAdminSub, Icons.Filled.AdminPanelSettings, Color(0xFFB45309), "tile_admin"))
         }
     }
+    val tiles = allTiles.filter { it.route == NavRoutes.ADMIN || it.route !in hiddenModules }
+
+    ModuleVisibilityDialog(
+        visible = showCustomizeDialog,
+        isLocalOnly = false,
+        hiddenModules = hiddenModules,
+        onToggleModule = onToggleModuleVisible,
+        onShowAll = onResetModules,
+        onDismiss = { showCustomizeDialog = false },
+    )
 
     LazyColumn(
         contentPadding = PaddingValues(16.dp),
@@ -158,13 +183,14 @@ fun HomeScreen(
                         )
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
                         ) {
                             Surface(
                                 shape = RoundedCornerShape(14.dp),
                                 color = Color.White.copy(alpha = 0.16f),
                                 modifier = Modifier
                                     .weight(1f)
+                                    .fillMaxHeight()
                                     .clickable { onNavigate(NavRoutes.FIELDS) }
                                     .testTag("hero_fields_stat"),
                             ) {
@@ -173,12 +199,15 @@ fun HomeScreen(
                                         text = strings.myFieldsStat,
                                         style = MaterialTheme.typography.labelSmall,
                                         color = Color.White.copy(alpha = 0.85f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
                                     )
                                     Text(
                                         text = fields.size.toString(),
                                         style = MaterialTheme.typography.headlineSmall,
                                         color = Color.White,
                                         fontWeight = FontWeight.ExtraBold,
+                                        maxLines = 1,
                                     )
                                 }
                             }
@@ -187,6 +216,7 @@ fun HomeScreen(
                                 color = Color.White.copy(alpha = 0.16f),
                                 modifier = Modifier
                                     .weight(1f)
+                                    .fillMaxHeight()
                                     .clickable { onNavigate(NavRoutes.FIELDS) }
                                     .testTag("hero_area_stat"),
                             ) {
@@ -195,12 +225,15 @@ fun HomeScreen(
                                         text = strings.totalAreaStat,
                                         style = MaterialTheme.typography.labelSmall,
                                         color = Color.White.copy(alpha = 0.85f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
                                     )
                                     Text(
                                         text = "${formatNumber(totalHa, 2)} ha",
                                         style = MaterialTheme.typography.headlineSmall,
                                         color = Color.White,
                                         fontWeight = FontWeight.ExtraBold,
+                                        maxLines = 1,
                                     )
                                 }
                             }
@@ -499,26 +532,67 @@ fun HomeScreen(
             }
         }
 
+        // Modules Header + Customize Visibility Button
+        item {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    text = strings.modulesSectionTitle,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                )
+                TextButton(
+                    onClick = { showCustomizeDialog = true },
+                    modifier = Modifier.testTag("customize_modules_btn"),
+                ) {
+                    Icon(Icons.Filled.Tune, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.size(4.dp))
+                    Text(strings.modulesCustomizeBtn, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
         // Adaptive Menu Grid
         item {
-            BoxWithConstraints(modifier = Modifier.fillMaxWidth().testTag("home_tiles_grid")) {
-                val cols = if (maxWidth >= 600.dp) 4 else 3
-                val rows = tiles.chunked(cols)
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    rows.forEach { rowItems ->
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            rowItems.forEach { tile ->
-                                HomeMenuTileCard(
-                                    tile = tile,
-                                    onClick = { onNavigate(tile.route) },
-                                    modifier = Modifier.weight(1f),
-                                )
-                            }
-                            repeat(cols - rowItems.size) {
-                                Spacer(modifier = Modifier.weight(1f))
+            if (tiles.isEmpty()) {
+                AqroCard {
+                    Text(
+                        text = strings.modulesAllHiddenMsg,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = extra.muted,
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    OutlinedButton(
+                        onClick = onResetModules,
+                        modifier = Modifier.fillMaxWidth().testTag("show_all_modules_inline_btn"),
+                    ) {
+                        Text(strings.modulesShowAllBtn)
+                    }
+                }
+            } else {
+                BoxWithConstraints(modifier = Modifier.fillMaxWidth().testTag("home_tiles_grid")) {
+                    val cols = if (maxWidth >= 600.dp) 4 else 3
+                    val rows = tiles.chunked(cols)
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        rows.forEach { rowItems ->
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                rowItems.forEach { tile ->
+                                    HomeMenuTileCard(
+                                        tile = tile,
+                                        onClick = { onNavigate(tile.route) },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+                                repeat(cols - rowItems.size) {
+                                    Spacer(modifier = Modifier.weight(1f))
+                                }
                             }
                         }
                     }

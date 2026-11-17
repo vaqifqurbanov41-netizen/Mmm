@@ -11,12 +11,15 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -57,6 +60,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.data.model.EquipmentItem
 import com.example.data.model.SubsidyDeclaration
@@ -164,23 +168,26 @@ fun SubsidyScreen(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                ) {
                     OutlinedTextField(
                         value = areaInput,
                         onValueChange = { areaInput = it },
-                        label = { Text(strings.subsidyAreaLabel) },
+                        label = { Text(strings.subsidyAreaLabel, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         singleLine = true,
-                        modifier = Modifier.weight(1f).testTag("subsidy_area_input"),
+                        modifier = Modifier.weight(1f).fillMaxHeight().testTag("subsidy_area_input"),
                     )
                     OutlinedTextField(
                         value = rateInput,
                         onValueChange = { rateInput = it },
-                        label = { Text(strings.subsidyRateLabel) },
-                        placeholder = { Text(strings.subsidyRateHint) },
+                        label = { Text(strings.subsidyRateLabel, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        placeholder = { Text(strings.subsidyRateHint, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         singleLine = true,
-                        modifier = Modifier.weight(1f).testTag("subsidy_rate_input"),
+                        modifier = Modifier.weight(1f).fillMaxHeight().testTag("subsidy_rate_input"),
                     )
                 }
                 Spacer(modifier = Modifier.height(10.dp))
@@ -495,41 +502,47 @@ fun EquipmentScreen(
                     modifier = Modifier.fillMaxWidth().testTag("eq_name_input"),
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                ) {
                     OutlinedTextField(
                         value = model,
                         onValueChange = { model = it },
-                        label = { Text(strings.eqModelLabel) },
-                        placeholder = { Text(strings.eqModelHint) },
+                        label = { Text(strings.eqModelLabel, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        placeholder = { Text(strings.eqModelHint, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         singleLine = true,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
                     )
                     OutlinedTextField(
                         value = plateCode,
                         onValueChange = { plateCode = it },
-                        label = { Text(strings.eqCodeLabel) },
-                        placeholder = { Text(strings.eqCodeHint) },
+                        label = { Text(strings.eqCodeLabel, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        placeholder = { Text(strings.eqCodeHint, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         singleLine = true,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
                     )
                 }
                 Spacer(modifier = Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                ) {
                     OutlinedTextField(
                         value = inspectionDate,
                         onValueChange = { inspectionDate = it },
-                        label = { Text(strings.eqInspectionLabel) },
+                        label = { Text(strings.eqInspectionLabel, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         placeholder = { Text("YYYY-MM-DD") },
                         singleLine = true,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
                     )
                     OutlinedTextField(
                         value = insuranceDate,
                         onValueChange = { insuranceDate = it },
-                        label = { Text(strings.eqInsuranceLabel) },
+                        label = { Text(strings.eqInsuranceLabel, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         placeholder = { Text("YYYY-MM-DD") },
                         singleLine = true,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
                     )
                 }
                 if (formError != null) {
@@ -537,7 +550,10 @@ fun EquipmentScreen(
                     DangerBannerBox(text = formError!!)
                 }
                 Spacer(modifier = Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                ) {
                     Button(
                         onClick = {
                             if (name.isBlank()) {
@@ -555,11 +571,15 @@ fun EquipmentScreen(
                                 }
                             }
                         },
-                        modifier = Modifier.weight(1f).testTag("save_equipment_btn"),
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .heightIn(min = 48.dp)
+                            .testTag("save_equipment_btn"),
                     ) {
                         Icon(Icons.Filled.Save, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.size(6.dp))
-                        Text(strings.save)
+                        Text(strings.save, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     if (editingItem != null) {
                         OutlinedButton(
@@ -571,8 +591,11 @@ fun EquipmentScreen(
                                 inspectionDate = ""
                                 insuranceDate = ""
                             },
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .heightIn(min = 48.dp),
                         ) {
-                            Text(strings.cancel)
+                            Text(strings.cancel, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
                 }
@@ -651,22 +674,33 @@ fun EquipmentScreen(
                     Text(strings.backupTitle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 }
                 Spacer(modifier = Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                ) {
                     OutlinedButton(
                         onClick = { exportLauncher.launch("aqromeslehet_backup_${todayIsoDateString()}.json") },
-                        modifier = Modifier.weight(1f).testTag("export_backup_btn"),
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .heightIn(min = 48.dp)
+                            .testTag("export_backup_btn"),
                     ) {
                         Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.size(4.dp))
-                        Text(strings.btnExportBackup, maxLines = 1)
+                        Text(strings.btnExportBackup, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     OutlinedButton(
                         onClick = { importLauncher.launch(arrayOf("application/json", "*/*")) },
-                        modifier = Modifier.weight(1f).testTag("import_backup_btn"),
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .heightIn(min = 48.dp)
+                            .testTag("import_backup_btn"),
                     ) {
                         Icon(Icons.Filled.Upload, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.size(4.dp))
-                        Text(strings.btnImportBackup, maxLines = 1)
+                        Text(strings.btnImportBackup, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
                 if (backupStatus != null) {

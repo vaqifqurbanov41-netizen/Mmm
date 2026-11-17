@@ -14,12 +14,15 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -61,6 +64,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.example.data.model.FarmField
@@ -307,23 +311,31 @@ fun FieldsScreen(
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
                     ) {
                         OutlinedButton(
                             onClick = onUndoPoint,
-                            modifier = Modifier.weight(1f).testTag("map_undo_btn"),
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .heightIn(min = 48.dp)
+                                .testTag("map_undo_btn"),
                         ) {
                             Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.size(6.dp))
-                            Text(strings.undo)
+                            Text(strings.undo, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                         OutlinedButton(
                             onClick = onClearPoints,
-                            modifier = Modifier.weight(1f).testTag("map_clear_btn"),
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .heightIn(min = 48.dp)
+                                .testTag("map_clear_btn"),
                         ) {
                             Icon(Icons.Filled.Clear, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.size(6.dp))
-                            Text(strings.clear)
+                            Text(strings.clear, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
                 }
@@ -505,31 +517,31 @@ fun FieldsScreen(
         item {
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
             ) {
                 MetricBox(
                     label = strings.metricAreaHa,
                     value = "${formatNumber(measurements.areaHa, 4)} ha",
                     sub = "${formatNumber(measurements.areaSot, 1)} sot • ${measurements.areaM2.roundToInt()} m²",
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
                 )
                 MetricBox(
                     label = strings.metricWidth,
                     value = "${measurements.widthM.roundToInt()} ${strings.mUnit}",
                     sub = strings.metricWidthSub,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
                 )
             }
             Spacer(modifier = Modifier.height(8.dp))
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
             ) {
                 MetricBox(
                     label = strings.metricLength,
                     value = "${measurements.lengthM.roundToInt()} ${strings.mUnit}",
                     sub = String.format(language.locale, strings.metricPerimeterPrefix, measurements.perimeterM.roundToInt()),
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
                 )
                 val firstPtText = mapPoints.firstOrNull()?.let {
                     "${formatNumber(it.lat, 4)}, ${formatNumber(it.lon, 4)}"
@@ -538,7 +550,7 @@ fun FieldsScreen(
                     label = strings.firstPointPrefix,
                     value = firstPtText,
                     sub = "${mapPoints.size} pts",
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
                 )
             }
         }
@@ -566,44 +578,50 @@ fun FieldsScreen(
                     modifier = Modifier.fillMaxWidth().testTag("field_crop_input"),
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                ) {
                     OutlinedTextField(
                         value = fieldSizeInput,
                         onValueChange = { fieldSizeInput = it; formError = null },
-                        label = { Text(strings.fieldSizeLabel) },
-                        placeholder = { Text(strings.fieldSizePlaceholder) },
+                        label = { Text(strings.fieldSizeLabel, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        placeholder = { Text(strings.fieldSizePlaceholder, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         singleLine = true,
-                        modifier = Modifier.weight(1f).testTag("field_size_input"),
+                        modifier = Modifier.weight(1f).fillMaxHeight().testTag("field_size_input"),
                     )
                     OutlinedTextField(
                         value = fieldLocation,
                         onValueChange = { fieldLocation = it },
-                        label = { Text(strings.fieldLocationLabel) },
-                        placeholder = { Text(strings.fieldLocationPlaceholder) },
+                        label = { Text(strings.fieldLocationLabel, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        placeholder = { Text(strings.fieldLocationPlaceholder, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         singleLine = true,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
                     )
                 }
                 Spacer(modifier = Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                ) {
                     OutlinedTextField(
                         value = fieldWidthInput,
                         onValueChange = { fieldWidthInput = it },
-                        label = { Text(strings.fieldWidthLabel) },
-                        placeholder = { Text(strings.fieldAutoPlaceholder) },
+                        label = { Text(strings.fieldWidthLabel, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        placeholder = { Text(strings.fieldAutoPlaceholder, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         singleLine = true,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
                     )
                     OutlinedTextField(
                         value = fieldLengthInput,
                         onValueChange = { fieldLengthInput = it },
-                        label = { Text(strings.fieldLengthLabel) },
-                        placeholder = { Text(strings.fieldAutoPlaceholder) },
+                        label = { Text(strings.fieldLengthLabel, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        placeholder = { Text(strings.fieldAutoPlaceholder, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         singleLine = true,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
                     )
                 }
 

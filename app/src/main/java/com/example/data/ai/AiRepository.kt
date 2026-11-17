@@ -95,12 +95,17 @@ class FirebaseAiRepository : AiRepository {
             AppLanguage.RU -> "Respond strictly in natural, professional Russian (Русский язык)."
         }
 
+        val localCatalogContext = OfflineAgronomistAdvisor.buildPromptContext(question, language)
         val systemContext = buildString {
             appendLine("You are AqroMəsləhət AI Agronomist, an expert agricultural advisor for farmers in Azerbaijan and the region.")
             appendLine(langInstruction)
             if (farmerName.isNotBlank()) appendLine("Farmer name: $farmerName.")
             if (farmerRegion.isNotBlank()) appendLine("Farmer region: $farmerRegion.")
-            appendLine("Provide practical, accurate, actionable guidance on crops, irrigation, NPK fertilization, pests, and plant diseases. Keep responses concise, structured with bullet points, and safe.")
+            appendLine("Provide practical, accurate, actionable guidance on crops, irrigation, NPK fertilization, pests, and plant diseases. When recommending crop protection, prioritize stating the active ingredient (təsiredici maddə). Keep responses concise, structured with bullet points, and safe.")
+            if (localCatalogContext.isNotBlank()) {
+                appendLine()
+                append(localCatalogContext)
+            }
         }
 
         val prompt = buildString {
@@ -141,13 +146,20 @@ class FirebaseAiRepository : AiRepository {
             AppLanguage.RU -> "Respond strictly in Russian (Русский язык)."
         }
 
+        val localCatalogContext = if (note.isNotBlank()) {
+            OfflineAgronomistAdvisor.buildPromptContext(note, language)
+        } else ""
         val promptText = buildString {
             appendLine("You are an expert plant pathologist and agronomist.")
             appendLine(langInstruction)
             appendLine("Analyze the provided plant/leaf/soil image and farmer notes.")
-            appendLine("Provide: 1) Likely condition or pest/deficiency, 2) Key visual causes, 3) Safe, practical treatment & prevention steps.")
+            appendLine("Provide: 1) Likely condition or pest/deficiency, 2) Key visual causes, 3) Recommended active ingredient (təsiredici maddə) and safe treatment & prevention steps.")
             if (note.isNotBlank()) {
                 appendLine("Farmer observation note: $note")
+            }
+            if (localCatalogContext.isNotBlank()) {
+                appendLine()
+                append(localCatalogContext)
             }
         }
 

@@ -228,5 +228,60 @@ class LocalRecordsAndConfigTest {
         com.example.data.firebase.clearCustomAppCheckDebugToken(context)
         assertEquals(null, com.example.data.firebase.getCustomAppCheckDebugToken(context))
     }
+
+    @Test
+    fun cropProtectionCatalogFiltersByCropExcludesTradeNamesAndSupportsOfflineAi() {
+        val tradeNames = listOf(
+            "Ridomil", "Mospilan", "Score", "Aktara", "Karate",
+            "Chorus", "Amistar", "Confidor", "Proclaim", "Decis",
+            "Tilt", "Topas", "Vertimec", "Envidor", "Roundup",
+        )
+        com.example.data.model.CropProtectionCatalog.crops.forEach { crop ->
+            val cropThreats = com.example.data.model.CropProtectionCatalog.threatsForCrop(crop.id)
+            assertTrue("Expected threats for crop ${crop.id}", cropThreats.isNotEmpty())
+            assertTrue("Expected only ${crop.id} threats", cropThreats.all { it.cropId == crop.id })
+            cropThreats.forEach { threat ->
+                val ingredients = "${threat.activeIngredient.az} ${threat.activeIngredient.en} ${threat.activeIngredient.ru}"
+                tradeNames.forEach { trade ->
+                    assertFalse(
+                        "Threat ${threat.id} activeIngredient must not leak commercial trade name $trade",
+                        ingredients.contains(trade, ignoreCase = true),
+                    )
+                }
+            }
+        }
+
+        val mancozebPreps = com.example.data.model.CropProtectionCatalog.searchPreparations("Mankozeb")
+        assertTrue(mancozebPreps.any { it.tradeName.contains("Ridomil", ignoreCase = true) })
+        val acetamipridPreps = com.example.data.model.CropProtectionCatalog.searchPreparations("Asetamiprid")
+        assertTrue(acetamipridPreps.any { it.tradeName.contains("Mospilan", ignoreCase = true) })
+
+        val azAnswer = com.example.data.ai.OfflineAgronomistAdvisor.answerOffline(
+            question = "Pomidor yarpaqlarında fitoftoroz var, nə etməliyəm?",
+            language = com.example.i18n.AppLanguage.AZ,
+            aiFailureNote = "Offline timeout",
+        )
+        assertTrue(azAnswer.contains("Mankozeb"))
+        assertTrue(azAnswer.contains("Offline timeout"))
+
+        val enAnswer = com.example.data.ai.OfflineAgronomistAdvisor.answerOffline(
+            question = "Colorado potato beetle damage on potato",
+            language = com.example.i18n.AppLanguage.EN,
+        )
+        assertTrue(enAnswer.contains("Thiamethoxam"))
+
+        val ruAnswer = com.example.data.ai.OfflineAgronomistAdvisor.answerOffline(
+            question = "Ржавчина на пшенице",
+            language = com.example.i18n.AppLanguage.RU,
+        )
+        assertTrue(ruAnswer.contains("Пропиконазол"))
+
+        val bannedAnswer = com.example.data.ai.OfflineAgronomistAdvisor.answerOffline(
+            question = "DDT istifadə edə bilərəm?",
+            language = com.example.i18n.AppLanguage.AZ,
+        )
+        assertTrue(bannedAnswer.contains("Qadağan", ignoreCase = true) || bannedAnswer.contains("DDT", ignoreCase = true))
+    }
 }
+
 
