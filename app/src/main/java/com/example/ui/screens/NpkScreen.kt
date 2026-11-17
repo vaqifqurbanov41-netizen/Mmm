@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -69,7 +70,7 @@ fun NpkScreen(
     LazyColumn(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().testTag("npk_screen"),
     ) {
         item {
             ScreenTopBar(title = strings.npkTitle, onBack = onBack)
@@ -173,8 +174,8 @@ fun NpkScreen(
                     border = BorderStroke(1.dp, PhosphorusAmber.copy(alpha = 0.4f)),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.padding(10.dp),
                     ) {
                         OutlinedTextField(
@@ -183,24 +184,29 @@ fun NpkScreen(
                             label = { Text(strings.npkFertPName) },
                             placeholder = { Text(strings.npkFertPNameHint) },
                             singleLine = true,
-                            modifier = Modifier.weight(1.2f),
+                            modifier = Modifier.fillMaxWidth(),
                         )
-                        OutlinedTextField(
-                            value = fertPPct,
-                            onValueChange = { fertPPct = it },
-                            label = { Text(strings.npkFertPPct) },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                            singleLine = true,
-                            modifier = Modifier.weight(0.9f),
-                        )
-                        OutlinedTextField(
-                            value = fertPNPct,
-                            onValueChange = { fertPNPct = it },
-                            label = { Text(strings.npkFertPNPct) },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                            singleLine = true,
-                            modifier = Modifier.weight(0.9f),
-                        )
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            OutlinedTextField(
+                                value = fertPPct,
+                                onValueChange = { fertPPct = it },
+                                label = { Text(strings.npkFertPPct) },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                singleLine = true,
+                                modifier = Modifier.weight(1f),
+                            )
+                            OutlinedTextField(
+                                value = fertPNPct,
+                                onValueChange = { fertPNPct = it },
+                                label = { Text(strings.npkFertPNPct) },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                singleLine = true,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
                     }
                 }
 

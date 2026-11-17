@@ -7,11 +7,14 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -20,6 +23,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -43,6 +47,7 @@ import com.example.i18n.LocalStrings
 import com.example.i18n.StringsAz
 import com.example.i18n.StringsEn
 import com.example.i18n.StringsRu
+import com.example.notifications.EquipmentReminderManager
 import com.example.ui.auth.authStateFlow
 import com.example.ui.components.AqroBottomBar
 import com.example.ui.components.AqroTopHeader
@@ -232,9 +237,22 @@ private fun AuthenticatedMainApp(
     val scannerResult by viewModel.scannerResult.collectAsStateWithLifecycle()
     val isScannerLoading by viewModel.isScannerLoading.collectAsStateWithLifecycle()
     val scannerError by viewModel.scannerError.collectAsStateWithLifecycle()
+    val equipmentReminderDays by viewModel.equipmentReminderDays.collectAsStateWithLifecycle()
+    val strings = LocalStrings.current
 
-    val equipmentAlerts = remember(equipment) { viewModel.getEquipmentAlerts(equipment) }
+    val equipmentAlerts = remember(equipment, equipmentReminderDays) {
+        viewModel.getEquipmentAlerts(equipment, equipmentReminderDays)
+    }
+    LaunchedEffect(equipment, equipmentReminderDays, language) {
+        EquipmentReminderManager.syncEquipmentReminders(
+            context = context,
+            items = equipment,
+            warningDays = equipmentReminderDays,
+            strings = strings,
+        )
+    }
     val extraColors = LocalAqroColors.current
+    val isImeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
 
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
@@ -280,17 +298,20 @@ private fun AuthenticatedMainApp(
             )
         },
         bottomBar = {
-            AqroBottomBar(
-                currentRoute = currentRoute,
-                onNavigate = navigateTo,
-            )
+            if (!isImeVisible) {
+                AqroBottomBar(
+                    currentRoute = currentRoute,
+                    onNavigate = navigateTo,
+                )
+            }
         },
     ) { innerPadding ->
         Box(
             contentAlignment = Alignment.TopCenter,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
+                .padding(innerPadding)
+                .imePadding(),
         ) {
             NavHost(
                 navController = navController,
@@ -401,12 +422,14 @@ private fun AuthenticatedMainApp(
                 composable(NavRoutes.EQUIPMENT) {
                     EquipmentScreen(
                         equipment = equipment,
-                        computeStatus = viewModel::computeEquipmentStatus,
+                        computeStatus = { date -> viewModel.computeEquipmentStatus(date, equipmentReminderDays) },
                         onSaveEquipment = viewModel::saveEquipment,
                         onDeleteEquipment = viewModel::deleteEquipment,
                         onExportJson = viewModel::exportBackupJson,
                         onImportJson = viewModel::importBackupJson,
                         onBack = { navController.popBackStack() },
+                        reminderDays = equipmentReminderDays,
+                        onSelectReminderDays = viewModel::setEquipmentReminderDays,
                     )
                 }
 

@@ -164,4 +164,69 @@ class LocalRecordsAndConfigTest {
             }
         }
     }
+
+    @Test
+    fun equipmentStatusAndAlertsRespectWarningLeadDaysAndNormalizePreferences() {
+        assertEquals(1, com.example.data.local.normalizeReminderDays(1))
+        assertEquals(7, com.example.data.local.normalizeReminderDays(7))
+        assertEquals(30, com.example.data.local.normalizeReminderDays(30))
+        assertEquals(7, com.example.data.local.normalizeReminderDays(14))
+        assertEquals(7, com.example.data.local.normalizeReminderDays(null))
+
+        val fmt = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+        val cal5 = java.util.Calendar.getInstance().apply { add(java.util.Calendar.DAY_OF_YEAR, 5) }
+        val inFiveDays = fmt.format(cal5.time)
+
+        val cal20 = java.util.Calendar.getInstance().apply { add(java.util.Calendar.DAY_OF_YEAR, 20) }
+        val inTwentyDays = fmt.format(cal20.time)
+
+        assertEquals(
+            com.example.ui.viewmodel.EquipmentStatus.VALID,
+            com.example.data.local.evaluateEquipmentStatus(inFiveDays, warningDays = 1),
+        )
+        assertEquals(
+            com.example.ui.viewmodel.EquipmentStatus.SOON,
+            com.example.data.local.evaluateEquipmentStatus(inFiveDays, warningDays = 7),
+        )
+        assertEquals(
+            com.example.ui.viewmodel.EquipmentStatus.VALID,
+            com.example.data.local.evaluateEquipmentStatus(inTwentyDays, warningDays = 7),
+        )
+        assertEquals(
+            com.example.ui.viewmodel.EquipmentStatus.SOON,
+            com.example.data.local.evaluateEquipmentStatus(inTwentyDays, warningDays = 30),
+        )
+
+        val eq = com.example.data.model.EquipmentItem(
+            id = "eq-1",
+            name = "MTZ-82",
+            inspectionDate = inFiveDays,
+            insuranceDate = inTwentyDays,
+        )
+        assertTrue(com.example.data.local.collectEquipmentAlerts(listOf(eq), warningDays = 1).isEmpty())
+        assertEquals(1, com.example.data.local.collectEquipmentAlerts(listOf(eq), warningDays = 7).size)
+        assertEquals(1, com.example.data.local.collectEquipmentAlerts(listOf(eq), warningDays = 30).size)
+    }
+
+    @Test
+    fun appCheckHelpersDetectErrorsAndManageCustomDebugToken() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        assertTrue(com.example.data.firebase.isAppCheckTokenError("Firebase app check token is invalid."))
+        assertTrue(com.example.data.firebase.isAppCheckTokenError("AppCheck attestation failed"))
+        assertFalse(com.example.data.firebase.isAppCheckTokenError("Network timeout"))
+
+        com.example.data.firebase.clearCustomAppCheckDebugToken(context)
+        val uuid = com.example.data.firebase.getOrCreateAppCheckDebugUuid(context)
+        assertTrue(uuid.length >= 32)
+        assertEquals(uuid, com.example.data.firebase.getOrCreateAppCheckDebugUuid(context))
+
+        com.example.data.firebase.applyCustomAppCheckDebugToken(context, "11111111-2222-3333-4444-555555555555")
+        assertEquals(
+            "11111111-2222-3333-4444-555555555555",
+            com.example.data.firebase.getCustomAppCheckDebugToken(context),
+        )
+        com.example.data.firebase.clearCustomAppCheckDebugToken(context)
+        assertEquals(null, com.example.data.firebase.getCustomAppCheckDebugToken(context))
+    }
 }
+

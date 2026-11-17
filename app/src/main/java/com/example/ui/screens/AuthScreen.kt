@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -229,6 +230,7 @@ fun AuthScreen(
             .background(MaterialTheme.colorScheme.background)
             .statusBarsPadding()
             .navigationBarsPadding()
+            .imePadding()
             .padding(20.dp)
             .testTag("auth_screen"),
     ) {
@@ -838,6 +840,7 @@ fun FirebaseConfigMissingScreen(
             .background(MaterialTheme.colorScheme.background)
             .statusBarsPadding()
             .navigationBarsPadding()
+            .imePadding()
             .padding(20.dp)
             .testTag("firebase_missing_screen"),
     ) {

@@ -22,11 +22,15 @@ import com.example.i18n.StringsRu
 import com.example.ui.screens.AdminScreen
 import com.example.ui.screens.AgroCalendarScreen
 import com.example.ui.screens.AuthScreen
+import com.example.ui.screens.ChatScreen
+import com.example.ui.screens.EquipmentScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.InsuranceCalcScreen
+import com.example.ui.screens.NpkScreen
 import com.example.ui.screens.SeedsScreen
 import com.example.ui.screens.StationsScreen
 import com.example.ui.theme.AqroMeslehetTheme
+import com.example.ui.viewmodel.ChatMessageUi
 import com.example.ui.viewmodel.WeatherUiState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -157,8 +161,10 @@ class ExampleRobolectricTest {
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("local_tile_equipment").performScrollTo().performClick()
         composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("equipment_screen").performScrollToNode(hasTestTag("eq_name_input"))
         composeTestRule.onNodeWithTag("eq_name_input").performTextInput("John Deere 6120M")
-        composeTestRule.onNodeWithTag("save_equipment_btn").performScrollTo().performClick()
+        composeTestRule.onNodeWithTag("equipment_screen").performScrollToNode(hasTestTag("save_equipment_btn"))
+        composeTestRule.onNodeWithTag("save_equipment_btn").performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("equipment_screen").performScrollToNode(hasTestTag("back_button"))
         composeTestRule.onNodeWithTag("back_button").performClick()
@@ -294,6 +300,7 @@ class ExampleRobolectricTest {
             }
         }
         composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("home_screen_list").performScrollToNode(hasTestTag("home_admin_notice_n1"))
         composeTestRule.onNodeWithTag("home_admin_notice_n1").assertIsDisplayed()
         composeTestRule.onNodeWithTag("tile_admin").assertDoesNotExist()
     }
@@ -315,7 +322,8 @@ class ExampleRobolectricTest {
             }
         }
         composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("home_tiles_grid").performScrollTo()
+        composeTestRule.onNodeWithTag("home_screen_list").performScrollToNode(hasTestTag("home_tiles_grid"))
+        composeTestRule.onNodeWithTag("tile_admin").performScrollTo()
         composeTestRule.onNodeWithTag("tile_admin").assertIsDisplayed()
     }
 
@@ -370,5 +378,84 @@ class ExampleRobolectricTest {
         composeTestRule.onNodeWithTag("station_card_lab").performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("station_dialog_maps_btn").assertIsDisplayed()
+    }
+
+    @Test
+    fun `equipmentScreenShowsInspectionAndInsuranceLabelsReminderChipsAndSoundTest`() {
+        assertEquals("Texniki baxış və sığorta izlənilir", StringsAz.alertNormalTitle)
+        assertEquals("Texniki baxış və sığorta xatırlatması", StringsAz.alertEquipmentTitle)
+
+        var selectedDays = 7
+        composeTestRule.setContent {
+            CompositionLocalProvider(LocalStrings provides StringsAz) {
+                AqroMeslehetTheme {
+                    EquipmentScreen(
+                        equipment = emptyList(),
+                        computeStatus = { null },
+                        onSaveEquipment = { _, _, _, _, _, _ -> },
+                        onDeleteEquipment = {},
+                        onExportJson = { "{}" },
+                        onImportJson = { 0 },
+                        onBack = {},
+                        reminderDays = selectedDays,
+                        onSelectReminderDays = { selectedDays = it },
+                    )
+                }
+            }
+        }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("reminder_lead_1").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("reminder_lead_7").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("reminder_lead_30").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("test_sound_notification_btn").assertIsDisplayed()
+
+        composeTestRule.onNodeWithTag("reminder_lead_1").performClick()
+        assertEquals(1, selectedDays)
+        composeTestRule.onNodeWithTag("reminder_lead_30").performClick()
+        assertEquals(30, selectedDays)
+    }
+
+    @Test
+    fun `chatScreenRevealsAppCheckHelperWhenTokenErrorOccurs`() {
+        composeTestRule.setContent {
+            CompositionLocalProvider(LocalStrings provides StringsAz) {
+                AqroMeslehetTheme {
+                    ChatScreen(
+                        language = AppLanguage.AZ,
+                        messages = listOf(
+                            ChatMessageUi(
+                                id = "err-1",
+                                isUser = false,
+                                text = "Firebase app check token is invalid",
+                            )
+                        ),
+                        isStreaming = false,
+                        onSendQuestion = { _, _ -> },
+                        onClearChat = {},
+                        onBack = {},
+                    )
+                }
+            }
+        }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("ai_chat_input").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("copy_appcheck_uuid_btn").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithTag("appcheck_custom_token_input").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithTag("apply_appcheck_token_btn").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    fun `npkScreenRendersFertilizerInputsCleanly`() {
+        composeTestRule.setContent {
+            CompositionLocalProvider(LocalStrings provides StringsAz) {
+                AqroMeslehetTheme {
+                    NpkScreen(language = AppLanguage.AZ, onBack = {})
+                }
+            }
+        }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("npk_screen").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("npk_screen").performScrollToNode(hasTestTag("npk_calc_button"))
+        composeTestRule.onNodeWithTag("npk_calc_button").assertIsDisplayed()
     }
 }

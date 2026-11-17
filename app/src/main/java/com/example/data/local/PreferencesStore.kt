@@ -3,6 +3,7 @@ package com.example.data.local
 import android.content.Context
 import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.example.i18n.AppLanguage
@@ -12,6 +13,11 @@ import kotlinx.coroutines.flow.map
 
 private val Context.dataStore by preferencesDataStore(name = "agro_prefs")
 
+fun normalizeReminderDays(days: Int?): Int = when (days) {
+    1, 7, 30 -> days
+    else -> 7
+}
+
 class PreferencesStore(private val context: Context) {
 
     private object Keys {
@@ -19,6 +25,7 @@ class PreferencesStore(private val context: Context) {
         val THEME = stringPreferencesKey("theme_mode")
         val LAST_LAT = doublePreferencesKey("last_lat")
         val LAST_LON = doublePreferencesKey("last_lon")
+        val EQUIPMENT_REMINDER_DAYS = intPreferencesKey("equipment_reminder_days")
     }
 
     val languageFlow: Flow<AppLanguage> = context.dataStore.data.map { prefs ->
@@ -35,6 +42,10 @@ class PreferencesStore(private val context: Context) {
         lat to lon
     }
 
+    val equipmentReminderDaysFlow: Flow<Int> = context.dataStore.data.map { prefs ->
+        normalizeReminderDays(prefs[Keys.EQUIPMENT_REMINDER_DAYS])
+    }
+
     suspend fun setLanguage(language: AppLanguage) {
         context.dataStore.edit { it[Keys.LANGUAGE] = language.code }
     }
@@ -47,6 +58,12 @@ class PreferencesStore(private val context: Context) {
         context.dataStore.edit {
             it[Keys.LAST_LAT] = lat
             it[Keys.LAST_LON] = lon
+        }
+    }
+
+    suspend fun setEquipmentReminderDays(days: Int) {
+        context.dataStore.edit {
+            it[Keys.EQUIPMENT_REMINDER_DAYS] = normalizeReminderDays(days)
         }
     }
 }

@@ -27,7 +27,7 @@ data class LocalGalleryPhoto(
     val caption: String,
 )
 
-fun evaluateEquipmentStatus(dateStr: String): EquipmentStatus? {
+fun daysUntilIsoDate(dateStr: String): Long? {
     if (dateStr.isBlank()) return null
     return try {
         val fmt = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { isLenient = false }
@@ -45,22 +45,27 @@ fun evaluateEquipmentStatus(dateStr: String): EquipmentStatus? {
             set(Calendar.SECOND, 0)
             set(Calendar.MILLISECOND, 0)
         }
-        val daysLeft = TimeUnit.MILLISECONDS.toDays(targetCal.timeInMillis - todayCal.timeInMillis)
-        when {
-            daysLeft < 0 -> EquipmentStatus.OVERDUE
-            daysLeft <= 30 -> EquipmentStatus.SOON
-            else -> EquipmentStatus.VALID
-        }
+        TimeUnit.MILLISECONDS.toDays(targetCal.timeInMillis - todayCal.timeInMillis)
     } catch (_: Exception) {
         null
     }
 }
 
-fun collectEquipmentAlerts(items: List<EquipmentItem>): List<EquipmentAlert> {
+fun evaluateEquipmentStatus(dateStr: String, warningDays: Int = 30): EquipmentStatus? {
+    val daysLeft = daysUntilIsoDate(dateStr) ?: return null
+    val lead = warningDays.coerceAtLeast(1)
+    return when {
+        daysLeft < 0 -> EquipmentStatus.OVERDUE
+        daysLeft <= lead -> EquipmentStatus.SOON
+        else -> EquipmentStatus.VALID
+    }
+}
+
+fun collectEquipmentAlerts(items: List<EquipmentItem>, warningDays: Int = 30): List<EquipmentAlert> {
     val alerts = mutableListOf<EquipmentAlert>()
     items.forEach { item ->
-        val insp = evaluateEquipmentStatus(item.inspectionDate)
-        val ins = evaluateEquipmentStatus(item.insuranceDate)
+        val insp = evaluateEquipmentStatus(item.inspectionDate, warningDays)
+        val ins = evaluateEquipmentStatus(item.insuranceDate, warningDays)
         if (insp == EquipmentStatus.OVERDUE || ins == EquipmentStatus.OVERDUE) {
             alerts.add(EquipmentAlert(item.name, EquipmentStatus.OVERDUE))
         } else if (insp == EquipmentStatus.SOON || ins == EquipmentStatus.SOON) {

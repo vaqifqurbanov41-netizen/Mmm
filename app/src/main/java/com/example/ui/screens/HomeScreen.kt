@@ -129,7 +129,7 @@ fun HomeScreen(
     LazyColumn(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().testTag("home_screen_list"),
     ) {
         // Hero Farmer Panel Card
         item {

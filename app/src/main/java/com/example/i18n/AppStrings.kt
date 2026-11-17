@@ -236,6 +236,14 @@ interface AppStrings {
     val scannerNotePlaceholder: String
     val btnStartDiagnosis: String
     val scannerEmptyPhotoWarning: String
+    val aiAppCheckHelpTitle: String
+    val aiAppCheckHelpBody: String
+    val aiDeviceDebugUuidLabel: String
+    val aiCopyDebugTokenBtn: String
+    val aiDebugTokenCopiedMsg: String
+    val aiCustomDebugTokenLabel: String
+    val aiApplyDebugTokenBtn: String
+    val aiDebugTokenAppliedMsg: String
 
     // Pesticide Screen
     val pestTitle: String
@@ -316,6 +324,21 @@ interface AppStrings {
     val eqStatusOverdue: String
     val eqStatusSoon: String
     val eqStatusValid: String
+    val eqReminderSettingsTitle: String
+    val eqReminderSettingsSub: String
+    val eqReminder1Day: String
+    val eqReminder1Week: String
+    val eqReminder1Month: String
+    val eqEnableSoundNotifBtn: String
+    val eqTestSoundNotifBtn: String
+    val eqNotifPermissionNeeded: String
+    val eqNotifChannelName: String
+    val eqNotifDueTitle: String
+    val eqNotifInspectionLabel: String
+    val eqNotifInsuranceLabel: String
+    val eqNotifOverdueBodyFormat: String
+    val eqNotifSoonBodyFormat: String
+    val eqTestNotifBody: String
     val backupTitle: String
     val btnExportBackup: String
     val btnImportBackup: String

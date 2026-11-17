@@ -12,6 +12,7 @@ import com.google.firebase.appcheck.FirebaseAppCheck
 import com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory
 import com.google.firebase.appcheck.recaptcha.RecaptchaAppCheckProviderFactory
 import java.security.MessageDigest
+import java.util.UUID
 import org.json.JSONObject
 
 private const val TAG = "AppCheckInit"
@@ -19,6 +20,9 @@ private const val DEBUG_TOKEN_EXTRA = "FIREBASE_APPCHECK_DEBUG_TOKEN"
 private const val DEBUG_STORE_PREFIX = "com.google.firebase.appcheck.debug.store."
 private const val DEBUG_SECRET_KEY = "com.google.firebase.appcheck.debug.DEBUG_SECRET"
 private const val RECAPTCHA_SITE_KEY_RES = "recaptcha_site_key"
+private const val APPCHECK_CUSTOM_PREFS = "aqro_appcheck_custom_prefs"
+private const val KEY_CUSTOM_DEBUG_TOKEN = "custom_debug_token"
+private const val KEY_GENERATED_DEBUG_UUID = "generated_debug_uuid"
 
 private const val RUNTIME_FIREBASE_PREFS = "aqro_firebase_runtime"
 private const val KEY_APP_ID = "mobilesdk_app_id"
@@ -312,6 +316,70 @@ fun ensureFirebaseInitialized(context: Context): Boolean {
     }
 }
 
+fun getCustomAppCheckDebugToken(context: Context): String? {
+    val prefs = context.getSharedPreferences(APPCHECK_CUSTOM_PREFS, Context.MODE_PRIVATE)
+    return prefs.getString(KEY_CUSTOM_DEBUG_TOKEN, null)?.trim()?.takeIf { it.isNotBlank() }
+}
+
+fun getOrCreateAppCheckDebugUuid(context: Context): String {
+    getCustomAppCheckDebugToken(context)?.let { return it }
+    if (FirebaseApp.getApps(context).isNotEmpty()) {
+        val persistenceKey = runCatching { FirebaseApp.getInstance().persistenceKey }.getOrNull()
+        if (!persistenceKey.isNullOrBlank()) {
+            val sdkExisting = context.getSharedPreferences(
+                "$DEBUG_STORE_PREFIX$persistenceKey",
+                Context.MODE_PRIVATE,
+            ).getString(DEBUG_SECRET_KEY, null)?.trim()
+            if (!sdkExisting.isNullOrBlank()) return sdkExisting
+        }
+    }
+    val customPrefs = context.getSharedPreferences(APPCHECK_CUSTOM_PREFS, Context.MODE_PRIVATE)
+    val cached = customPrefs.getString(KEY_GENERATED_DEBUG_UUID, null)?.trim()
+    if (!cached.isNullOrBlank()) return cached
+    val generated = UUID.randomUUID().toString()
+    customPrefs.edit().putString(KEY_GENERATED_DEBUG_UUID, generated).commit()
+    return generated
+}
+
+fun applyCustomAppCheckDebugToken(context: Context, token: String): Boolean {
+    val trimmed = token.trim()
+    if (trimmed.isBlank()) return false
+    context.getSharedPreferences(APPCHECK_CUSTOM_PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .putString(KEY_CUSTOM_DEBUG_TOKEN, trimmed)
+        .commit()
+    return runCatching {
+        if (ensureFirebaseInitialized(context) && FirebaseApp.getApps(context).isNotEmpty()) {
+            val persistenceKey = FirebaseApp.getInstance().persistenceKey
+            context.getSharedPreferences("$DEBUG_STORE_PREFIX$persistenceKey", Context.MODE_PRIVATE)
+                .edit()
+                .putString(DEBUG_SECRET_KEY, trimmed)
+                .commit()
+            if (BuildConfig.DEBUG) {
+                FirebaseAppCheck.getInstance().installAppCheckProviderFactory(
+                    DebugAppCheckProviderFactory.getInstance()
+                )
+            }
+        }
+        true
+    }.getOrDefault(false)
+}
+
+fun clearCustomAppCheckDebugToken(context: Context) {
+    context.getSharedPreferences(APPCHECK_CUSTOM_PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .remove(KEY_CUSTOM_DEBUG_TOKEN)
+        .commit()
+}
+
+fun isAppCheckTokenError(errorText: String?): Boolean {
+    val lower = errorText.orEmpty().lowercase()
+    return lower.contains("app check") ||
+        lower.contains("appcheck") ||
+        lower.contains("token is invalid") ||
+        lower.contains("attestation")
+}
+
 fun configureAppCheck(context: Context, intent: Intent?) {
     try {
         if (!ensureFirebaseInitialized(context)) {
@@ -320,25 +388,29 @@ fun configureAppCheck(context: Context, intent: Intent?) {
         }
 
         if (BuildConfig.DEBUG) {
-            val debugToken = intent?.getStringExtra(DEBUG_TOKEN_EXTRA)
-            if (!debugToken.isNullOrEmpty()) {
+            val intentToken = intent?.getStringExtra(DEBUG_TOKEN_EXTRA)?.trim()?.takeIf { it.isNotEmpty() }
+            val customToken = getCustomAppCheckDebugToken(context)
+            val effectiveToken = intentToken ?: customToken
+            if (!effectiveToken.isNullOrEmpty()) {
                 val persistenceKey = FirebaseApp.getInstance().persistenceKey
                 val prefs = context.getSharedPreferences(
                     "$DEBUG_STORE_PREFIX$persistenceKey",
                     Context.MODE_PRIVATE
                 )
                 prefs.edit()
-                    .putString(DEBUG_SECRET_KEY, debugToken)
+                    .putString(DEBUG_SECRET_KEY, effectiveToken)
                     .commit()
-                Log.d(TAG, "App Check debug secret configured successfully.")
+                FirebaseAppCheck.getInstance().installAppCheckProviderFactory(
+                    DebugAppCheckProviderFactory.getInstance()
+                )
+                Log.d(TAG, "App Check debug secret configured and DebugAppCheckProviderFactory installed.")
             } else {
-                Log.w(TAG, "No debug token found in Intent extra.")
+                // On sideloaded debug APKs without an explicit registered debug token, installing
+                // DebugAppCheckProviderFactory sends an unregistered UUID that fails attestation and
+                // injects a dummy error token ('Firebase app check token is invalid'). Skip it unless
+                // a token was provided via launch Intent or saved by the user.
+                Log.i(TAG, "No debug token supplied; skipping DebugAppCheckProviderFactory.")
             }
-
-            FirebaseAppCheck.getInstance().installAppCheckProviderFactory(
-                DebugAppCheckProviderFactory.getInstance()
-            )
-            Log.d(TAG, "DebugAppCheckProviderFactory installed.")
         } else {
             val resId = context.resources.getIdentifier(
                 RECAPTCHA_SITE_KEY_RES,

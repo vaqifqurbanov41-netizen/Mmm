@@ -146,6 +146,13 @@ class FarmViewModel(
         .map { list -> list.sortedByDescending { it.createdAt?.seconds ?: 0L } }
         .safeStateIn(emptyList())
 
+    val equipmentReminderDays: StateFlow<Int> = preferencesStore.equipmentReminderDaysFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000L),
+            initialValue = 7,
+        )
+
     // Weather state
     private val _weatherState = MutableStateFlow(WeatherUiState())
     val weatherState: StateFlow<WeatherUiState> = _weatherState.asStateFlow()
@@ -439,11 +446,17 @@ class FarmViewModel(
     }
 
     // Equipment alert evaluation
-    fun computeEquipmentStatus(dateStr: String): EquipmentStatus? =
-        com.example.data.local.evaluateEquipmentStatus(dateStr)
+    fun setEquipmentReminderDays(days: Int) {
+        viewModelScope.launch {
+            preferencesStore.setEquipmentReminderDays(days)
+        }
+    }
 
-    fun getEquipmentAlerts(items: List<EquipmentItem>): List<EquipmentAlert> =
-        com.example.data.local.collectEquipmentAlerts(items)
+    fun computeEquipmentStatus(dateStr: String, warningDays: Int = equipmentReminderDays.value): EquipmentStatus? =
+        com.example.data.local.evaluateEquipmentStatus(dateStr, warningDays)
+
+    fun getEquipmentAlerts(items: List<EquipmentItem>, warningDays: Int = equipmentReminderDays.value): List<EquipmentAlert> =
+        com.example.data.local.collectEquipmentAlerts(items, warningDays)
 
     // Firestore CRUD Actions
     suspend fun saveProfile(fullName: String, phone: String, place: String) {

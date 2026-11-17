@@ -1,6 +1,10 @@
 package com.example.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.graphics.Bitmap
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -29,7 +33,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -39,6 +45,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -53,8 +60,12 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.data.firebase.applyCustomAppCheckDebugToken
+import com.example.data.firebase.getOrCreateAppCheckDebugUuid
+import com.example.data.firebase.isAppCheckTokenError
 import com.example.i18n.AppLanguage
 import com.example.i18n.LocalStrings
 import com.example.ui.components.AqroCard
@@ -77,9 +88,11 @@ fun ChatScreen(
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
-    LaunchedEffect(messages.size) {
+    val hasAppCheckIssue = messages.any { !it.isUser && isAppCheckTokenError(it.text) }
+
+    LaunchedEffect(messages.size, messages.lastOrNull()?.text?.length) {
         if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.lastIndex)
+            listState.animateScrollToItem(messages.lastIndex + 1)
         }
     }
 
@@ -165,6 +178,11 @@ fun ChatScreen(
                     text = msg.text.ifBlank { strings.loading },
                     isStreaming = msg.isStreaming,
                 )
+            }
+            if (hasAppCheckIssue) {
+                item {
+                    AppCheckTroubleCard()
+                }
             }
         }
 
@@ -259,6 +277,109 @@ private fun ChatBubble(
                     color = if (isUser) Color.White else MaterialTheme.colorScheme.onSurface,
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun AppCheckTroubleCard() {
+    val strings = LocalStrings.current
+    val extra = LocalAqroColors.current
+    val context = LocalContext.current
+    val deviceUuid = remember(context) { getOrCreateAppCheckDebugUuid(context) }
+    var customTokenInput by remember { mutableStateOf("") }
+    var appliedNotice by remember { mutableStateOf<String?>(null) }
+
+    AqroCard(containerColor = extra.warningContainer) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Key,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            Text(
+                text = strings.aiAppCheckHelpTitle,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = strings.aiAppCheckHelpBody,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Surface(
+            shape = RoundedCornerShape(10.dp),
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(1.dp, extra.line),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = strings.aiDeviceDebugUuidLabel,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        text = deviceUuid,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = FontFamily.Monospace,
+                    )
+                }
+                TextButton(
+                    onClick = {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                        clipboard?.setPrimaryClip(ClipData.newPlainText("AppCheckUUID", deviceUuid))
+                        Toast.makeText(context, strings.aiDebugTokenCopiedMsg, Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier.testTag("copy_appcheck_uuid_btn"),
+                ) {
+                    Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.size(4.dp))
+                    Text(strings.aiCopyDebugTokenBtn)
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedTextField(
+            value = customTokenInput,
+            onValueChange = { customTokenInput = it; appliedNotice = null },
+            label = { Text(strings.aiCustomDebugTokenLabel) },
+            placeholder = { Text(deviceUuid) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth().testTag("appcheck_custom_token_input"),
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Button(
+            onClick = {
+                val target = customTokenInput.trim().ifBlank { deviceUuid }
+                if (applyCustomAppCheckDebugToken(context, target)) {
+                    appliedNotice = strings.aiDebugTokenAppliedMsg
+                }
+            },
+            modifier = Modifier.fillMaxWidth().testTag("apply_appcheck_token_btn"),
+        ) {
+            Text(strings.aiApplyDebugTokenBtn)
+        }
+        if (appliedNotice != null) {
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = appliedNotice!!,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Bold,
+            )
         }
     }
 }
@@ -380,6 +501,11 @@ fun ScannerScreen(
         if (errorMessage != null) {
             item {
                 DangerBannerBox(text = errorMessage)
+            }
+            if (isAppCheckTokenError(errorMessage)) {
+                item {
+                    AppCheckTroubleCard()
+                }
             }
         }
 

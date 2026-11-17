@@ -1,12 +1,16 @@
 package com.example.ui.screens
 
+import android.Manifest
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -21,15 +25,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Agriculture
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -55,6 +62,7 @@ import com.example.data.model.EquipmentItem
 import com.example.data.model.SubsidyDeclaration
 import com.example.i18n.AppLanguage
 import com.example.i18n.LocalStrings
+import com.example.notifications.EquipmentReminderManager
 import com.example.ui.components.AqroCard
 import com.example.ui.components.ConfirmDeleteDialog
 import com.example.ui.components.DangerBannerBox
@@ -286,6 +294,7 @@ fun SubsidyScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun EquipmentScreen(
     equipment: List<EquipmentItem>,
@@ -295,6 +304,8 @@ fun EquipmentScreen(
     onExportJson: () -> String,
     onImportJson: suspend (String) -> Int,
     onBack: () -> Unit,
+    reminderDays: Int = 7,
+    onSelectReminderDays: (Int) -> Unit = {},
 ) {
     val strings = LocalStrings.current
     val extra = LocalAqroColors.current
@@ -310,6 +321,18 @@ fun EquipmentScreen(
     var formError by remember { mutableStateOf<String?>(null) }
     var backupStatus by remember { mutableStateOf<String?>(null) }
     var pendingDelete by remember { mutableStateOf<EquipmentItem?>(null) }
+    var hasNotifPermission by remember {
+        mutableStateOf(EquipmentReminderManager.hasNotificationPermission(context))
+    }
+
+    val notifPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        hasNotifPermission = granted || EquipmentReminderManager.hasNotificationPermission(context)
+        if (hasNotifPermission) {
+            EquipmentReminderManager.sendTestReminderNotification(context, strings)
+        }
+    }
 
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json")
@@ -373,6 +396,86 @@ fun EquipmentScreen(
     ) {
         item {
             ScreenTopBar(title = strings.equipmentTitle, onBack = onBack)
+        }
+
+        // Inspection & Insurance Sound Reminder Timing Card (1 day / 1 week / 1 month)
+        item {
+            AqroCard(containerColor = extra.pale) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.NotificationsActive,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                    Text(
+                        text = strings.eqReminderSettingsTitle,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = strings.eqReminderSettingsSub,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = extra.muted,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                val options = listOf(
+                    1 to strings.eqReminder1Day,
+                    7 to strings.eqReminder1Week,
+                    30 to strings.eqReminder1Month,
+                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    options.forEach { (days, label) ->
+                        FilterChip(
+                            selected = reminderDays == days,
+                            onClick = { onSelectReminderDays(days) },
+                            label = { Text(label, fontWeight = FontWeight.SemiBold) },
+                            modifier = Modifier.testTag("reminder_lead_$days"),
+                        )
+                    }
+                }
+                if (!hasNotifPermission && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = strings.eqNotifPermissionNeeded,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = WarningAmber,
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    OutlinedButton(
+                        onClick = {
+                            notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        },
+                        modifier = Modifier.fillMaxWidth().testTag("enable_sound_notif_btn"),
+                    ) {
+                        Icon(Icons.Filled.NotificationsActive, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.size(6.dp))
+                        Text(strings.eqEnableSoundNotifBtn)
+                    }
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+                OutlinedButton(
+                    onClick = {
+                        if (!hasNotifPermission && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        } else {
+                            EquipmentReminderManager.sendTestReminderNotification(context, strings)
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().testTag("test_sound_notification_btn"),
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.size(6.dp))
+                    Text(strings.eqTestSoundNotifBtn)
+                }
+            }
         }
 
         item {
@@ -506,7 +609,10 @@ fun EquipmentScreen(
                                 Text(item.plateCode, style = MaterialTheme.typography.bodySmall, color = extra.muted)
                             }
                             Spacer(modifier = Modifier.height(6.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
                                 if (item.inspectionDate.isNotBlank()) {
                                     StatusBadge("${strings.eqInspectionLabel}: ${item.inspectionDate}", inspStatus)
                                 }

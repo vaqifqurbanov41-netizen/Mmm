@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -63,6 +65,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -80,6 +83,7 @@ import com.example.data.local.evaluateEquipmentStatus
 import com.example.data.remote.OpenMeteoService
 import com.example.i18n.AppLanguage
 import com.example.i18n.LocalStrings
+import com.example.notifications.EquipmentReminderManager
 import com.example.ui.components.AqroTopHeader
 import com.example.ui.components.KTN_TELEGRAM_BOT_URL
 import com.example.ui.components.formatNumber
@@ -117,7 +121,20 @@ fun LocalToolsApp(
 
     val localEquipment by localRecordsStore.equipment.collectAsStateWithLifecycle()
     val localFinance by localRecordsStore.finance.collectAsStateWithLifecycle()
-    val equipmentAlerts = remember(localEquipment) { collectEquipmentAlerts(localEquipment) }
+    val reminderDays by preferencesStore.equipmentReminderDaysFlow.collectAsStateWithLifecycle(initialValue = 7)
+    val strings = LocalStrings.current
+    val equipmentAlerts = remember(localEquipment, reminderDays) {
+        collectEquipmentAlerts(localEquipment, reminderDays)
+    }
+
+    LaunchedEffect(localEquipment, reminderDays, language) {
+        EquipmentReminderManager.syncEquipmentReminders(
+            context = context,
+            items = localEquipment,
+            warningDays = reminderDays,
+            strings = strings,
+        )
+    }
 
     var weatherState by remember { mutableStateOf(WeatherUiState()) }
 
@@ -152,6 +169,7 @@ fun LocalToolsApp(
     }
 
     val extraColors = LocalAqroColors.current
+    val isImeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route ?: NavRoutes.HOME
@@ -188,10 +206,12 @@ fun LocalToolsApp(
             )
         },
         bottomBar = {
-            LocalBottomBar(
-                currentRoute = currentRoute,
-                onNavigate = navigateTo,
-            )
+            if (!isImeVisible) {
+                LocalBottomBar(
+                    currentRoute = currentRoute,
+                    onNavigate = navigateTo,
+                )
+            }
         },
         modifier = Modifier.testTag("local_tools_app"),
     ) { innerPadding ->
@@ -199,7 +219,8 @@ fun LocalToolsApp(
             contentAlignment = Alignment.TopCenter,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
+                .padding(innerPadding)
+                .imePadding(),
         ) {
             NavHost(
                 navController = navController,
@@ -256,7 +277,7 @@ fun LocalToolsApp(
                 composable(NavRoutes.EQUIPMENT) {
                     EquipmentScreen(
                         equipment = localEquipment,
-                        computeStatus = ::evaluateEquipmentStatus,
+                        computeStatus = { date -> evaluateEquipmentStatus(date, reminderDays) },
                         onSaveEquipment = { existing, name, model, plate, insp, ins ->
                             localRecordsStore.saveEquipment(existing, name, model, plate, insp, ins)
                         },
@@ -264,6 +285,10 @@ fun LocalToolsApp(
                         onExportJson = { localRecordsStore.exportBackupJson() },
                         onImportJson = { json -> localRecordsStore.importBackupJson(json) },
                         onBack = { navController.popBackStack() },
+                        reminderDays = reminderDays,
+                        onSelectReminderDays = { days ->
+                            scope.launch { preferencesStore.setEquipmentReminderDays(days) }
+                        },
                     )
                 }
 
