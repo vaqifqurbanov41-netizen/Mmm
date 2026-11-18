@@ -6,8 +6,11 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +23,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Remove
@@ -31,10 +35,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,6 +52,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextMeasurer
@@ -72,13 +79,13 @@ import kotlin.math.floor
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 
-private object MapTileLoader {
+internal object MapTileLoader {
     private val client = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
         .build()
 
-    private val cache = object : LruCache<String, ImageBitmap>(120) {}
+    private val cache = object : LruCache<String, ImageBitmap>(140) {}
     private val inFlight = mutableSetOf<String>()
 
     fun getCached(key: String): ImageBitmap? = cache.get(key)
@@ -139,6 +146,9 @@ fun FieldMapCanvas(
     onToggleLayer: () -> Unit,
     onLocateMe: () -> Unit,
     modifier: Modifier = Modifier,
+    isReadOnly: Boolean = false,
+    extraPolygons: List<List<LatLon>> = emptyList(),
+    mapHeightDp: Int = 310,
 ) {
     val strings = LocalStrings.current
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
@@ -146,16 +156,27 @@ fun FieldMapCanvas(
     val scope = rememberCoroutineScope()
     val textMeasurer: TextMeasurer = rememberTextMeasurer()
 
-    val (centerWorldX, centerWorldY) = remember(center, zoom) {
-        GeoUtils.latLonToWorldPx(center.lat, center.lon, zoom)
+    var pinchScale by remember { mutableFloatStateOf(1f) }
+    var localCenter by remember(center) { mutableStateOf(center) }
+    var localZoom by remember(zoom) { mutableIntStateOf(zoom.coerceIn(5, 19)) }
+
+    val latestPoints by rememberUpdatedState(points)
+    val latestExtraPolygons by rememberUpdatedState(extraPolygons)
+    val latestOnCenterChanged by rememberUpdatedState(onCenterChanged)
+    val latestOnZoomChanged by rememberUpdatedState(onZoomChanged)
+    val latestOnAddPoint by rememberUpdatedState(onAddPoint)
+    val latestOnMovePoint by rememberUpdatedState(onMovePoint)
+
+    val (centerWorldX, centerWorldY) = remember(localCenter, localZoom) {
+        GeoUtils.latLonToWorldPx(localCenter.lat, localCenter.lon, localZoom)
     }
 
     // Trigger tile fetches around visible viewport
-    LaunchedEffect(center, zoom, isSatellite, canvasSize) {
+    LaunchedEffect(localCenter, localZoom, isSatellite, canvasSize) {
         if (canvasSize.width == 0 || canvasSize.height == 0) return@LaunchedEffect
-        val maxTile = (1 shl zoom)
-        val halfW = canvasSize.width / 2.0
-        val halfH = canvasSize.height / 2.0
+        val maxTile = (1 shl localZoom)
+        val halfW = canvasSize.width / (2.0 * pinchScale.coerceAtLeast(0.5f))
+        val halfH = canvasSize.height / (2.0 * pinchScale.coerceAtLeast(0.5f))
         val minTx = floor((centerWorldX - halfW) / 256.0).toInt()
         val maxTx = floor((centerWorldX + halfW) / 256.0).toInt()
         val minTy = floor((centerWorldY - halfH) / 256.0).toInt().coerceIn(0, maxTile - 1)
@@ -164,10 +185,10 @@ fun FieldMapCanvas(
         for (tx in minTx..maxTx) {
             val wrappedX = ((tx % maxTile) + maxTile) % maxTile
             for (ty in minTy..maxTy) {
-                val key = "${if (isSatellite) "sat" else "osm"}_${zoom}_${wrappedX}_${ty}"
+                val key = "${if (isSatellite) "sat" else "osm"}_${localZoom}_${wrappedX}_${ty}"
                 if (MapTileLoader.getCached(key) == null) {
                     scope.launch {
-                        val loaded = MapTileLoader.fetchTile(zoom, wrappedX, ty, isSatellite)
+                        val loaded = MapTileLoader.fetchTile(localZoom, wrappedX, ty, isSatellite)
                         if (loaded != null) {
                             tileTick++
                         }
@@ -177,14 +198,14 @@ fun FieldMapCanvas(
         }
     }
 
-    var draggingPointIndex by remember { mutableIntStateOf(-1) }
-    var currentCenter by remember { mutableStateOf(center) }
-    currentCenter = center
+    val allPolygonPoints = remember(points, extraPolygons) {
+        if (extraPolygons.isEmpty()) points else points + extraPolygons.flatten()
+    }
 
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(310.dp)
+            .height(mapHeightDp.dp)
             .clip(RoundedCornerShape(18.dp))
             .background(if (isSatellite) Color(0xFF162219) else Color(0xFFE6EEF4)),
     ) {
@@ -192,104 +213,210 @@ fun FieldMapCanvas(
             modifier = Modifier
                 .fillMaxSize()
                 .onSizeChanged { canvasSize = it }
-                .pointerInput(zoom, center, points) {
-                    detectTapGestures { offset ->
-                        val (cwX, cwY) = GeoUtils.latLonToWorldPx(currentCenter.lat, currentCenter.lon, zoom)
-                        val wx = cwX + (offset.x - size.width / 2.0)
-                        val wy = cwY + (offset.y - size.height / 2.0)
-                        val tapped = GeoUtils.worldPxToLatLon(wx, wy, zoom)
-                        onAddPoint(tapped)
-                    }
-                }
-                .pointerInput(zoom, points) {
-                    detectDragGestures(
-                        onDragStart = { startOffset ->
-                            val (cwX, cwY) = GeoUtils.latLonToWorldPx(currentCenter.lat, currentCenter.lon, zoom)
-                            var found = -1
-                            points.forEachIndexed { idx, pt ->
-                                val (px, py) = GeoUtils.latLonToWorldPx(pt.lat, pt.lon, zoom)
-                                val sx = (px - cwX + size.width / 2.0).toFloat()
-                                val sy = (py - cwY + size.height / 2.0).toFloat()
-                                if (hypot(sx - startOffset.x, sy - startOffset.y) <= 44f) {
-                                    found = idx
+                .pointerInput(isReadOnly) {
+                    val touchSlop = viewConfiguration.touchSlop
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val pts = latestPoints
+                        var draggingIdx = -1
+                        if (!isReadOnly) {
+                            val (cwX, cwY) = GeoUtils.latLonToWorldPx(localCenter.lat, localCenter.lon, localZoom)
+                            pts.forEachIndexed { idx, pt ->
+                                val (px, py) = GeoUtils.latLonToWorldPx(pt.lat, pt.lon, localZoom)
+                                val sx = ((px - cwX) * pinchScale + size.width / 2.0).toFloat()
+                                val sy = ((py - cwY) * pinchScale + size.height / 2.0).toFloat()
+                                if (hypot(sx - down.position.x, sy - down.position.y) <= 44f) {
+                                    draggingIdx = idx
                                 }
                             }
-                            draggingPointIndex = found
-                        },
-                        onDragEnd = { draggingPointIndex = -1 },
-                        onDragCancel = { draggingPointIndex = -1 },
-                        onDrag = { change, dragAmount ->
-                            change.consume()
-                            if (draggingPointIndex in points.indices) {
-                                val (cwX, cwY) = GeoUtils.latLonToWorldPx(currentCenter.lat, currentCenter.lon, zoom)
-                                val wx = cwX + (change.position.x - size.width / 2.0)
-                                val wy = cwY + (change.position.y - size.height / 2.0)
-                                onMovePoint(draggingPointIndex, GeoUtils.worldPxToLatLon(wx, wy, zoom))
-                            } else {
-                                val (cwX, cwY) = GeoUtils.latLonToWorldPx(currentCenter.lat, currentCenter.lon, zoom)
-                                val newCenter = GeoUtils.worldPxToLatLon(
-                                    cwX - dragAmount.x,
-                                    cwY - dragAmount.y,
-                                    zoom,
-                                )
-                                currentCenter = newCenter
-                                onCenterChanged(newCenter)
-                            }
                         }
-                    )
+
+                        var moved = false
+                        var multiTouchUsed = false
+                        var totalPanDistance = 0f
+
+                        do {
+                            val event = awaitPointerEvent()
+                            val pressed = event.changes.filter { it.pressed }
+                            if (pressed.isEmpty()) break
+
+                            if (pressed.size >= 2) {
+                                multiTouchUsed = true
+                                draggingIdx = -1
+                                val zoomChange = event.calculateZoom()
+                                val panChange = event.calculatePan()
+                                val centroid = event.calculateCentroid(useCurrent = true)
+
+                                if (zoomChange != 1f || panChange != Offset.Zero) {
+                                    moved = true
+                                    val oldScale = pinchScale
+                                    var nextScale = (oldScale * zoomChange).coerceIn(0.45f, 2.25f)
+                                    var nextZoom = localZoom
+
+                                    val (cwX, cwY) = GeoUtils.latLonToWorldPx(localCenter.lat, localCenter.lon, nextZoom)
+                                    val halfW = size.width / 2.0
+                                    val halfH = size.height / 2.0
+
+                                    // Keep geographic coordinate under pinch centroid anchored while zooming and panning
+                                    if (centroid != Offset.Unspecified) {
+                                        val anchorWx = cwX + (centroid.x - panChange.x - halfW) / oldScale
+                                        val anchorWy = cwY + (centroid.y - panChange.y - halfH) / oldScale
+                                        val shiftedCwX = anchorWx - (centroid.x - halfW) / nextScale
+                                        val shiftedCwY = anchorWy - (centroid.y - halfH) / nextScale
+                                        localCenter = GeoUtils.worldPxToLatLon(shiftedCwX, shiftedCwY, nextZoom)
+                                    } else {
+                                        localCenter = GeoUtils.worldPxToLatLon(
+                                            cwX - panChange.x / oldScale,
+                                            cwY - panChange.y / oldScale,
+                                            nextZoom,
+                                        )
+                                    }
+
+                                    while (nextScale >= 1.65f && nextZoom < 19) {
+                                        nextZoom += 1
+                                        nextScale /= 2f
+                                    }
+                                    while (nextScale <= 0.62f && nextZoom > 5) {
+                                        nextZoom -= 1
+                                        nextScale *= 2f
+                                    }
+
+                                    pinchScale = nextScale
+                                    if (nextZoom != localZoom) {
+                                        localZoom = nextZoom
+                                        latestOnZoomChanged(nextZoom)
+                                    }
+                                    latestOnCenterChanged(localCenter)
+                                }
+                                event.changes.forEach { if (it.positionChanged()) it.consume() }
+                            } else if (!multiTouchUsed) {
+                                val panChange = event.calculatePan()
+                                totalPanDistance += hypot(panChange.x, panChange.y)
+                                if (totalPanDistance > touchSlop) {
+                                    moved = true
+                                }
+                                if (moved && panChange != Offset.Zero) {
+                                    val change = pressed.first()
+                                    if (draggingIdx in latestPoints.indices && !isReadOnly) {
+                                        val (cwX, cwY) = GeoUtils.latLonToWorldPx(localCenter.lat, localCenter.lon, localZoom)
+                                        val wx = cwX + (change.position.x - size.width / 2.0) / pinchScale
+                                        val wy = cwY + (change.position.y - size.height / 2.0) / pinchScale
+                                        latestOnMovePoint(draggingIdx, GeoUtils.worldPxToLatLon(wx, wy, localZoom))
+                                    } else {
+                                        val (cwX, cwY) = GeoUtils.latLonToWorldPx(localCenter.lat, localCenter.lon, localZoom)
+                                        val newCenter = GeoUtils.worldPxToLatLon(
+                                            cwX - panChange.x / pinchScale,
+                                            cwY - panChange.y / pinchScale,
+                                            localZoom,
+                                        )
+                                        localCenter = newCenter
+                                        latestOnCenterChanged(newCenter)
+                                    }
+                                    event.changes.forEach { if (it.positionChanged()) it.consume() }
+                                }
+                            }
+                        } while (true)
+
+                        // Settle fractional pinch scale cleanly into integer tile zoom
+                        if (pinchScale >= 1.35f && localZoom < 19) {
+                            localZoom += 1
+                            latestOnZoomChanged(localZoom)
+                        } else if (pinchScale <= 0.72f && localZoom > 5) {
+                            localZoom -= 1
+                            latestOnZoomChanged(localZoom)
+                        }
+                        pinchScale = 1f
+
+                        if (!moved && !multiTouchUsed && !isReadOnly) {
+                            val (cwX, cwY) = GeoUtils.latLonToWorldPx(localCenter.lat, localCenter.lon, localZoom)
+                            val wx = cwX + (down.position.x - size.width / 2.0)
+                            val wy = cwY + (down.position.y - size.height / 2.0)
+                            val tapped = GeoUtils.worldPxToLatLon(wx, wy, localZoom)
+                            latestOnAddPoint(tapped)
+                        }
+                    }
                 }
                 .testTag("field_map_canvas"),
         ) {
-            val unusedTick = tileTick // trigger redraw when tiles finish loading
+            val unusedTick = tileTick
             val halfW = size.width / 2.0
             val halfH = size.height / 2.0
-            val maxTile = (1 shl zoom)
+            val maxTile = (1 shl localZoom)
+            val scale = pinchScale.toDouble()
+            val tileSizePx = (256.0 * scale)
 
-            val minTx = floor((centerWorldX - halfW) / 256.0).toInt()
-            val maxTx = floor((centerWorldX + halfW) / 256.0).toInt()
-            val minTy = floor((centerWorldY - halfH) / 256.0).toInt().coerceIn(0, maxTile - 1)
-            val maxTy = floor((centerWorldY + halfH) / 256.0).toInt().coerceIn(0, maxTile - 1)
+            val minTx = floor((centerWorldX - halfW / scale) / 256.0).toInt()
+            val maxTx = floor((centerWorldX + halfW / scale) / 256.0).toInt()
+            val minTy = floor((centerWorldY - halfH / scale) / 256.0).toInt().coerceIn(0, maxTile - 1)
+            val maxTy = floor((centerWorldY + halfH / scale) / 256.0).toInt().coerceIn(0, maxTile - 1)
 
-            // Draw map tiles
+            // Draw map tiles scaled smoothly during pinch
             for (tx in minTx..maxTx) {
                 val wrappedX = ((tx % maxTile) + maxTile) % maxTile
                 for (ty in minTy..maxTy) {
-                    val left = (tx * 256.0 - centerWorldX + halfW).roundToInt()
-                    val top = (ty * 256.0 - centerWorldY + halfH).roundToInt()
-                    val key = "${if (isSatellite) "sat" else "osm"}_${zoom}_${wrappedX}_${ty}"
+                    val left = ((tx * 256.0 - centerWorldX) * scale + halfW).roundToInt()
+                    val top = ((ty * 256.0 - centerWorldY) * scale + halfH).roundToInt()
+                    val right = (((tx + 1) * 256.0 - centerWorldX) * scale + halfW).roundToInt()
+                    val bottom = (((ty + 1) * 256.0 - centerWorldY) * scale + halfH).roundToInt()
+                    val dstW = (right - left + 1).coerceAtLeast(1)
+                    val dstH = (bottom - top + 1).coerceAtLeast(1)
+
+                    val key = "${if (isSatellite) "sat" else "osm"}_${localZoom}_${wrappedX}_${ty}"
                     val tileBitmap = MapTileLoader.getCached(key)
                     if (tileBitmap != null) {
                         drawImage(
                             image = tileBitmap,
                             dstOffset = IntOffset(left, top),
-                            dstSize = IntSize(257, 257),
+                            dstSize = IntSize(dstW, dstH),
                         )
                     } else {
                         drawRect(
                             color = if (isSatellite) Color(0xFF1E2D22) else Color(0xFFDCE5EC),
                             topLeft = Offset(left.toFloat(), top.toFloat()),
-                            size = androidx.compose.ui.geometry.Size(256f, 256f),
+                            size = androidx.compose.ui.geometry.Size(tileSizePx.toFloat() + 1f, tileSizePx.toFloat() + 1f),
                         )
                         drawRect(
                             color = Color.White.copy(alpha = 0.08f),
                             topLeft = Offset(left.toFloat(), top.toFloat()),
-                            size = androidx.compose.ui.geometry.Size(256f, 256f),
+                            size = androidx.compose.ui.geometry.Size(tileSizePx.toFloat() + 1f, tileSizePx.toFloat() + 1f),
                             style = Stroke(width = 1f),
                         )
                     }
                 }
             }
 
-            // Convert points to screen offsets
-            val screenPoints = points.map { pt ->
-                val (wx, wy) = GeoUtils.latLonToWorldPx(pt.lat, pt.lon, zoom)
+            // Draw secondary/background KMZ polygons if provided
+            latestExtraPolygons.forEach { polyPts ->
+                if (polyPts.size >= 2) {
+                    val screenExtra = polyPts.map { pt ->
+                        val (wx, wy) = GeoUtils.latLonToWorldPx(pt.lat, pt.lon, localZoom)
+                        Offset(
+                            x = ((wx - centerWorldX) * scale + halfW).toFloat(),
+                            y = ((wy - centerWorldY) * scale + halfH).toFloat(),
+                        )
+                    }
+                    val path = Path().apply {
+                        moveTo(screenExtra.first().x, screenExtra.first().y)
+                        screenExtra.drop(1).forEach { lineTo(it.x, it.y) }
+                        if (screenExtra.size >= 3) close()
+                    }
+                    if (screenExtra.size >= 3) {
+                        drawPath(path = path, color = Color(0xFF38BDF8).copy(alpha = 0.22f))
+                    }
+                    drawPath(path = path, color = Color(0xFF38BDF8), style = Stroke(width = 4f))
+                }
+            }
+
+            // Convert primary points to screen offsets
+            val screenPoints = latestPoints.map { pt ->
+                val (wx, wy) = GeoUtils.latLonToWorldPx(pt.lat, pt.lon, localZoom)
                 Offset(
-                    x = (wx - centerWorldX + halfW).toFloat(),
-                    y = (wy - centerWorldY + halfH).toFloat(),
+                    x = ((wx - centerWorldX) * scale + halfW).toFloat(),
+                    y = ((wy - centerWorldY) * scale + halfH).toFloat(),
                 )
             }
 
-            // Draw Polygon fill + border
+            // Draw primary Polygon fill + border
             if (screenPoints.size >= 2) {
                 val path = Path().apply {
                     moveTo(screenPoints.first().x, screenPoints.first().y)
@@ -311,10 +438,10 @@ fun FieldMapCanvas(
 
             // Draw GPS Marker
             gpsLocation?.let { gps ->
-                val (gx, gy) = GeoUtils.latLonToWorldPx(gps.lat, gps.lon, zoom)
+                val (gx, gy) = GeoUtils.latLonToWorldPx(gps.lat, gps.lon, localZoom)
                 val gOff = Offset(
-                    (gx - centerWorldX + halfW).toFloat(),
-                    (gy - centerWorldY + halfH).toFloat(),
+                    ((gx - centerWorldX) * scale + halfW).toFloat(),
+                    ((gy - centerWorldY) * scale + halfH).toFloat(),
                 )
                 drawCircle(
                     color = Color(0xFF2196F3).copy(alpha = 0.25f),
@@ -401,49 +528,77 @@ fun FieldMapCanvas(
                 }
             }
 
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.primary,
-                shadowElevation = 3.dp,
-                modifier = Modifier
-                    .clickable(onClick = onLocateMe)
-                    .testTag("map_locate_button"),
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+            if (!isReadOnly) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    shadowElevation = 3.dp,
+                    modifier = Modifier
+                        .clickable(onClick = onLocateMe)
+                        .testTag("map_locate_button"),
                 ) {
-                    Icon(
-                        imageVector = Icons.Filled.MyLocation,
-                        contentDescription = strings.btnLocateMe,
-                        tint = Color.White,
-                        modifier = Modifier.size(16.dp),
-                    )
-                    Text(
-                        text = strings.btnLocateMe,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                    )
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.MyLocation,
+                            contentDescription = strings.btnLocateMe,
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Text(
+                            text = strings.btnLocateMe,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                        )
+                    }
                 }
             }
         }
 
-        // Bottom-right Zoom +/- controls
+        // Bottom-right Fit-Bounds & Zoom +/- controls
         Column(
             verticalArrangement = Arrangement.spacedBy(6.dp),
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(10.dp),
         ) {
+            if (allPolygonPoints.isNotEmpty()) {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                    shadowElevation = 3.dp,
+                ) {
+                    IconButton(
+                        onClick = {
+                            val (fitCenter, fitZoom) = GeoUtils.computeBoundsCenterAndZoom(allPolygonPoints)
+                            pinchScale = 1f
+                            localCenter = fitCenter
+                            localZoom = fitZoom
+                            onCenterChanged(fitCenter)
+                            onZoomChanged(fitZoom)
+                        },
+                        modifier = Modifier.size(40.dp).testTag("map_fit_bounds"),
+                    ) {
+                        Icon(Icons.Filled.CenterFocusStrong, contentDescription = strings.btnFitBounds)
+                    }
+                }
+            }
             Surface(
                 shape = RoundedCornerShape(10.dp),
                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
                 shadowElevation = 3.dp,
             ) {
                 IconButton(
-                    onClick = { onZoomChanged((zoom + 1).coerceAtMost(19)) },
+                    onClick = {
+                        val next = (localZoom + 1).coerceAtMost(19)
+                        pinchScale = 1f
+                        localZoom = next
+                        onZoomChanged(next)
+                    },
                     modifier = Modifier.size(40.dp).testTag("map_zoom_in"),
                 ) {
                     Icon(Icons.Filled.Add, contentDescription = strings.zoomIn)
@@ -455,7 +610,12 @@ fun FieldMapCanvas(
                 shadowElevation = 3.dp,
             ) {
                 IconButton(
-                    onClick = { onZoomChanged((zoom - 1).coerceAtLeast(5)) },
+                    onClick = {
+                        val next = (localZoom - 1).coerceAtLeast(5)
+                        pinchScale = 1f
+                        localZoom = next
+                        onZoomChanged(next)
+                    },
                     modifier = Modifier.size(40.dp).testTag("map_zoom_out"),
                 ) {
                     Icon(Icons.Filled.Remove, contentDescription = strings.zoomOut)

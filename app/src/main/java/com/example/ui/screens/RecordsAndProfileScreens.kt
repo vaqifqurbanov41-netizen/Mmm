@@ -37,7 +37,6 @@ import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Spa
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -48,7 +47,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -87,7 +85,6 @@ import com.example.ui.components.ScreenTopBar
 import com.example.ui.components.TabPillsRow
 import com.example.ui.components.formatNumber
 import com.example.ui.components.openExternalUrl
-import com.example.ui.components.rememberCustomizableModules
 import com.example.ui.components.todayIsoDateString
 import com.example.ui.theme.DangerRed
 import com.example.ui.theme.EmeraldPrimary
@@ -966,9 +963,6 @@ fun ProfileScreen(
     onBack: () -> Unit,
     isLocalOnly: Boolean = false,
     onOpenFirebaseSetup: (() -> Unit)? = null,
-    hiddenModules: Set<String> = emptySet(),
-    onToggleModuleVisible: (String, Boolean) -> Unit = { _, _ -> },
-    onResetModules: () -> Unit = {},
 ) {
     val strings = LocalStrings.current
     val extra = LocalAqroColors.current
@@ -992,7 +986,7 @@ fun ProfileScreen(
     LazyColumn(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().testTag("profile_screen_list"),
     ) {
         item {
             ScreenTopBar(title = strings.profileTitle, onBack = onBack)
@@ -1095,77 +1089,6 @@ fun ProfileScreen(
             }
         }
 
-        // Selective Module Visibility Card
-        item {
-            val modules = rememberCustomizableModules(isLocalOnly)
-            AqroCard(modifier = Modifier.testTag("profile_modules_card")) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Icon(Icons.Filled.Tune, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Text(
-                            text = strings.modulesProfileCardTitle,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
-                    TextButton(
-                        onClick = onResetModules,
-                        modifier = Modifier.testTag("profile_reset_modules_btn"),
-                    ) {
-                        Text(strings.modulesShowAllBtn, maxLines = 1)
-                    }
-                }
-                Text(
-                    text = strings.modulesProfileCardSub,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = extra.muted,
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    modules.forEach { mod ->
-                        val isVisible = mod.route !in hiddenModules
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = if (isVisible) extra.pale else MaterialTheme.colorScheme.surface,
-                            border = BorderStroke(1.dp, extra.line),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .clickable { onToggleModuleVisible(mod.route, !isVisible) },
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                            ) {
-                                Text(
-                                    text = mod.title,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f).padding(end = 8.dp),
-                                )
-                                Switch(
-                                    checked = isVisible,
-                                    onCheckedChange = { checked -> onToggleModuleVisible(mod.route, checked) },
-                                    modifier = Modifier.testTag("profile_module_switch_${mod.route}"),
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
         // KTN 1652 Hotline Card
         item {
             AqroCard(containerColor = extra.pale) {
@@ -1189,32 +1112,6 @@ fun ProfileScreen(
                         Icon(Icons.Filled.Call, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.size(6.dp))
                         Text(strings.hotlineBtn)
-                    }
-                }
-            }
-        }
-
-        // KTN ASI Telegram Bot Card
-        item {
-            val telegramBlue = Color(0xFF0088CC)
-            AqroCard(borderColor = telegramBlue.copy(alpha = 0.35f)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                        Text(strings.telegramBotTitle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text(strings.telegramBotSub, style = MaterialTheme.typography.bodySmall, color = extra.muted)
-                    }
-                    Button(
-                        onClick = { openExternalUrl(context, KTN_TELEGRAM_BOT_URL) },
-                        colors = ButtonDefaults.buttonColors(containerColor = telegramBlue),
-                        modifier = Modifier.testTag("profile_telegram_bot_btn"),
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.size(6.dp))
-                        Text(strings.telegramBotBtn)
                     }
                 }
             }

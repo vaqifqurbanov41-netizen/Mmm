@@ -3,4 +3,7 @@
     <files-path
         name="field_photos"
         path="field_photos/" />
+    <cache-path
+        name="shared_exports"
+        path="exports/" />
 </paths>

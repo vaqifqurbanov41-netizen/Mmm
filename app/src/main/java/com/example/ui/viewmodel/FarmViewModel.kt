@@ -22,6 +22,8 @@ import com.example.data.remote.OpenMeteoResponse
 import com.example.data.remote.OpenMeteoService
 import com.example.data.repository.FarmRepository
 import com.example.domain.BackupManager
+import com.example.domain.ClimateHistorySummary
+import com.example.domain.ClimateHistoryUtils
 import com.example.domain.FieldMeasurements
 import com.example.domain.GeoUtils
 import com.example.domain.LatLon
@@ -66,6 +68,18 @@ data class WeatherUiState(
     val hasAnyHazard: Boolean
         get() = hasFrostRisk || hasHighWind || hasHeavyRain
 }
+
+data class ClimateHistoryUiState(
+    val isLoading: Boolean = false,
+    val locationLabel: String = "Gəncə-Daşkəsən",
+    val lat: Double = 40.6782,
+    val lon: Double = 46.3606,
+    val startDate: String = ClimateHistoryUtils.defaultDateRange(24).first,
+    val endDate: String = ClimateHistoryUtils.defaultDateRange(24).second,
+    val elevationM: Double? = null,
+    val summary: ClimateHistorySummary? = null,
+    val error: String? = null,
+)
 
 data class ChatMessageUi(
     val id: String,
@@ -159,6 +173,10 @@ class FarmViewModel(
     private val _weatherState = MutableStateFlow(WeatherUiState())
     val weatherState: StateFlow<WeatherUiState> = _weatherState.asStateFlow()
 
+    // Historical Climate state
+    private val _climateHistoryState = MutableStateFlow(ClimateHistoryUiState())
+    val climateHistoryState: StateFlow<ClimateHistoryUiState> = _climateHistoryState.asStateFlow()
+
     // Map & Field Polygon State
     private val _mapPoints = MutableStateFlow<List<LatLon>>(emptyList())
     val mapPoints: StateFlow<List<LatLon>> = _mapPoints.asStateFlow()
@@ -251,6 +269,54 @@ class FarmViewModel(
                 _weatherState.value = _weatherState.value.copy(
                     isLoading = false,
                     error = e.localizedMessage ?: "Weather error",
+                )
+            }
+        }
+    }
+
+    fun loadClimateHistory(
+        lat: Double,
+        lon: Double,
+        startDate: String,
+        endDate: String,
+        locationLabel: String,
+    ) {
+        viewModelScope.launch {
+            _climateHistoryState.value = _climateHistoryState.value.copy(
+                isLoading = true,
+                lat = lat,
+                lon = lon,
+                startDate = startDate,
+                endDate = endDate,
+                locationLabel = locationLabel,
+                error = null,
+            )
+            try {
+                val res = weatherService.getHistoricalClimate(
+                    latitude = lat,
+                    longitude = lon,
+                    startDate = startDate,
+                    endDate = endDate,
+                )
+                val summary = ClimateHistoryUtils.summarizeResponse(res)
+                _climateHistoryState.value = ClimateHistoryUiState(
+                    isLoading = false,
+                    locationLabel = locationLabel,
+                    lat = res.latitude,
+                    lon = res.longitude,
+                    startDate = startDate,
+                    endDate = endDate,
+                    elevationM = res.elevation,
+                    summary = summary,
+                    error = null,
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Historical climate fetch failed", e)
+                _climateHistoryState.value = _climateHistoryState.value.copy(
+                    isLoading = false,
+                    error = e.localizedMessage ?: "Climate history error",
                 )
             }
         }

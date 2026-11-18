@@ -3,6 +3,7 @@ package com.example.ui.screens
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -31,13 +32,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.filled.AddLocationAlt
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DocumentScanner
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.PinDrop
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -47,6 +53,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -70,6 +77,9 @@ import androidx.core.content.ContextCompat
 import com.example.data.model.FarmField
 import com.example.domain.FieldMeasurements
 import com.example.domain.GeoUtils
+import com.example.domain.KmzDocument
+import com.example.domain.KmzPlacemark
+import com.example.domain.KmzUtils
 import com.example.domain.LatLon
 import com.example.i18n.AppLanguage
 import com.example.i18n.LocalStrings
@@ -126,12 +136,17 @@ fun FieldsScreen(
     var gpsStatusBanner by remember { mutableStateOf<String?>(null) }
     var isLocating by remember { mutableStateOf(false) }
 
-    // Coords / UTM tab state
+    // Coords / UTM tab & dialogs state
     var useUtm by remember { mutableStateOf(false) }
     var utmZone by remember { mutableIntStateOf(38) }
     var latLonText by remember { mutableStateOf("") }
     var utmText by remember { mutableStateOf("") }
     var coordsError by remember { mutableStateOf<String?>(null) }
+    var showCoordinatesDialog by remember { mutableStateOf(false) }
+    var showBatchCoords by remember { mutableStateOf(false) }
+    var activeKmzDoc by remember { mutableStateOf<KmzDocument?>(null) }
+    var pendingSaveKmzBytes by remember { mutableStateOf<ByteArray?>(null) }
+    var kmzStatusMessage by remember { mutableStateOf<String?>(null) }
 
     // Doc scan tab state
     var docBitmap by remember { mutableStateOf<Bitmap?>(null) }
@@ -176,13 +191,17 @@ fun FieldsScreen(
                     utm.northing.roundToInt().toString(),
                 )
                 if (insertIntoCoordInput) {
-                    if (useUtm) {
-                        utmZone = if (utm.zone == 39) 39 else 38
-                        val line = "${utm.easting.roundToInt()}, ${utm.northing.roundToInt()}"
-                        utmText = if (utmText.isBlank()) line else "${utmText.trim()}\n$line"
+                    if (showBatchCoords) {
+                        if (useUtm) {
+                            utmZone = if (utm.zone == 39) 39 else 38
+                            val line = "${utm.easting.roundToInt()}, ${utm.northing.roundToInt()}"
+                            utmText = if (utmText.isBlank()) line else "${utmText.trim()}\n$line"
+                        } else {
+                            val line = "${formatNumber(lat, 6)}, ${formatNumber(lon, 6)}"
+                            latLonText = if (latLonText.isBlank()) line else "${latLonText.trim()}\n$line"
+                        }
                     } else {
-                        val line = "${formatNumber(lat, 6)}, ${formatNumber(lon, 6)}"
-                        latLonText = if (latLonText.isBlank()) line else "${latLonText.trim()}\n$line"
+                        onAddPoint(LatLon(lat, lon))
                     }
                 }
             },
@@ -226,6 +245,130 @@ fun FieldsScreen(
         }
     }
 
+    val kmzOpenLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            val parsed = KmzUtils.parseKmzUri(context, uri, fallbackName = "KMZ")
+            if (parsed != null && parsed.placemarks.isNotEmpty()) {
+                kmzStatusMessage = null
+                activeKmzDoc = parsed
+            } else {
+                kmzStatusMessage = strings.kmzParseError
+            }
+        }
+    }
+
+    val kmzSaveLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/vnd.google-earth.kmz")
+    ) { uri: Uri? ->
+        val bytes = pendingSaveKmzBytes
+        pendingSaveKmzBytes = null
+        if (uri != null && bytes != null) {
+            runCatching {
+                context.contentResolver.openOutputStream(uri)?.use { out -> out.write(bytes) }
+                kmzStatusMessage = strings.kmzSavedSuccess
+            }
+        }
+    }
+
+    fun buildActiveKmzPlacemarks(): Pair<String, List<KmzPlacemark>>? {
+        if (mapPoints.isNotEmpty()) {
+            val docName = fieldName.trim().ifBlank { "AqroMeslehet_Field" }
+            return docName to listOf(
+                KmzPlacemark(
+                    name = docName,
+                    description = fieldCrop.trim().ifBlank { "" },
+                    points = mapPoints,
+                )
+            )
+        }
+        val fieldPlacemarks = fields.mapNotNull { field ->
+            val pts = field.coords.mapNotNull { GeoUtils.decodeCoord(it) }
+            if (pts.isEmpty()) null else KmzPlacemark(
+                name = field.name,
+                description = "${field.crop} • ${formatNumber(field.sizeHa, 2)} ha",
+                points = pts,
+            )
+        }
+        if (fieldPlacemarks.isEmpty()) return null
+        return "AqroMeslehet_Fields" to fieldPlacemarks
+    }
+
+    fun shareKmzPlacemarks(docName: String, placemarks: List<KmzPlacemark>) {
+        runCatching {
+            val (_, shareUri) = KmzUtils.writeKmzToCacheFile(context, docName, placemarks)
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "application/vnd.google-earth.kmz"
+                putExtra(Intent.EXTRA_STREAM, shareUri)
+                putExtra(Intent.EXTRA_SUBJECT, "$docName.kmz")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(intent, strings.btnKmzShare))
+        }
+    }
+
+    CoordinatesEntryDialog(
+        visible = showCoordinatesDialog,
+        initialCenter = mapCenter,
+        gpsLocation = gpsLocation,
+        onRequestGpsFill = { applyFill ->
+            val granted = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.ACCESS_FINE_LOCATION,
+            ) == PackageManager.PERMISSION_GRANTED
+            if (granted) {
+                fetchSingleGpsFix(
+                    context = context,
+                    onSuccess = { lat, lon, acc ->
+                        onUpdateGpsFix(lat, lon, acc)
+                        applyFill(lat, lon)
+                    },
+                    onFailure = { gpsStatusBanner = strings.gpsUnavailable },
+                )
+            } else {
+                triggerLocate(false)
+            }
+        },
+        onAddCoordinate = { point, centerOnPoint ->
+            onAddPoint(point)
+            if (centerOnPoint) {
+                onCenterChanged(point)
+                onZoomChanged(maxOf(mapZoom, 16))
+            }
+        },
+        onDismiss = { showCoordinatesDialog = false },
+    )
+
+    KmzViewerDialog(
+        document = activeKmzDoc,
+        isSatellite = isSatellite,
+        onToggleLayer = onToggleLayer,
+        onLoadToMap = { placemark ->
+            onSetPolygon(placemark.points)
+            val (_, fitZoom) = GeoUtils.computeBoundsCenterAndZoom(placemark.points)
+            onZoomChanged(fitZoom)
+            activeKmzDoc = null
+            activeTab = 0
+        },
+        onSavePlacemarkAsField = { placemark ->
+            onSetPolygon(placemark.points)
+            val (_, fitZoom) = GeoUtils.computeBoundsCenterAndZoom(placemark.points)
+            onZoomChanged(fitZoom)
+            fieldName = placemark.name
+            val m = GeoUtils.calculateMeasurements(placemark.points)
+            if (m.areaHa > 0) {
+                fieldSizeInput = formatNumber(m.areaHa, 4)
+                fieldWidthInput = m.widthM.roundToInt().toString()
+                fieldLengthInput = m.lengthM.roundToInt().toString()
+            }
+            activeKmzDoc = null
+            activeTab = 0
+        },
+        onShareKmz = { doc -> shareKmzPlacemarks(doc.documentName, doc.placemarks) },
+        onDismiss = { activeKmzDoc = null },
+    )
+
     ConfirmDeleteDialog(
         visible = fieldPendingDelete != null,
         itemLabel = fieldPendingDelete?.name.orEmpty(),
@@ -242,7 +385,7 @@ fun FieldsScreen(
     LazyColumn(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().testTag("fields_screen_list"),
     ) {
         item {
             ScreenTopBar(title = strings.fieldsScreenTitle, onBack = onBack)
@@ -310,9 +453,21 @@ fun FieldsScreen(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
                     ) {
+                        Button(
+                            onClick = { showCoordinatesDialog = true },
+                            modifier = Modifier
+                                .weight(1.15f)
+                                .fillMaxHeight()
+                                .heightIn(min = 48.dp)
+                                .testTag("open_coordinates_dialog_btn"),
+                        ) {
+                            Icon(Icons.Filled.PinDrop, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.size(4.dp))
+                            Text(strings.btnCoordinatesModal, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
                         OutlinedButton(
                             onClick = onUndoPoint,
                             modifier = Modifier
@@ -321,8 +476,8 @@ fun FieldsScreen(
                                 .heightIn(min = 48.dp)
                                 .testTag("map_undo_btn"),
                         ) {
-                            Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.size(6.dp))
+                            Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.size(4.dp))
                             Text(strings.undo, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                         OutlinedButton(
@@ -333,9 +488,94 @@ fun FieldsScreen(
                                 .heightIn(min = 48.dp)
                                 .testTag("map_clear_btn"),
                         ) {
-                            Icon(Icons.Filled.Clear, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.size(6.dp))
+                            Icon(Icons.Filled.Clear, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.size(4.dp))
                             Text(strings.clear, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                kmzOpenLauncher.launch(
+                                    arrayOf(
+                                        "application/vnd.google-earth.kmz",
+                                        "application/vnd.google-earth.kml+xml",
+                                        "application/octet-stream",
+                                        "*/*",
+                                    )
+                                )
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .heightIn(min = 48.dp)
+                                .testTag("open_kmz_file_btn"),
+                        ) {
+                            Icon(Icons.Filled.FolderOpen, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.size(4.dp))
+                            Text(strings.btnKmzOpen, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                val payload = buildActiveKmzPlacemarks()
+                                if (payload == null) {
+                                    kmzStatusMessage = strings.kmzNeedPointsError
+                                } else {
+                                    kmzStatusMessage = null
+                                    shareKmzPlacemarks(payload.first, payload.second)
+                                }
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .heightIn(min = 48.dp)
+                                .testTag("share_kmz_btn"),
+                        ) {
+                            Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.size(4.dp))
+                            Text(strings.btnKmzShare, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                val payload = buildActiveKmzPlacemarks()
+                                if (payload == null) {
+                                    kmzStatusMessage = strings.kmzNeedPointsError
+                                } else {
+                                    kmzStatusMessage = null
+                                    pendingSaveKmzBytes = KmzUtils.buildKmzBytes(payload.first, payload.second)
+                                    kmzSaveLauncher.launch("${payload.first}.kmz")
+                                }
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .heightIn(min = 48.dp)
+                                .testTag("save_kmz_btn"),
+                        ) {
+                            Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.size(4.dp))
+                            Text(strings.btnKmzSave, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+
+                    if (kmzStatusMessage != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = extra.pale,
+                            border = BorderStroke(1.dp, extra.line),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                text = kmzStatusMessage!!,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(10.dp),
+                            )
                         }
                     }
                 }
@@ -344,93 +584,149 @@ fun FieldsScreen(
             1 -> {
                 item {
                     AqroCard {
-                        Text(strings.coordSystemLabel, style = MaterialTheme.typography.labelLarge)
-                        Spacer(modifier = Modifier.height(8.dp))
-                        TabPillsRow(
-                            tabs = listOf("Lat/Lon", "UTM"),
-                            selectedIndex = if (useUtm) 1 else 0,
-                            onSelect = { useUtm = it == 1 },
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        if (!useUtm) {
-                            Text(strings.latLonPointsLabel, style = MaterialTheme.typography.labelMedium, color = extra.muted)
-                            Spacer(modifier = Modifier.height(6.dp))
-                            OutlinedTextField(
-                                value = latLonText,
-                                onValueChange = { latLonText = it; coordsError = null },
-                                placeholder = { Text(strings.latLonPlaceholder) },
-                                minLines = 4,
-                                modifier = Modifier.fillMaxWidth().testTag("lat_lon_input"),
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                        ) {
+                            Button(
+                                onClick = { showCoordinatesDialog = true },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .heightIn(min = 48.dp)
+                                    .testTag("coords_tab_add_btn"),
+                            ) {
+                                Icon(Icons.Filled.AddLocationAlt, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.size(6.dp))
+                                Text(strings.btnCoordinatesModal, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
                             OutlinedButton(
                                 onClick = { triggerLocate(true) },
-                                modifier = Modifier.fillMaxWidth().testTag("insert_gps_latlon_btn"),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .heightIn(min = 48.dp)
+                                    .testTag("insert_gps_quick_btn"),
                             ) {
                                 Icon(Icons.Filled.MyLocation, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.size(6.dp))
-                                Text(strings.btnInsertCurrentGpsLatLon)
+                                Text(strings.coordFillGpsBtn, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
-                        } else {
-                            Text(strings.utmZoneLabel, style = MaterialTheme.typography.labelMedium, color = extra.muted)
+                        }
+
+                        if (mapPoints.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                mapPoints.forEachIndexed { idx, pt ->
+                                    val u = GeoUtils.latLonToUtm(pt.lat, pt.lon)
+                                    Surface(
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = extra.pale,
+                                        border = BorderStroke(1.dp, extra.line),
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = "#${idx + 1} • ${formatNumber(pt.lat, 5)}, ${formatNumber(pt.lon, 5)}",
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    fontWeight = FontWeight.Bold,
+                                                )
+                                                Text(
+                                                    text = "UTM ${GeoUtils.formatUtmZone(pt.lat, u.zone)}  E: ${u.easting.roundToInt()}  N: ${u.northing.roundToInt()}",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = extra.muted,
+                                                )
+                                            }
+                                            IconButton(
+                                                onClick = {
+                                                    onSetPolygon(mapPoints.filterIndexed { i, _ -> i != idx })
+                                                },
+                                            ) {
+                                                Icon(Icons.Filled.Delete, contentDescription = strings.delete, tint = DangerRed)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+                        TextButton(
+                            onClick = { showBatchCoords = !showBatchCoords },
+                            modifier = Modifier.testTag("toggle_batch_coords_btn"),
+                        ) {
+                            Text(strings.coordBatchToggleBtn)
+                        }
+
+                        if (showBatchCoords) {
                             Spacer(modifier = Modifier.height(6.dp))
                             TabPillsRow(
-                                tabs = listOf("38N", "39N"),
-                                selectedIndex = if (utmZone == 39) 1 else 0,
-                                onSelect = { utmZone = if (it == 1) 39 else 38 },
+                                tabs = listOf("Lat/Lon", "UTM"),
+                                selectedIndex = if (useUtm) 1 else 0,
+                                onSelect = { useUtm = it == 1 },
                             )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = if (utmZone == 38) strings.utmZone38Label else strings.utmZone39Label,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = extra.muted,
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            OutlinedButton(
-                                onClick = { triggerLocate(true) },
-                                modifier = Modifier.fillMaxWidth().testTag("insert_gps_utm_btn"),
-                            ) {
-                                Icon(Icons.Filled.MyLocation, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.size(6.dp))
-                                Text(strings.btnGetUtmFromGps)
+                            Spacer(modifier = Modifier.height(10.dp))
+                            if (!useUtm) {
+                                Text(strings.latLonPointsLabel, style = MaterialTheme.typography.labelMedium, color = extra.muted)
+                                Spacer(modifier = Modifier.height(6.dp))
+                                OutlinedTextField(
+                                    value = latLonText,
+                                    onValueChange = { latLonText = it; coordsError = null },
+                                    placeholder = { Text(strings.latLonPlaceholder) },
+                                    minLines = 3,
+                                    modifier = Modifier.fillMaxWidth().testTag("lat_lon_input"),
+                                )
+                            } else {
+                                Text(strings.utmZoneLabel, style = MaterialTheme.typography.labelMedium, color = extra.muted)
+                                Spacer(modifier = Modifier.height(6.dp))
+                                TabPillsRow(
+                                    tabs = listOf("38T", "39T"),
+                                    selectedIndex = if (utmZone == 39) 1 else 0,
+                                    onSelect = { utmZone = if (it == 1) 39 else 38 },
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(strings.utmPointsLabel, style = MaterialTheme.typography.labelMedium, color = extra.muted)
+                                Spacer(modifier = Modifier.height(6.dp))
+                                OutlinedTextField(
+                                    value = utmText,
+                                    onValueChange = { utmText = it; coordsError = null },
+                                    placeholder = { Text(strings.utmPlaceholder) },
+                                    minLines = 3,
+                                    modifier = Modifier.fillMaxWidth().testTag("utm_points_input"),
+                                )
                             }
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(strings.utmPointsLabel, style = MaterialTheme.typography.labelMedium, color = extra.muted)
-                            Spacer(modifier = Modifier.height(6.dp))
-                            OutlinedTextField(
-                                value = utmText,
-                                onValueChange = { utmText = it; coordsError = null },
-                                placeholder = { Text(strings.utmPlaceholder) },
-                                minLines = 4,
-                                modifier = Modifier.fillMaxWidth().testTag("utm_points_input"),
-                            )
-                        }
 
-                        if (coordsError != null) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            DangerBannerBox(text = coordsError!!)
-                        }
+                            if (coordsError != null) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                DangerBannerBox(text = coordsError!!)
+                            }
 
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Button(
-                            onClick = {
-                                val parsed = if (!useUtm) {
-                                    parseLatLonLines(latLonText)
-                                } else {
-                                    parseUtmLines(utmText, utmZone)
-                                }
-                                if (parsed.size < 3) {
-                                    coordsError = strings.minThreePointsError
-                                } else {
-                                    coordsError = null
-                                    onSetPolygon(parsed)
-                                    onZoomChanged(16)
-                                    activeTab = 0
-                                }
-                            },
-                            modifier = Modifier.fillMaxWidth().testTag("show_coords_on_map_btn"),
-                        ) {
-                            Text(strings.btnShowOnMap)
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Button(
+                                onClick = {
+                                    val parsed = if (!useUtm) {
+                                        parseLatLonLines(latLonText)
+                                    } else {
+                                        parseUtmLines(utmText, utmZone)
+                                    }
+                                    if (parsed.size < 3) {
+                                        coordsError = strings.minThreePointsError
+                                    } else {
+                                        coordsError = null
+                                        onSetPolygon(parsed)
+                                        onZoomChanged(16)
+                                        activeTab = 0
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth().testTag("show_coords_on_map_btn"),
+                            ) {
+                                Text(strings.btnShowOnMap)
+                            }
                         }
                     }
                 }
@@ -705,6 +1001,7 @@ fun FieldsScreen(
                         }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             if (field.coords.isNotEmpty()) {
+                                val decodedPts = field.coords.mapNotNull { GeoUtils.decodeCoord(it) }
                                 OutlinedButton(
                                     onClick = {
                                         onFocusFieldOnMap(field)
@@ -713,6 +1010,29 @@ fun FieldsScreen(
                                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
                                 ) {
                                     Text(strings.btnViewOnMap, style = MaterialTheme.typography.labelMedium)
+                                }
+                                if (decodedPts.isNotEmpty()) {
+                                    IconButton(
+                                        onClick = {
+                                            shareKmzPlacemarks(
+                                                docName = field.name,
+                                                placemarks = listOf(
+                                                    KmzPlacemark(
+                                                        name = field.name,
+                                                        description = "${field.crop} • ${formatNumber(field.sizeHa, 2)} ha",
+                                                        points = decodedPts,
+                                                    )
+                                                ),
+                                            )
+                                        },
+                                        modifier = Modifier.testTag("field_share_kmz_${field.id}"),
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Share,
+                                            contentDescription = strings.btnKmzShare,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                        )
+                                    }
                                 }
                             }
                             IconButton(onClick = { fieldPendingDelete = field }) {

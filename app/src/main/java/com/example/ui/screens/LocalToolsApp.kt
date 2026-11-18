@@ -106,7 +106,9 @@ import com.example.ui.theme.PhosphorusAmber
 import com.example.ui.theme.PotassiumPlum
 import com.example.ui.theme.ThemePreference
 import com.example.ui.theme.WarningAmber
+import com.example.domain.ClimateHistoryUtils
 import com.example.ui.viewmodel.ChatMessageUi
+import com.example.ui.viewmodel.ClimateHistoryUiState
 import com.example.ui.viewmodel.EquipmentAlert
 import com.example.ui.viewmodel.EquipmentStatus
 import com.example.ui.viewmodel.WeatherUiState
@@ -166,6 +168,7 @@ fun LocalToolsApp(
     }
 
     var weatherState by remember { mutableStateOf(WeatherUiState()) }
+    var climateState by remember { mutableStateOf(ClimateHistoryUiState()) }
 
     fun fetchWeather(lat: Double, lon: Double) {
         scope.launch {
@@ -186,6 +189,52 @@ fun LocalToolsApp(
                 weatherState = weatherState.copy(
                     isLoading = false,
                     error = e.localizedMessage ?: "Weather error",
+                )
+            }
+        }
+    }
+
+    fun fetchClimateHistory(
+        lat: Double,
+        lon: Double,
+        startDate: String,
+        endDate: String,
+        locationLabel: String,
+    ) {
+        scope.launch {
+            climateState = climateState.copy(
+                isLoading = true,
+                lat = lat,
+                lon = lon,
+                startDate = startDate,
+                endDate = endDate,
+                locationLabel = locationLabel,
+                error = null,
+            )
+            try {
+                val res = weatherService.getHistoricalClimate(
+                    latitude = lat,
+                    longitude = lon,
+                    startDate = startDate,
+                    endDate = endDate,
+                )
+                climateState = ClimateHistoryUiState(
+                    isLoading = false,
+                    locationLabel = locationLabel,
+                    lat = res.latitude,
+                    lon = res.longitude,
+                    startDate = startDate,
+                    endDate = endDate,
+                    elevationM = res.elevation,
+                    summary = ClimateHistoryUtils.summarizeResponse(res),
+                    error = null,
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                climateState = climateState.copy(
+                    isLoading = false,
+                    error = e.localizedMessage ?: "Climate history error",
                 )
             }
         }
@@ -260,7 +309,6 @@ fun LocalToolsApp(
             ) {
                 composable(NavRoutes.HOME) {
                     LocalToolsHomeScreen(
-                        equipmentAlerts = equipmentAlerts,
                         hiddenModules = hiddenModules,
                         onToggleModuleVisible = { route, visible ->
                             scope.launch { preferencesStore.setModuleVisible(route, visible) }
@@ -297,6 +345,9 @@ fun LocalToolsApp(
                         weatherState = weatherState,
                         onRefreshWeather = { lat, lon -> fetchWeather(lat, lon) },
                         onBack = { navController.popBackStack() },
+                        fields = emptyList(),
+                        climateState = climateState,
+                        onLoadClimateHistory = ::fetchClimateHistory,
                     )
                 }
 
@@ -412,13 +463,6 @@ fun LocalToolsApp(
                         onBack = { navController.popBackStack() },
                         isLocalOnly = true,
                         onOpenFirebaseSetup = onOpenFirebaseSetup,
-                        hiddenModules = hiddenModules,
-                        onToggleModuleVisible = { route, visible ->
-                            scope.launch { preferencesStore.setModuleVisible(route, visible) }
-                        },
-                        onResetModules = {
-                            scope.launch { preferencesStore.showAllModules() }
-                        },
                     )
                 }
             }
@@ -437,7 +481,6 @@ private data class LocalToolTile(
 
 @Composable
 private fun LocalToolsHomeScreen(
-    equipmentAlerts: List<EquipmentAlert>,
     hiddenModules: Set<String>,
     onToggleModuleVisible: (String, Boolean) -> Unit,
     onResetModules: () -> Unit,
@@ -631,54 +674,6 @@ private fun LocalToolsHomeScreen(
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                         )
-                    }
-                }
-            }
-        }
-
-        // Equipment Expiration Alert Banner (if any overdue or due soon)
-        if (equipmentAlerts.isNotEmpty()) {
-            item {
-                val hasOverdue = equipmentAlerts.any { it.status == EquipmentStatus.OVERDUE }
-                val bg = if (hasOverdue) extra.dangerContainer else extra.warningContainer
-                val border = if (hasOverdue) DangerBorder else WarningAmber.copy(alpha = 0.5f)
-                val tint = if (hasOverdue) DangerRed else WarningAmber
-                Card(
-                    shape = RoundedCornerShape(18.dp),
-                    colors = CardDefaults.cardColors(containerColor = bg),
-                    border = BorderStroke(1.dp, border),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(18.dp))
-                        .clickable { onNavigate(NavRoutes.EQUIPMENT) },
-                ) {
-                    Row(
-                        modifier = Modifier.padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        Icon(
-                            imageVector = if (hasOverdue) Icons.Filled.Warning else Icons.Filled.NotificationsActive,
-                            contentDescription = null,
-                            tint = tint,
-                            modifier = Modifier.size(22.dp),
-                        )
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = strings.alertEquipmentTitle,
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                            Text(
-                                text = equipmentAlerts.joinToString(", ") {
-                                    val badge = if (it.status == EquipmentStatus.OVERDUE) strings.eqStatusOverdue else strings.eqStatusSoon
-                                    "${it.itemName} ($badge)"
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (hasOverdue) extra.onDangerContainer else extra.muted,
-                            )
-                        }
                     }
                 }
             }

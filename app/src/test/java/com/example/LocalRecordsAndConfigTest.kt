@@ -10,10 +10,12 @@ import com.example.data.firebase.sanitizeGoogleServicesJson
 import com.example.data.firebase.saveAndInitializeFirebaseFromJson
 import com.example.data.local.LocalRecordsStore
 import com.example.ui.auth.isShaOrCertMismatchError
+import androidx.core.content.FileProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -22,6 +24,17 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
 class LocalRecordsAndConfigTest {
+
+    @Before
+    fun resetFileProviderCache() {
+        // Each Robolectric @Test creates a fresh temporary dataDir, while FileProvider caches
+        // resolved root paths in a static sCache map keyed by authority.
+        runCatching {
+            val cacheField = FileProvider::class.java.getDeclaredField("sCache")
+            cacheField.isAccessible = true
+            (cacheField.get(null) as? MutableMap<*, *>)?.clear()
+        }
+    }
 
     @Test
     fun localRecordsStorePersistsEquipmentFinanceBackupAndOfflinePhotos() {
@@ -282,6 +295,118 @@ class LocalRecordsAndConfigTest {
         )
         assertTrue(bannedAnswer.contains("Qadağan", ignoreCase = true) || bannedAnswer.contains("DDT", ignoreCase = true))
     }
-}
 
+    @Test
+    fun kmzRoundTripAndGeoUtilsUtmDdmConversionsWorkAccurately() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val pts = listOf(
+            com.example.domain.LatLon(40.6780, 46.3600),
+            com.example.domain.LatLon(40.6795, 46.3600),
+            com.example.domain.LatLon(40.6795, 46.3620),
+            com.example.domain.LatLon(40.6780, 46.3620),
+        )
+        val kmzBytes = com.example.domain.KmzUtils.buildKmzBytes(
+            documentName = "Ganja_Test",
+            placemarks = listOf(
+                com.example.domain.KmzPlacemark(name = "Bugda 1", description = "2.8 ha", points = pts)
+            ),
+        )
+        assertTrue(kmzBytes.size > 50)
+        val parsed = com.example.domain.KmzUtils.parseKmzOrKml(kmzBytes)
+        assertEquals("Ganja_Test", parsed.documentName)
+        assertEquals(1, parsed.placemarks.size)
+        assertEquals("Bugda 1", parsed.placemarks.first().name)
+        assertEquals(4, parsed.placemarks.first().points.size)
+        assertEquals(40.6780, parsed.placemarks.first().points.first().lat, 1e-4)
+        assertEquals(46.3600, parsed.placemarks.first().points.first().lon, 1e-4)
+
+        val (kmzFile, shareUri) = com.example.domain.KmzUtils.writeKmzToCacheFile(
+            context = context,
+            fileNameBase = "Bugda 1",
+            placemarks = parsed.placemarks,
+        )
+        assertTrue(kmzFile.exists())
+        assertNotNull(shareUri)
+
+        // UTM Zone string parsing (Azerbaijan 38T / 38S / Europe 34U / South 38K)
+        assertEquals(38 to false, com.example.domain.GeoUtils.parseUtmZone("38T"))
+        assertEquals(38 to false, com.example.domain.GeoUtils.parseUtmZone("38S"))
+        assertEquals(34 to false, com.example.domain.GeoUtils.parseUtmZone("34U"))
+        assertEquals(38 to true, com.example.domain.GeoUtils.parseUtmZone("38K"))
+
+        val utm = com.example.domain.GeoUtils.latLonToUtm(40.6782, 46.3606)
+        assertEquals("38T", com.example.domain.GeoUtils.formatUtmZone(40.6782, utm.zone))
+        val back = com.example.domain.GeoUtils.utmToLatLon(utm.easting, utm.northing, "38T")
+        assertEquals(40.6782, back.lat, 0.001)
+        assertEquals(46.3606, back.lon, 0.001)
+
+        // DDM conversion round-trip
+        val (deg, min, pos) = com.example.domain.GeoUtils.decimalToDdm(40.6782)
+        assertTrue(pos)
+        assertEquals(40, deg)
+        assertEquals(40.6782, com.example.domain.GeoUtils.ddmToDecimal(deg.toDouble(), min, !pos), 1e-5)
+    }
+
+    @Test
+    fun climateHistoryUtilsValidatesRangesSummarizesMonthlyMetricsAndBuildsCsv() {
+        val (start2y, end2y) = com.example.domain.ClimateHistoryUtils.defaultDateRange(24)
+        assertNotNull(com.example.domain.ClimateHistoryUtils.validateDateRange(start2y, end2y))
+        val (start10y, end10y) = com.example.domain.ClimateHistoryUtils.defaultDateRange(120)
+        assertNotNull(com.example.domain.ClimateHistoryUtils.validateDateRange(start10y, end10y))
+        assertEquals(null, com.example.domain.ClimateHistoryUtils.validateDateRange("2010-01-01", "2026-01-01"))
+        assertEquals(null, com.example.domain.ClimateHistoryUtils.validateDateRange("2025-05-01", "2024-05-01"))
+        assertEquals(null, com.example.domain.ClimateHistoryUtils.validateDateRange("invalid", end2y))
+
+        val mockResponse = com.example.data.remote.HistoricalClimateResponse(
+            latitude = 40.6782,
+            longitude = 46.3606,
+            elevation = 412.0,
+            daily = com.example.data.remote.HistoricalDailyDto(
+                time = listOf("2024-01-15", "2024-01-16", "2024-07-20"),
+                tempMax = listOf(4.0, 8.0, 37.5),
+                tempMin = listOf(-2.0, 1.0, 22.0),
+                tempMean = listOf(1.0, 4.5, 30.0),
+                precipitationSum = listOf(22.4, 0.0, 2.6),
+                et0Sum = listOf(1.1, 1.4, 6.5),
+                windMax = listOf(14.0, 10.0, 42.0),
+                radiationSum = listOf(6.2, 7.1, 24.5),
+                humidityMean = listOf(84.0, 72.0, 40.0),
+                rainSum = listOf(18.0, 0.0, 2.6),
+                snowfallSum = listOf(4.4, 0.0, 0.0),
+                windGustsMax = listOf(26.0, 18.0, 64.0),
+                windDirectionDominant = listOf(90.0, 90.0, 90.0),
+                sunshineDuration = listOf(7200.0, 14400.0, 39600.0),
+                cloudCoverMean = listOf(85.0, 45.0, 10.0),
+                pressureMslMean = listOf(1022.0, 1018.0, 1006.0),
+                weatherCode = listOf(65, 2, 96),
+            ),
+        )
+        val summary = com.example.domain.ClimateHistoryUtils.summarizeResponse(mockResponse)
+        assertEquals(3, summary.daysCount)
+        assertEquals(25.0, summary.totalPrecipMm, 1e-3)
+        assertEquals(9.0, summary.totalEt0Mm, 1e-3)
+        assertEquals(16.0, summary.waterBalanceMm, 1e-3)
+        assertEquals(1, summary.frostDays)
+        assertEquals(1, summary.hotDays)
+        assertEquals(1, summary.heavyRainDays)
+        assertEquals(1, summary.highWindDays)
+        assertEquals(2, summary.stormHailDays)
+        assertEquals(64.0, summary.maxGustKmh, 1e-3)
+        assertEquals(90.0, summary.dominantWindDeg, 1e-1)
+        assertEquals("E", com.example.domain.ClimateHistoryUtils.windCompassShort(summary.dominantWindDeg))
+        assertEquals(17.0, summary.totalSunshineHours, 1e-2)
+        assertEquals(1006.0, summary.minPressureHpa, 1e-2)
+        assertEquals(1022.0, summary.maxPressureHpa, 1e-2)
+        assertTrue(summary.extremeEvents.isNotEmpty())
+        assertEquals(2, summary.monthlyChronological.size)
+        assertEquals("2024-01", summary.monthlyChronological.first().yearMonth)
+        assertEquals(1, summary.yearlySummaries.size)
+
+        val csv = com.example.domain.ClimateHistoryUtils.buildClimateCsv("Gəncə", 40.6782, 46.3606, summary)
+        assertTrue(csv.contains("Date,TempMin_C,TempMax_C,TempMean_C,Humidity_Pct"))
+        assertTrue(csv.contains("Pressure_hPa,ET0_mm,WeatherCode"))
+        assertTrue(csv.contains("2024-07-20"))
+        assertTrue(csv.contains("1006.0"))
+    }
+}
 

@@ -28,12 +28,10 @@ import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Agriculture
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Grass
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.LocalFlorist
 import androidx.compose.material.icons.filled.Map
-import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.RequestQuote
 import androidx.compose.material.icons.filled.Science
@@ -88,7 +86,6 @@ import com.example.ui.theme.PhosphorusAmber
 import com.example.ui.theme.PotassiumPlum
 import com.example.ui.theme.WarningAmber
 import com.example.ui.viewmodel.EquipmentAlert
-import com.example.ui.viewmodel.EquipmentStatus
 import com.example.ui.viewmodel.WeatherUiState
 
 private data class HomeMenuTile(
@@ -370,101 +367,58 @@ fun HomeScreen(
             }
         }
 
-        // Smart Hazard / Equipment Alert Card
-        item {
-            val hasWeatherHazard = weatherState.hasAnyHazard
-            val hasOverdueEq = equipmentAlerts.any { it.status == EquipmentStatus.OVERDUE }
-            val hasEqAlert = equipmentAlerts.isNotEmpty()
+        // Weather Hazard Alert Card (only shown when frost, high wind, or heavy rain is detected)
+        if (weatherState.hasAnyHazard) {
+            item {
+                val alertTitle = strings.alertWeatherTitle
+                val alertSubtitle = buildList {
+                    if (weatherState.hasFrostRisk) add(strings.frostWarning)
+                    if (weatherState.hasHighWind) add(strings.windWarning)
+                    if (weatherState.hasHeavyRain) add(strings.rainWarning)
+                }.joinToString(" • ")
 
-            val bgColor = when {
-                hasWeatherHazard || hasOverdueEq -> extra.dangerContainer
-                hasEqAlert -> extra.warningContainer
-                else -> MaterialTheme.colorScheme.surface
-            }
-            val borderColor = when {
-                hasWeatherHazard || hasOverdueEq -> DangerBorder
-                hasEqAlert -> WarningAmber.copy(alpha = 0.5f)
-                else -> extra.line
-            }
-            val iconColor = when {
-                hasWeatherHazard || hasOverdueEq -> DangerRed
-                hasEqAlert -> WarningAmber
-                else -> MaterialTheme.colorScheme.primary
-            }
-
-            val alertTitle: String
-            val alertSubtitle: String
-            val alertRoute: String
-            when {
-                hasWeatherHazard -> {
-                    alertTitle = strings.alertWeatherTitle
-                    alertSubtitle = buildList {
-                        if (weatherState.hasFrostRisk) add(strings.frostWarning)
-                        if (weatherState.hasHighWind) add(strings.windWarning)
-                        if (weatherState.hasHeavyRain) add(strings.rainWarning)
-                    }.joinToString(" • ")
-                    alertRoute = NavRoutes.WEATHER
-                }
-                hasEqAlert -> {
-                    alertTitle = strings.alertEquipmentTitle
-                    alertSubtitle = equipmentAlerts.joinToString(", ") {
-                        val badge = if (it.status == EquipmentStatus.OVERDUE) strings.eqStatusOverdue else strings.eqStatusSoon
-                        "${it.itemName} ($badge)"
-                    }
-                    alertRoute = NavRoutes.EQUIPMENT
-                }
-                else -> {
-                    alertTitle = strings.alertNormalTitle
-                    alertSubtitle = strings.alertNormalSub
-                    alertRoute = NavRoutes.EQUIPMENT
-                }
-            }
-
-            Card(
-                shape = RoundedCornerShape(18.dp),
-                colors = CardDefaults.cardColors(containerColor = bgColor),
-                border = BorderStroke(1.dp, borderColor),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(18.dp))
-                    .clickable { onNavigate(alertRoute) }
-                    .testTag("home_alert_card"),
-            ) {
-                Row(
-                    modifier = Modifier.padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                Card(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = extra.dangerContainer),
+                    border = BorderStroke(1.dp, DangerBorder),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .clickable { onNavigate(NavRoutes.WEATHER) }
+                        .testTag("home_alert_card"),
                 ) {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(iconColor.copy(alpha = 0.14f)),
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        Icon(
-                            imageVector = when {
-                                hasWeatherHazard || hasOverdueEq -> Icons.Filled.Warning
-                                hasEqAlert -> Icons.Filled.NotificationsActive
-                                else -> Icons.Filled.CheckCircle
-                            },
-                            contentDescription = alertTitle,
-                            tint = iconColor,
-                            modifier = Modifier.size(22.dp),
-                        )
-                    }
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = alertTitle,
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Text(
-                            text = alertSubtitle,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (hasWeatherHazard || hasOverdueEq) extra.onDangerContainer else extra.muted,
-                        )
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(DangerRed.copy(alpha = 0.14f)),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Warning,
+                                contentDescription = alertTitle,
+                                tint = DangerRed,
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = alertTitle,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Text(
+                                text = alertSubtitle,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = extra.onDangerContainer,
+                            )
+                        }
                     }
                 }
             }

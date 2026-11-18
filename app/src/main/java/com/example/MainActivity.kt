@@ -228,6 +228,7 @@ private fun AuthenticatedMainApp(
     val customLinks by viewModel.customLinks.collectAsStateWithLifecycle()
     val adminEntries by viewModel.adminEntries.collectAsStateWithLifecycle()
     val weatherState by viewModel.weatherState.collectAsStateWithLifecycle()
+    val climateHistoryState by viewModel.climateHistoryState.collectAsStateWithLifecycle()
 
     val mapPoints by viewModel.mapPoints.collectAsStateWithLifecycle()
     val measurements by viewModel.measurements.collectAsStateWithLifecycle()
@@ -382,6 +383,9 @@ private fun AuthenticatedMainApp(
                         weatherState = weatherState,
                         onRefreshWeather = viewModel::loadWeather,
                         onBack = { navController.popBackStack() },
+                        fields = fields,
+                        climateState = climateHistoryState,
+                        onLoadClimateHistory = viewModel::loadClimateHistory,
                     )
                 }
 
@@ -542,9 +546,6 @@ private fun AuthenticatedMainApp(
                         onSelectTheme = onSelectTheme,
                         onSaveProfile = viewModel::saveProfile,
                         onBack = { navController.popBackStack() },
-                        hiddenModules = hiddenModules,
-                        onToggleModuleVisible = onToggleModuleVisible,
-                        onResetModules = onResetModules,
                     )
                 }
             }

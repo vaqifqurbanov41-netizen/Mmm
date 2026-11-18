@@ -31,14 +31,22 @@ import com.example.ui.screens.AgroCalendarScreen
 import com.example.ui.screens.AuthScreen
 import com.example.ui.screens.ChatScreen
 import com.example.ui.screens.EquipmentScreen
+import com.example.ui.screens.FieldsScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.InsuranceCalcScreen
 import com.example.ui.screens.NpkScreen
 import com.example.ui.screens.PesticideScreen
+import com.example.ui.screens.ProfileScreen
 import com.example.ui.screens.SeedsScreen
 import com.example.ui.screens.StationsScreen
+import com.example.ui.screens.WeatherScreen
 import com.example.ui.theme.AqroMeslehetTheme
+import com.example.ui.theme.ThemePreference
 import com.example.ui.viewmodel.ChatMessageUi
+import com.example.ui.viewmodel.ClimateHistoryUiState
+import com.example.ui.viewmodel.DocScanUiState
+import com.example.ui.viewmodel.EquipmentAlert
+import com.example.ui.viewmodel.EquipmentStatus
 import com.example.ui.viewmodel.WeatherUiState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -573,5 +581,192 @@ class ExampleRobolectricTest {
         composeTestRule.onNodeWithTag("ai_chat_list")
             .performScrollToNode(androidx.compose.ui.test.hasText("Mankozeb", substring = true))
         composeTestRule.onNodeWithText("Mankozeb", substring = true).assertExists()
+    }
+
+    @Test
+    fun `profileOmitsModulesAndTelegramCards`() {
+        composeTestRule.setContent {
+            CompositionLocalProvider(LocalStrings provides StringsAz) {
+                AqroMeslehetTheme {
+                    ProfileScreen(
+                        language = AppLanguage.AZ,
+                        themePreference = ThemePreference.SYSTEM,
+                        profile = null,
+                        userEmail = "farmer@example.com",
+                        onSelectLanguage = {},
+                        onSelectTheme = {},
+                        onSaveProfile = { _, _, _ -> },
+                        onBack = {},
+                    )
+                }
+            }
+        }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("profile_modules_card").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("profile_telegram_bot_btn").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("profile_screen_list").performScrollToNode(hasTestTag("hotline_1652_btn"))
+        composeTestRule.onNodeWithTag("hotline_1652_btn").assertIsDisplayed()
+    }
+
+    @Test
+    fun `homeOmitsEquipmentTrackingAlertCard`() {
+        composeTestRule.setContent {
+            CompositionLocalProvider(LocalStrings provides StringsAz) {
+                AqroMeslehetTheme {
+                    HomeScreen(
+                        fields = emptyList(),
+                        weatherState = WeatherUiState(),
+                        equipmentAlerts = listOf(EquipmentAlert("MTZ-82", EquipmentStatus.OVERDUE)),
+                        onNavigate = {},
+                    )
+                }
+            }
+        }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("home_alert_card").assertDoesNotExist()
+    }
+
+    @Test
+    fun `fieldsScreenOpensCoordinatesDialogAddsUtmPointAndExposesKmzActions`() {
+        val addedPoints = mutableListOf<com.example.domain.LatLon>()
+        composeTestRule.setContent {
+            CompositionLocalProvider(LocalStrings provides StringsAz) {
+                AqroMeslehetTheme {
+                    FieldsScreen(
+                        language = AppLanguage.AZ,
+                        fields = emptyList(),
+                        mapPoints = addedPoints,
+                        measurements = com.example.domain.GeoUtils.calculateMeasurements(addedPoints),
+                        mapCenter = com.example.domain.LatLon(40.6782, 46.3606),
+                        mapZoom = 15,
+                        isSatellite = true,
+                        gpsLocation = null,
+                        gpsAccuracyM = null,
+                        docScanState = DocScanUiState(),
+                        onAddPoint = { addedPoints.add(it) },
+                        onMovePoint = { _, _ -> },
+                        onUndoPoint = {},
+                        onClearPoints = {},
+                        onSetPolygon = {},
+                        onCenterChanged = {},
+                        onZoomChanged = {},
+                        onToggleLayer = {},
+                        onUpdateGpsFix = { _, _, _ -> },
+                        onScanDocument = { _, _, _ -> },
+                        onSaveField = { _, _, _, _, _, _, _ -> },
+                        onFocusFieldOnMap = {},
+                        onDeleteField = {},
+                        onBack = {},
+                    )
+                }
+            }
+        }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("open_kmz_file_btn").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithTag("share_kmz_btn").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithTag("save_kmz_btn").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithTag("open_coordinates_dialog_btn").performScrollTo().performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("coordinates_entry_dialog").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("coord_mode_utm").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("coord_utm_zone_input").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("coord_utm_easting_input").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("coord_utm_northing_input").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("coords_done_btn").performScrollTo().performClick()
+        composeTestRule.waitForIdle()
+
+        assertEquals(1, addedPoints.size)
+    }
+
+    @Test
+    fun `weatherScreenDisplaysClimateHistoryTabAndExportsSummary`() {
+        var loadedLabel = ""
+        val sampleSummary = com.example.domain.ClimateHistoryUtils.summarizeResponse(
+            com.example.data.remote.HistoricalClimateResponse(
+                latitude = 40.6782,
+                longitude = 46.3606,
+                daily = com.example.data.remote.HistoricalDailyDto(
+                    time = listOf("2024-05-01", "2025-06-02"),
+                    tempMax = listOf(24.0, 36.0),
+                    tempMin = listOf(-1.0, 18.0),
+                    tempMean = listOf(12.0, 27.0),
+                    precipitationSum = listOf(22.0, 0.0),
+                    et0Sum = listOf(3.2, 5.8),
+                    windMax = listOf(12.0, 42.0),
+                    radiationSum = listOf(18.0, 25.0),
+                    humidityMean = listOf(68.0, 42.0),
+                    windGustsMax = listOf(20.0, 62.0),
+                    windDirectionDominant = listOf(120.0, 270.0),
+                    sunshineDuration = listOf(28800.0, 43200.0),
+                    cloudCoverMean = listOf(40.0, 15.0),
+                    pressureMslMean = listOf(1016.0, 1009.0),
+                    weatherCode = listOf(65, 95),
+                ),
+            )
+        )
+        composeTestRule.setContent {
+            CompositionLocalProvider(LocalStrings provides StringsAz) {
+                AqroMeslehetTheme {
+                    WeatherScreen(
+                        weatherState = WeatherUiState(),
+                        onRefreshWeather = { _, _ -> },
+                        onBack = {},
+                        fields = listOf(
+                            com.example.data.model.FarmField(
+                                id = "f1",
+                                name = "Şimal sahəsi",
+                                crop = "Buğda",
+                                sizeHa = 3.5,
+                                coords = listOf("40.6782,46.3606"),
+                            )
+                        ),
+                        climateState = ClimateHistoryUiState(
+                            locationLabel = "Şimal sahəsi",
+                            summary = sampleSummary,
+                        ),
+                        onLoadClimateHistory = { _, _, _, _, label -> loadedLabel = label },
+                    )
+                }
+            }
+        }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithText(StringsAz.weatherTabClimateHistory).performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("climate_field_chip_f1").assertIsDisplayed().performClick()
+        composeTestRule.onNodeWithTag("climate_preset_120m").performScrollTo().performClick()
+        composeTestRule.onNodeWithTag("climate_load_btn").performScrollTo().performClick()
+        composeTestRule.waitForIdle()
+        assertEquals("Şimal sahəsi", loadedLabel)
+
+        composeTestRule.onNodeWithTag("weather_screen_list").performScrollToNode(hasTestTag("climate_download_csv_btn"))
+        composeTestRule.onNodeWithTag("climate_download_csv_btn").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithTag("climate_share_csv_btn").performScrollTo().assertIsDisplayed()
+
+        // Verify interactive timeline map & stepping backward/forward in time
+        composeTestRule.onNodeWithTag("weather_screen_list").performScrollToNode(hasTestTag("climate_time_map_card"))
+        composeTestRule.onNodeWithTag("climate_timeline_slider").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithTag("climate_map_active_period").assertTextContains("2025-06", substring = true)
+        composeTestRule.onNodeWithTag("climate_slider_prev_btn").performScrollTo().performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("climate_map_active_period").assertTextContains("2024-05", substring = true)
+        composeTestRule.onNodeWithTag("climate_slider_next_btn").performScrollTo().performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("climate_map_active_period").assertTextContains("2025-06", substring = true)
+
+        // Verify all 6 climate analytical chart cards render
+        composeTestRule.onNodeWithTag("weather_screen_list").performScrollToNode(hasTestTag("climate_chart_temperature"))
+        composeTestRule.onNodeWithTag("climate_chart_temperature").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("weather_screen_list").performScrollToNode(hasTestTag("climate_chart_precip_humidity"))
+        composeTestRule.onNodeWithTag("climate_chart_precip_humidity").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("weather_screen_list").performScrollToNode(hasTestTag("climate_chart_wind"))
+        composeTestRule.onNodeWithTag("climate_chart_wind").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("weather_screen_list").performScrollToNode(hasTestTag("climate_chart_solar_cloud"))
+        composeTestRule.onNodeWithTag("climate_chart_solar_cloud").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("weather_screen_list").performScrollToNode(hasTestTag("climate_chart_pressure_et0"))
+        composeTestRule.onNodeWithTag("climate_chart_pressure_et0").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("weather_screen_list").performScrollToNode(hasTestTag("climate_chart_extremes"))
+        composeTestRule.onNodeWithTag("climate_chart_extremes").assertIsDisplayed()
     }
 }

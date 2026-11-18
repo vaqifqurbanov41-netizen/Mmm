@@ -193,6 +193,69 @@ object GeoUtils {
         return LatLon(lat * 180.0 / PI, lon * 180.0 / PI)
     }
 
+    fun utmZoneLetter(lat: Double): Char {
+        val letters = "CDEFGHJKLMNPQRSTUVWX"
+        if (lat < -80.0 || lat > 84.0) return 'N'
+        val index = ((lat + 80.0) / 8.0).toInt().coerceIn(0, letters.lastIndex)
+        return letters[index]
+    }
+
+    fun formatUtmZone(lat: Double, zone: Int): String = "$zone${utmZoneLetter(lat)}"
+
+    fun parseUtmZone(raw: String): Pair<Int, Boolean> {
+        val trimmed = raw.trim().uppercase(java.util.Locale.US)
+        val digits = trimmed.takeWhile { it.isDigit() }.ifEmpty {
+            Regex("\\d+").find(trimmed)?.value ?: "38"
+        }
+        val zone = (digits.toIntOrNull() ?: 38).coerceIn(1, 60)
+        val band = trimmed.lastOrNull { it.isLetter() }
+        val isSouthern = band != null && band in 'C'..'M'
+        return zone to isSouthern
+    }
+
+    fun utmToLatLon(easting: Double, northing: Double, zoneRaw: String): LatLon {
+        val (zone, isSouthern) = parseUtmZone(zoneRaw)
+        val adjustedNorthing = if (isSouthern) northing - 10000000.0 else northing
+        return utmToLatLon(easting, adjustedNorthing, zone)
+    }
+
+    fun ddmToDecimal(degrees: Double, minutes: Double, isNegative: Boolean = false): Double {
+        val absVal = kotlin.math.abs(degrees) + kotlin.math.abs(minutes) / 60.0
+        val sign = if (isNegative || degrees < 0) -1.0 else 1.0
+        return sign * absVal
+    }
+
+    fun decimalToDdm(decimal: Double): Triple<Int, Double, Boolean> {
+        val isPositive = decimal >= 0.0
+        val absVal = kotlin.math.abs(decimal)
+        val deg = absVal.toInt()
+        val mins = (absVal - deg) * 60.0
+        return Triple(deg, mins, isPositive)
+    }
+
+    fun computeBoundsCenterAndZoom(points: List<LatLon>): Pair<LatLon, Int> {
+        if (points.isEmpty()) return LatLon(40.6782, 46.3606) to 14
+        if (points.size == 1) return points.first() to 17
+        val minLat = points.minOf { it.lat }
+        val maxLat = points.maxOf { it.lat }
+        val minLon = points.minOf { it.lon }
+        val maxLon = points.maxOf { it.lon }
+        val center = LatLon((minLat + maxLat) / 2.0, (minLon + maxLon) / 2.0)
+        val span = max(maxLat - minLat, maxLon - minLon)
+        val zoom = when {
+            span <= 0.0015 -> 18
+            span <= 0.004 -> 17
+            span <= 0.009 -> 16
+            span <= 0.02 -> 15
+            span <= 0.05 -> 14
+            span <= 0.12 -> 13
+            span <= 0.3 -> 12
+            span <= 0.8 -> 11
+            else -> 10
+        }
+        return center to zoom
+    }
+
     // Web Mercator projection helpers for slippy map tiles (256px tiles)
     fun latLonToWorldPx(lat: Double, lon: Double, zoom: Int): Pair<Double, Double> {
         val scale = (1 shl zoom) * 256.0

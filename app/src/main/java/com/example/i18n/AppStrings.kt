@@ -167,6 +167,28 @@ interface AppStrings {
     val noFieldsEmpty: String
     val btnViewOnMap: String
     val fieldSavedToast: String
+    val btnCoordinatesModal: String
+    val btnKmzOpen: String
+    val btnKmzShare: String
+    val btnKmzSave: String
+    val btnFitBounds: String
+    val coordsModalTitle: String
+    val coordDdmOption: String
+    val coordUtmZoneInputLabel: String
+    val coordUtmEastingLabel: String
+    val coordUtmNorthingLabel: String
+    val coordDecimalOption: String
+    val coordDoneBtn: String
+    val coordAddCornerBtn: String
+    val coordFillGpsBtn: String
+    val coordBatchToggleBtn: String
+    val coordInvalidError: String
+    val kmzViewerTitle: String
+    val kmzLoadToEditorBtn: String
+    val kmzSaveFieldBtn: String
+    val kmzParseError: String
+    val kmzNeedPointsError: String
+    val kmzSavedSuccess: String
 
     // NPK Calculator
     val npkTitle: String
@@ -197,7 +219,7 @@ interface AppStrings {
     val npkDefaultPName: String
     val npkDefaultKName: String
 
-    // Weather Screen
+    // Weather Screen & Historical Climate
     val weatherTitle: String
     val weatherCoordsTitle: String
     val latLabel: String
@@ -217,6 +239,64 @@ interface AppStrings {
     val weatherError: String
     val weatherSprayGood: String
     val weatherSprayAvoid: String
+    val weatherTabForecast: String
+    val weatherTabClimateHistory: String
+    val climateLocationTitle: String
+    val climateMyFieldsLabel: String
+    val climateRegionsLabel: String
+    val climateRangeLabel: String
+    val climatePreset3m: String
+    val climatePreset6m: String
+    val climatePreset1y: String
+    val climatePreset2y: String
+    val climatePreset5y: String
+    val climatePreset10y: String
+    val climateStartDateLabel: String
+    val climateEndDateLabel: String
+    val climateLoadBtn: String
+    val climateInvalidRangeError: String
+    val climateAvgTempLabel: String
+    val climateTotalPrecipLabel: String
+    val climateEt0Label: String
+    val climateExtremeDaysLabel: String
+    val climateDownloadCsvBtn: String
+    val climateShareCsvBtn: String
+    val climateMonthlyTitle: String
+    val climateSavedCsvSuccess: String
+    val climateEmptyPrompt: String
+    val climateMapTitle: String
+    val climateMapSub: String
+    val climateLayerTemp: String
+    val climateLayerPrecipHumidity: String
+    val climateLayerWind: String
+    val climateLayerSolarCloud: String
+    val climateLayerPressureEt0: String
+    val climateTimelineMonthly: String
+    val climateTimelineYearly: String
+    val climateBaselineDeltaLabel: String
+    val climateSectionTemp: String
+    val climateSectionPrecipHumidity: String
+    val climateSectionWind: String
+    val climateSectionSolarCloud: String
+    val climateSectionPressureEt0: String
+    val climateSectionExtremes: String
+    val climateTrendDeltaLabel: String
+    val climateHumidityAvgLabel: String
+    val climateRainSnowLabel: String
+    val climateMaxDailyRainLabel: String
+    val climateWindAvgGustLabel: String
+    val climateWindDirLabel: String
+    val climateSolarAvgLabel: String
+    val climateSunshineCloudLabel: String
+    val climatePressureAvgLabel: String
+    val climatePressureRangeLabel: String
+    val climateWaterBalanceLabel: String
+    val climateExtremeFrostLabel: String
+    val climateExtremeHeatLabel: String
+    val climateExtremeRainLabel: String
+    val climateExtremeWindLabel: String
+    val climateExtremeStormLabel: String
+    val climateNoExtremesLabel: String
 
     // AI Agronomist & Plant Scanner
     val aiTitle: String
