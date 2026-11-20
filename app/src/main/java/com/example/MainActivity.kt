@@ -1,9 +1,16 @@
 package com.example
 
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -51,6 +58,7 @@ import com.example.notifications.EquipmentReminderManager
 import com.example.ui.auth.authStateFlow
 import com.example.ui.components.AqroBottomBar
 import com.example.ui.components.AqroTopHeader
+import com.example.ui.components.NotificationsDialog
 import com.example.ui.components.formatNumber
 import com.example.ui.navigation.NavRoutes
 import com.example.ui.screens.AdminScreen
@@ -122,6 +130,9 @@ fun AqroRootApp(
     }
 
     val context = LocalContext.current
+    val preferencesStore = remember(context) { PreferencesStore(context.applicationContext) }
+    StartupPermissionsEffect(preferencesStore = preferencesStore)
+
     var isFirebaseReady by remember(context, authOverride, firebaseReadyOverride) {
         mutableStateOf(
             firebaseReadyOverride ?: (authOverride != null || ensureFirebaseInitialized(context))
@@ -169,6 +180,7 @@ fun AqroRootApp(
                         AuthenticatedMainApp(
                             currentUserId = user.uid,
                             userEmail = user.email,
+                            userDisplayName = user.displayName,
                             language = language,
                             themePreference = themePref,
                             onSelectLanguage = settingsViewModel::setLanguage,
@@ -189,6 +201,7 @@ fun AqroRootApp(
 private fun AuthenticatedMainApp(
     currentUserId: String,
     userEmail: String?,
+    userDisplayName: String?,
     language: AppLanguage,
     themePreference: ThemePreference,
     onSelectLanguage: (AppLanguage) -> Unit,
@@ -228,6 +241,7 @@ private fun AuthenticatedMainApp(
     val customLinks by viewModel.customLinks.collectAsStateWithLifecycle()
     val adminEntries by viewModel.adminEntries.collectAsStateWithLifecycle()
     val weatherState by viewModel.weatherState.collectAsStateWithLifecycle()
+    val weatherHazards by viewModel.weatherHazards.collectAsStateWithLifecycle()
     val climateHistoryState by viewModel.climateHistoryState.collectAsStateWithLifecycle()
 
     val mapPoints by viewModel.mapPoints.collectAsStateWithLifecycle()
@@ -247,6 +261,7 @@ private fun AuthenticatedMainApp(
     val scannerError by viewModel.scannerError.collectAsStateWithLifecycle()
     val equipmentReminderDays by viewModel.equipmentReminderDays.collectAsStateWithLifecycle()
     val strings = LocalStrings.current
+    var showNotificationsDialog by remember { mutableStateOf(false) }
 
     val equipmentAlerts = remember(equipment, equipmentReminderDays) {
         viewModel.getEquipmentAlerts(equipment, equipmentReminderDays)
@@ -256,6 +271,13 @@ private fun AuthenticatedMainApp(
             context = context,
             items = equipment,
             warningDays = equipmentReminderDays,
+            strings = strings,
+        )
+    }
+    LaunchedEffect(weatherHazards, language) {
+        EquipmentReminderManager.syncWeatherHazards(
+            context = context,
+            alerts = weatherHazards,
             strings = strings,
         )
     }
@@ -280,13 +302,32 @@ private fun AuthenticatedMainApp(
         ?.trim()
         ?.split(Regex("\\s+"))
         ?.firstOrNull()
-        .orEmpty()
+        ?.takeIf { it.isNotBlank() }
+        ?: userDisplayName
+            ?.trim()
+            ?.split(Regex("\\s+"))
+            ?.firstOrNull()
+            .orEmpty()
+
+    val regionLabel = profile?.place?.trim()?.takeIf { it.isNotBlank() }
+        ?: fields.firstOrNull()?.location?.trim()?.takeIf { it.isNotBlank() }
+        ?: ""
 
     val weatherTempPill = weatherState.response?.current?.let {
         "${formatNumber(it.temperature2m, 0)}°C"
     }
 
-    val hasAlertDot = weatherState.hasAnyHazard || equipmentAlerts.isNotEmpty()
+    val alertCount = weatherHazards.size + equipmentAlerts.size
+    val hasAlertDot = weatherHazards.isNotEmpty() || weatherState.hasAnyHazard || equipmentAlerts.isNotEmpty()
+
+    NotificationsDialog(
+        visible = showNotificationsDialog,
+        weatherHazards = weatherHazards,
+        equipmentAlerts = equipmentAlerts,
+        onOpenWeather = { navigateTo(NavRoutes.WEATHER) },
+        onOpenEquipment = { navigateTo(NavRoutes.EQUIPMENT) },
+        onDismiss = { showNotificationsDialog = false },
+    )
 
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -299,10 +340,9 @@ private fun AuthenticatedMainApp(
                 isDark = extraColors.isDark,
                 onWeatherClick = { navigateTo(NavRoutes.WEATHER) },
                 onThemeToggle = { onToggleDark(extraColors.isDark) },
-                onNotificationsClick = {
-                    val dest = if (weatherState.hasAnyHazard) NavRoutes.WEATHER else NavRoutes.EQUIPMENT
-                    navigateTo(dest)
-                },
+                onNotificationsClick = { showNotificationsDialog = true },
+                weatherRegionName = regionLabel,
+                alertCount = alertCount,
             )
         },
         bottomBar = {
@@ -339,6 +379,8 @@ private fun AuthenticatedMainApp(
                         hiddenModules = hiddenModules,
                         onToggleModuleVisible = onToggleModuleVisible,
                         onResetModules = onResetModules,
+                        farmerFirstName = firstName,
+                        weatherHazards = weatherHazards,
                     )
                 }
 
@@ -410,6 +452,14 @@ private fun AuthenticatedMainApp(
                         onSelectBitmap = viewModel::setScannerBitmap,
                         onStartDiagnosis = viewModel::analyzePlantPhoto,
                         onBack = { navController.popBackStack() },
+                        onSaveCameraPhotoToGallery = { tempFile, cropName ->
+                            localRecordsStore.saveScannerFileToGallery(
+                                tempFile = tempFile,
+                                cropHint = cropName,
+                                language = language,
+                            )
+                        },
+                        onRenameGalleryPhoto = localRecordsStore::renamePhoto,
                     )
                 }
 
@@ -552,3 +602,39 @@ private fun AuthenticatedMainApp(
         }
     }
 }
+
+fun collectMissingStartupPermissions(context: Context): List<String> {
+    val candidates = buildList {
+        add(Manifest.permission.ACCESS_FINE_LOCATION)
+        add(Manifest.permission.ACCESS_COARSE_LOCATION)
+        add(Manifest.permission.CAMERA)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+    return candidates.filter { perm ->
+        ContextCompat.checkSelfPermission(context, perm) != PackageManager.PERMISSION_GRANTED
+    }
+}
+
+@Composable
+private fun StartupPermissionsEffect(preferencesStore: PreferencesStore) {
+    val context = LocalContext.current
+    val prompted by preferencesStore.initialPermissionsPromptedFlow.collectAsStateWithLifecycle(initialValue = null)
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions(),
+    ) { }
+
+    LaunchedEffect(prompted) {
+        if (prompted == false) {
+            preferencesStore.markInitialPermissionsPrompted()
+            val missing = collectMissingStartupPermissions(context)
+            if (missing.isNotEmpty()) {
+                runCatching {
+                    launcher.launch(missing.toTypedArray())
+                }
+            }
+        }
+    }
+}
+

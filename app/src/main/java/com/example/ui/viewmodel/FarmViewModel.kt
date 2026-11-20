@@ -45,6 +45,16 @@ import java.util.Calendar
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
+import com.example.data.ai.ReferenceImageMatcher
+import com.example.domain.WeatherHazardAlert
+import com.example.domain.WeatherHazardMonitor
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.withTimeoutOrNull
+import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.abs
+
 data class WeatherUiState(
     val isLoading: Boolean = false,
     val response: OpenMeteoResponse? = null,
@@ -53,20 +63,30 @@ data class WeatherUiState(
     val lon: Double = 46.3606,
 ) {
     val hasFrostRisk: Boolean
-        get() = response?.daily?.tempMin?.take(3)?.any { it <= 2.0 } == true
+        get() = response?.daily?.tempMin?.take(7)?.any { it <= 2.0 } == true
+
+    val hasHeatRisk: Boolean
+        get() = response?.daily?.tempMax?.take(7)?.any { it >= 35.0 } == true
 
     val hasHighWind: Boolean
         get() {
             val currentWind = response?.current?.windSpeed10m ?: 0.0
-            val maxDaily = response?.daily?.windMax?.take(2)?.maxOrNull() ?: 0.0
-            return currentWind > 35.0 || maxDaily > 38.0
+            val maxDaily = response?.daily?.windMax?.take(7)?.maxOrNull() ?: 0.0
+            return currentWind >= 35.0 || maxDaily >= 35.0
         }
 
     val hasHeavyRain: Boolean
-        get() = (response?.daily?.precipitationSum?.take(3)?.sum() ?: 0.0) > 15.0
+        get() {
+            val dailyPrecip = response?.daily?.precipitationSum?.take(7).orEmpty()
+            if (dailyPrecip.any { it >= 15.0 }) return true
+            for (i in 0 until dailyPrecip.size - 1) {
+                if (dailyPrecip[i] + dailyPrecip[i + 1] >= 25.0) return true
+            }
+            return false
+        }
 
     val hasAnyHazard: Boolean
-        get() = hasFrostRisk || hasHighWind || hasHeavyRain
+        get() = hasFrostRisk || hasHeatRisk || hasHighWind || hasHeavyRain
 }
 
 data class ClimateHistoryUiState(
@@ -229,6 +249,10 @@ class FarmViewModel(
     val scannerError: StateFlow<String?> = _scannerError.asStateFlow()
     private var scannerJob: Job? = null
 
+    private val _weatherHazards = MutableStateFlow<List<WeatherHazardAlert>>(emptyList())
+    val weatherHazards: StateFlow<List<WeatherHazardAlert>> = _weatherHazards.asStateFlow()
+    private val hazardForecastCache = ConcurrentHashMap<String, Pair<Long, OpenMeteoResponse>>()
+
     init {
         viewModelScope.launch {
             preferencesStore.coordinatesFlow.collect { (lat, lon) ->
@@ -238,6 +262,58 @@ class FarmViewModel(
                 }
             }
         }
+        viewModelScope.launch {
+            combine(fields, profile, _weatherState) { currentFields, currentProfile, currentWeather ->
+                Triple(currentFields, currentProfile, currentWeather)
+            }.collectLatest { (currentFields, currentProfile, currentWeather) ->
+                delay(350L)
+                refreshSevenDayHazards(currentFields, currentProfile, currentWeather)
+            }
+        }
+    }
+
+    private suspend fun refreshSevenDayHazards(
+        currentFields: List<FarmField>,
+        currentProfile: FarmerProfile?,
+        currentWeather: WeatherUiState,
+    ) {
+        val locations = WeatherHazardMonitor.collectMonitoredLocations(
+            fields = currentFields,
+            userLat = currentWeather.lat,
+            userLon = currentWeather.lon,
+            profilePlace = currentProfile?.place,
+        )
+        if (locations.isEmpty()) {
+            _weatherHazards.value = emptyList()
+            return
+        }
+        val now = System.currentTimeMillis()
+        val alerts = mutableListOf<WeatherHazardAlert>()
+        locations.forEach { loc ->
+            val activeMatches = currentWeather.response != null &&
+                abs(currentWeather.lat - loc.lat) < 0.08 &&
+                abs(currentWeather.lon - loc.lon) < 0.08
+            val cacheKey = String.format(Locale.US, "%.2f_%.2f", loc.lat, loc.lon)
+            val cached = hazardForecastCache[cacheKey]?.takeIf { now - it.first < TimeUnit.MINUTES.toMillis(30) }?.second
+            val forecast = when {
+                activeMatches -> currentWeather.response
+                cached != null -> cached
+                else -> try {
+                    val fetched = weatherService.getForecast(latitude = loc.lat, longitude = loc.lon)
+                    hazardForecastCache[cacheKey] = now to fetched
+                    fetched
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w(TAG, "7-day hazard forecast fetch failed for ${loc.label}", e)
+                    null
+                }
+            }
+            if (forecast != null) {
+                alerts += WeatherHazardMonitor.evaluateSevenDayHazards(loc, forecast)
+            }
+        }
+        _weatherHazards.value = alerts
     }
 
     fun clearFirestoreError() {
@@ -503,8 +579,24 @@ class FarmViewModel(
 
         scannerJob?.cancel()
         scannerJob = viewModelScope.launch {
+            val realSims = if (bmp != null) {
+                val preMatches = OfflineAgronomistAdvisor.matchThreatsWithVisualComparison(
+                    bitmap = bmp,
+                    note = trimmedNote,
+                    limit = 10,
+                )
+                withTimeoutOrNull(4500L) {
+                    ReferenceImageMatcher.fetchAndCompareRealPhotos(
+                        queryBitmap = bmp,
+                        candidates = preMatches.map { it.threat },
+                        maxCandidates = 10,
+                    )
+                }.orEmpty()
+            } else {
+                emptyMap()
+            }
             try {
-                aiRepository.analyzePlantPhotoStream(bmp, trimmedNote, language).collect { partial ->
+                aiRepository.analyzePlantPhotoStream(bmp, trimmedNote, language, realSims).collect { partial ->
                     _scannerResult.value = partial
                 }
             } catch (e: CancellationException) {
@@ -512,17 +604,12 @@ class FarmViewModel(
             } catch (e: Exception) {
                 Log.e(TAG, "Plant scanner error", e)
                 val errText = e.localizedMessage ?: "Analysis failed"
-                val querySeed = trimmedNote.ifBlank {
-                    when (language) {
-                        AppLanguage.AZ -> "bitki xəstəlik yarpaq ləkə"
-                        AppLanguage.EN -> "plant disease leaf spot"
-                        AppLanguage.RU -> "болезнь растений пятна листьев"
-                    }
-                }
-                _scannerResult.value = OfflineAgronomistAdvisor.answerOffline(
-                    question = querySeed,
+                _scannerResult.value = OfflineAgronomistAdvisor.diagnosePlantPhotoOffline(
+                    bitmap = bmp,
+                    note = trimmedNote,
                     language = language,
                     aiFailureNote = errText,
+                    realPhotoSimilarities = realSims,
                 )
                 if (isAppCheckTokenError(errText)) {
                     _scannerError.value = errText

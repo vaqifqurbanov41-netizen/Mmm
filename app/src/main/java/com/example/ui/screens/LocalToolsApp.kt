@@ -83,6 +83,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.example.data.ai.OfflineAgronomistAdvisor
+import com.example.data.ai.ReferenceImageMatcher
 import com.example.data.local.LocalRecordsStore
 import com.example.data.local.PreferencesStore
 import com.example.data.local.collectEquipmentAlerts
@@ -91,10 +92,17 @@ import com.example.data.remote.OpenMeteoService
 import com.example.i18n.AppLanguage
 import com.example.i18n.LocalStrings
 import com.example.notifications.EquipmentReminderManager
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.ui.unit.sp
 import com.example.ui.components.AqroCard
 import com.example.ui.components.AqroTopHeader
+import com.example.ui.components.BotanicalCornerBackdrop
+import com.example.ui.components.GreenCameraScannerNavButton
 import com.example.ui.components.KTN_TELEGRAM_BOT_URL
+import com.example.ui.components.ModuleIconMedallion
 import com.example.ui.components.ModuleVisibilityDialog
+import com.example.ui.components.NotificationsDialog
 import com.example.ui.components.formatNumber
 import com.example.ui.components.openExternalUrl
 import com.example.ui.navigation.NavRoutes
@@ -107,6 +115,7 @@ import com.example.ui.theme.PotassiumPlum
 import com.example.ui.theme.ThemePreference
 import com.example.ui.theme.WarningAmber
 import com.example.domain.ClimateHistoryUtils
+import com.example.domain.WeatherHazardMonitor
 import com.example.ui.viewmodel.ChatMessageUi
 import com.example.ui.viewmodel.ClimateHistoryUiState
 import com.example.ui.viewmodel.EquipmentAlert
@@ -115,6 +124,7 @@ import com.example.ui.viewmodel.WeatherUiState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 @Composable
 fun LocalToolsApp(
@@ -136,6 +146,10 @@ fun LocalToolsApp(
     val reminderDays by preferencesStore.equipmentReminderDaysFlow.collectAsStateWithLifecycle(initialValue = 7)
     val hiddenModules by preferencesStore.hiddenModulesFlow.collectAsStateWithLifecycle(initialValue = emptySet())
     var offlineChatMessages by remember { mutableStateOf<List<ChatMessageUi>>(emptyList()) }
+    var offlineScannerBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+    var offlineScannerResult by remember { mutableStateOf("") }
+    var isOfflineScannerLoading by remember { mutableStateOf(false) }
+    var showNotificationsDialog by remember { mutableStateOf(false) }
     val strings = LocalStrings.current
     val equipmentAlerts = remember(localEquipment, reminderDays) {
         collectEquipmentAlerts(localEquipment, reminderDays)
@@ -266,6 +280,39 @@ fun LocalToolsApp(
         "${formatNumber(it.temperature2m, 0)}°C"
     }
 
+    val localWeatherHazards = remember(weatherState.response, weatherState.lat, weatherState.lon, strings.notifSourceGps) {
+        val resp = weatherState.response ?: return@remember emptyList()
+        WeatherHazardMonitor.collectMonitoredLocations(
+            fields = emptyList(),
+            userLat = weatherState.lat,
+            userLon = weatherState.lon,
+            profilePlace = null,
+            gpsDisplayLabel = strings.notifSourceGps,
+        ).flatMap { loc ->
+            WeatherHazardMonitor.evaluateSevenDayHazards(loc, resp)
+        }
+    }
+
+    LaunchedEffect(localWeatherHazards, language) {
+        EquipmentReminderManager.syncWeatherHazards(
+            context = context,
+            alerts = localWeatherHazards,
+            strings = strings,
+        )
+    }
+
+    val alertCount = localWeatherHazards.size + equipmentAlerts.size
+    val hasAlertDot = localWeatherHazards.isNotEmpty() || weatherState.hasAnyHazard || equipmentAlerts.isNotEmpty()
+
+    NotificationsDialog(
+        visible = showNotificationsDialog,
+        weatherHazards = localWeatherHazards,
+        equipmentAlerts = equipmentAlerts,
+        onOpenWeather = { navigateTo(NavRoutes.WEATHER) },
+        onOpenEquipment = { navigateTo(NavRoutes.EQUIPMENT) },
+        onDismiss = { showNotificationsDialog = false },
+    )
+
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
@@ -273,14 +320,12 @@ fun LocalToolsApp(
                 farmerFirstName = "",
                 language = language,
                 weatherTempText = weatherTempPill,
-                hasAlertDot = weatherState.hasAnyHazard || equipmentAlerts.isNotEmpty(),
+                hasAlertDot = hasAlertDot,
                 isDark = extraColors.isDark,
                 onWeatherClick = { navigateTo(NavRoutes.WEATHER) },
                 onThemeToggle = { onToggleDark(extraColors.isDark) },
-                onNotificationsClick = {
-                    val dest = if (weatherState.hasAnyHazard) NavRoutes.WEATHER else NavRoutes.EQUIPMENT
-                    navigateTo(dest)
-                },
+                onNotificationsClick = { showNotificationsDialog = true },
+                alertCount = alertCount,
             )
         },
         bottomBar = {
@@ -330,6 +375,56 @@ fun LocalToolsApp(
                         onClearChat = { offlineChatMessages = emptyList() },
                         onBack = { navController.popBackStack() },
                         isOfflineOnly = true,
+                    )
+                }
+
+                composable(NavRoutes.SCANNER) {
+                    ScannerScreen(
+                        language = language,
+                        selectedBitmap = offlineScannerBitmap,
+                        diagnosisResult = offlineScannerResult,
+                        isLoading = isOfflineScannerLoading,
+                        errorMessage = null,
+                        onSelectBitmap = {
+                            offlineScannerBitmap = it
+                            offlineScannerResult = ""
+                        },
+                        onStartDiagnosis = { note, lang ->
+                            scope.launch {
+                                isOfflineScannerLoading = true
+                                try {
+                                    val bmp = offlineScannerBitmap
+                                    val realSims = if (bmp != null) {
+                                        withTimeoutOrNull(3500L) {
+                                            ReferenceImageMatcher.fetchAndCompareRealPhotos(
+                                                context = context,
+                                                queryBitmap = bmp,
+                                                note = note,
+                                            )
+                                        }.orEmpty()
+                                    } else {
+                                        emptyMap()
+                                    }
+                                    offlineScannerResult = OfflineAgronomistAdvisor.diagnosePlantPhotoOffline(
+                                        bitmap = bmp,
+                                        note = note,
+                                        language = lang,
+                                        realPhotoSimilarities = realSims,
+                                    )
+                                } finally {
+                                    isOfflineScannerLoading = false
+                                }
+                            }
+                        },
+                        onBack = { navController.popBackStack() },
+                        onSaveCameraPhotoToGallery = { tempFile, cropName ->
+                            localRecordsStore.saveScannerFileToGallery(
+                                tempFile = tempFile,
+                                cropHint = cropName,
+                                language = language,
+                            )
+                        },
+                        onRenameGalleryPhoto = localRecordsStore::renamePhoto,
                     )
                 }
 
@@ -517,329 +612,222 @@ private fun LocalToolsHomeScreen(
         onDismiss = { showCustomizeDialog = false },
     )
 
-    LazyColumn(
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.fillMaxSize().testTag("local_home_list"),
-    ) {
-        // Hero Card
-        item {
-            Card(
-                shape = RoundedCornerShape(24.dp),
-                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Brush.linearGradient(listOf(extra.heroStart, extra.heroEnd)))
-                        .padding(18.dp),
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(
-                            text = strings.heroTitle,
-                            style = MaterialTheme.typography.headlineSmall,
-                            color = Color.White,
-                            fontWeight = FontWeight.ExtraBold,
-                        )
-                        Text(
-                            text = strings.heroSubtitle,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Color.White.copy(alpha = 0.9f),
-                        )
-                    }
-                }
-            }
-        }
+    Box(modifier = Modifier.fillMaxSize()) {
+        BotanicalCornerBackdrop(modifier = Modifier.fillMaxSize())
 
-        // Offline AI Agronomist Card (powered by local crop-protection catalog)
-        item {
-            Card(
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(20.dp))
-                    .clickable { onNavigate(NavRoutes.CHAT) }
-                    .testTag("local_home_ai_banner"),
-            ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(extra.pale),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.AutoAwesome,
-                            contentDescription = strings.aiBannerTitle,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(26.dp),
-                        )
-                    }
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = strings.aiBannerTitle,
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Text(
-                            text = strings.aiBannerSub,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = extra.muted,
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Surface(
-                            shape = RoundedCornerShape(50),
-                            color = extra.pale,
-                        ) {
-                            Text(
-                                text = strings.aiOfflineBadge,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                            )
-                        }
-                    }
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                        contentDescription = strings.open,
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
-                }
-            }
-        }
-
-        // KTN ASI Telegram Bot Card
-        item {
-            val telegramBlue = Color(0xFF0088CC)
-            Card(
-                shape = RoundedCornerShape(18.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = BorderStroke(1.dp, telegramBlue.copy(alpha = 0.35f)),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(18.dp))
-                    .clickable { openExternalUrl(context, KTN_TELEGRAM_BOT_URL) }
-                    .testTag("local_home_telegram_bot_card"),
-            ) {
-                Row(
-                    modifier = Modifier.padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(telegramBlue.copy(alpha = 0.14f)),
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.Send,
-                            contentDescription = strings.telegramBotTitle,
-                            tint = telegramBlue,
-                            modifier = Modifier.size(22.dp),
-                        )
-                    }
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = strings.telegramBotTitle,
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Text(
-                            text = strings.telegramBotSub,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = extra.muted,
-                        )
-                    }
-                    Surface(
-                        shape = RoundedCornerShape(50),
-                        color = telegramBlue.copy(alpha = 0.12f),
-                    ) {
-                        Text(
-                            text = strings.telegramBotBtn,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = telegramBlue,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        )
-                    }
-                }
-            }
-        }
-
-        // Local Mode Info Banner with clean full-width text layout + Setup Action
-        item {
-            Card(
-                shape = RoundedCornerShape(18.dp),
-                colors = CardDefaults.cardColors(containerColor = extra.warningContainer),
-                border = BorderStroke(1.dp, WarningAmber.copy(alpha = 0.45f)),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.Top,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Info,
-                            contentDescription = null,
-                            tint = WarningAmber,
-                            modifier = Modifier.padding(top = 2.dp).size(22.dp),
-                        )
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = strings.localModeBannerTitle,
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = strings.localModeBannerSub,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = extra.muted,
-                            )
-                        }
-                    }
-                    Row(
-                        horizontalArrangement = Arrangement.End,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        TextButton(
-                            onClick = onOpenFirebaseSetup,
-                            modifier = Modifier.testTag("local_mode_setup_btn"),
-                        ) {
-                            Text(
-                                text = strings.localModeSetupAction,
-                                fontWeight = FontWeight.Bold,
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // Modules Header + Customize Visibility Button
-        item {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(
-                    text = strings.modulesSectionTitle,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground,
+        LazyColumn(
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.fillMaxSize().testTag("local_home_list"),
+        ) {
+            // Illustrated Hero Card
+            item {
+                HomeHeroBannerCard(
+                    greeting = "${strings.greetingPrefix}, ${strings.defaultFarmerName}!",
+                    subtitle = strings.heroSubtitle,
+                    fieldsLabel = strings.myFieldsStat,
+                    fieldsCount = "0",
+                    areaLabel = strings.totalAreaStat,
+                    areaValue = "0.00 ha",
+                    onFieldsClick = onOpenFirebaseSetup,
+                    showStats = false,
                 )
-                TextButton(
-                    onClick = { showCustomizeDialog = true },
-                    modifier = Modifier.testTag("customize_modules_btn"),
-                ) {
-                    Icon(Icons.Filled.Tune, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.size(4.dp))
-                    Text(strings.modulesCustomizeBtn, fontWeight = FontWeight.Bold)
-                }
             }
-        }
 
-        // Working Local Tool Tiles
-        item {
-            if (tiles.isEmpty()) {
-                AqroCard {
-                    Text(
-                        text = strings.modulesAllHiddenMsg,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = extra.muted,
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-                    OutlinedButton(
-                        onClick = onResetModules,
-                        modifier = Modifier.fillMaxWidth().testTag("show_all_modules_inline_btn"),
-                    ) {
-                        Text(strings.modulesShowAllBtn)
+            // Illustrated Offline AI Agronomist Card
+            item {
+                HomeAssistantBannerCard(
+                    title = strings.aiBannerTitle,
+                    badgeLabel = strings.aiOfflineBadge,
+                    subtitle = strings.aiBannerSub,
+                    actionLabel = strings.askNowBtn,
+                    tag = "local_home_ai_banner",
+                    onClick = { onNavigate(NavRoutes.CHAT) },
+                )
+            }
+
+            // KTN ASI Telegram Bot Card
+            item {
+                HomeTelegramBotCard(
+                    title = strings.telegramBotTitle,
+                    subtitle = strings.telegramBotSub,
+                    actionLabel = strings.telegramBotBtn,
+                    tag = "local_home_telegram_bot_card",
+                    onClick = { openExternalUrl(context, KTN_TELEGRAM_BOT_URL) },
+                )
+            }
+
+            // Local Mode Info Banner with clean full-width text layout + Setup Action
+            item {
+                Card(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = extra.warningContainer),
+                    border = BorderStroke(1.dp, WarningAmber.copy(alpha = 0.45f)),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.Top,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Info,
+                                contentDescription = null,
+                                tint = WarningAmber,
+                                modifier = Modifier.padding(top = 2.dp).size(22.dp),
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = strings.localModeBannerTitle,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = strings.localModeBannerSub,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = extra.muted,
+                                )
+                            }
+                        }
+                        Row(
+                            horizontalArrangement = Arrangement.End,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            TextButton(
+                                onClick = onOpenFirebaseSetup,
+                                modifier = Modifier.testTag("local_mode_setup_btn"),
+                            ) {
+                                Text(
+                                    text = strings.localModeSetupAction,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                        }
                     }
                 }
-            } else {
-                BoxWithConstraints(modifier = Modifier.fillMaxWidth().testTag("local_tiles_grid")) {
-                    val cols = if (maxWidth >= 600.dp) 3 else 2
-                    val rows = tiles.chunked(cols)
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        rows.forEach { rowItems ->
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                rowItems.forEach { tile ->
-                                    Card(
-                                        shape = RoundedCornerShape(18.dp),
-                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                        border = BorderStroke(1.dp, extra.line),
-                                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .height(114.dp)
-                                            .clip(RoundedCornerShape(18.dp))
-                                            .clickable { onNavigate(tile.route) }
-                                            .testTag(tile.tag),
-                                    ) {
-                                        Column(
-                                            horizontalAlignment = Alignment.CenterHorizontally,
-                                            verticalArrangement = Arrangement.Center,
+            }
+
+            // Modules Header + Customize Visibility Button
+            item {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text = strings.modulesSectionTitle,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground,
+                    )
+                    TextButton(
+                        onClick = { showCustomizeDialog = true },
+                        modifier = Modifier.testTag("customize_modules_btn"),
+                    ) {
+                        Icon(Icons.Filled.Tune, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.size(4.dp))
+                        Text(strings.modulesCustomizeBtn, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            // Working Local Tool Tiles
+            item {
+                if (tiles.isEmpty()) {
+                    AqroCard {
+                        Text(
+                            text = strings.modulesAllHiddenMsg,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = extra.muted,
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        OutlinedButton(
+                            onClick = onResetModules,
+                            modifier = Modifier.fillMaxWidth().testTag("show_all_modules_inline_btn"),
+                        ) {
+                            Text(strings.modulesShowAllBtn)
+                        }
+                    }
+                } else {
+                    BoxWithConstraints(modifier = Modifier.fillMaxWidth().testTag("local_tiles_grid")) {
+                        val cols = if (maxWidth >= 600.dp) 4 else 3
+                        val rows = tiles.chunked(cols)
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            rows.forEach { rowItems ->
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Max),
+                                ) {
+                                    rowItems.forEach { tile ->
+                                        Card(
+                                            shape = RoundedCornerShape(20.dp),
+                                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                            border = BorderStroke(1.dp, extra.line),
+                                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
                                             modifier = Modifier
-                                                .fillMaxSize()
-                                                .padding(horizontal = 8.dp, vertical = 10.dp),
+                                                .weight(1f)
+                                                .height(132.dp)
+                                                .clip(RoundedCornerShape(20.dp))
+                                                .clickable { onNavigate(tile.route) }
+                                                .testTag(tile.tag),
                                         ) {
-                                            Box(
-                                                contentAlignment = Alignment.Center,
+                                            Column(
+                                                verticalArrangement = Arrangement.SpaceBetween,
                                                 modifier = Modifier
-                                                    .size(40.dp)
-                                                    .clip(RoundedCornerShape(12.dp))
-                                                    .background(tile.accent.copy(alpha = 0.14f)),
+                                                    .fillMaxSize()
+                                                    .padding(horizontal = 10.dp, vertical = 10.dp),
                                             ) {
-                                                Icon(
-                                                    imageVector = tile.icon,
-                                                    contentDescription = tile.title,
-                                                    tint = tile.accent,
-                                                    modifier = Modifier.size(22.dp),
+                                                ModuleIconMedallion(
+                                                    route = tile.route,
+                                                    fallbackIcon = tile.icon,
+                                                    fallbackAccent = tile.accent,
+                                                    size = 46.dp,
                                                 )
+                                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                    ) {
+                                                        Text(
+                                                            text = tile.title,
+                                                            style = MaterialTheme.typography.labelLarge.copy(
+                                                                fontSize = 12.5.sp,
+                                                                lineHeight = 15.sp,
+                                                            ),
+                                                            color = MaterialTheme.colorScheme.onSurface,
+                                                            fontWeight = FontWeight.Bold,
+                                                            maxLines = 2,
+                                                            overflow = TextOverflow.Ellipsis,
+                                                            modifier = Modifier.weight(1f).padding(end = 2.dp),
+                                                        )
+                                                        Icon(
+                                                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                                            contentDescription = null,
+                                                            tint = extra.muted,
+                                                            modifier = Modifier.size(16.dp),
+                                                        )
+                                                    }
+                                                    Text(
+                                                        text = tile.subtitle,
+                                                        style = MaterialTheme.typography.labelSmall.copy(
+                                                            fontSize = 10.5.sp,
+                                                            lineHeight = 13.sp,
+                                                        ),
+                                                        color = extra.muted,
+                                                        maxLines = 2,
+                                                        overflow = TextOverflow.Ellipsis,
+                                                    )
+                                                }
                                             }
-                                            Spacer(modifier = Modifier.height(7.dp))
-                                            Text(
-                                                text = tile.title,
-                                                style = MaterialTheme.typography.labelLarge,
-                                                color = MaterialTheme.colorScheme.onSurface,
-                                                fontWeight = FontWeight.Bold,
-                                                textAlign = TextAlign.Center,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                            )
-                                            Text(
-                                                text = tile.subtitle,
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = extra.muted,
-                                                textAlign = TextAlign.Center,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                            )
                                         }
                                     }
-                                }
-                                repeat(cols - rowItems.size) {
-                                    Spacer(modifier = Modifier.weight(1f))
+                                    repeat(cols - rowItems.size) {
+                                        Spacer(modifier = Modifier.weight(1f))
+                                    }
                                 }
                             }
                         }
@@ -859,9 +847,10 @@ private fun LocalBottomBar(
     val extra = LocalAqroColors.current
 
     Surface(
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
         color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 3.dp,
-        shadowElevation = 8.dp,
+        tonalElevation = 4.dp,
+        shadowElevation = 10.dp,
         border = BorderStroke(1.dp, extra.line),
         modifier = Modifier.fillMaxWidth(),
     ) {
@@ -897,6 +886,13 @@ private fun LocalBottomBar(
                     currentRoute == NavRoutes.STATIONS,
                 tag = "local_nav_tools",
                 onClick = { onNavigate(NavRoutes.NPK) },
+                modifier = Modifier.weight(1f),
+            )
+            GreenCameraScannerNavButton(
+                selected = currentRoute == NavRoutes.SCANNER,
+                contentDesc = strings.navScanner,
+                tag = "local_nav_scanner",
+                onClick = { onNavigate(NavRoutes.SCANNER) },
                 modifier = Modifier.weight(1f),
             )
             LocalNavTab(

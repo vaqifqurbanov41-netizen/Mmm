@@ -1,6 +1,7 @@
 package com.example.data.local
 
 import android.content.Context
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
@@ -28,6 +29,7 @@ class PreferencesStore(private val context: Context) {
         val LAST_LON = doublePreferencesKey("last_lon")
         val EQUIPMENT_REMINDER_DAYS = intPreferencesKey("equipment_reminder_days")
         val HIDDEN_HOME_MODULES = stringSetPreferencesKey("hidden_home_modules")
+        val INITIAL_PERMISSIONS_PROMPTED = booleanPreferencesKey("initial_permissions_prompted")
     }
 
     val languageFlow: Flow<AppLanguage> = context.dataStore.data.map { prefs ->
@@ -50,6 +52,10 @@ class PreferencesStore(private val context: Context) {
 
     val hiddenModulesFlow: Flow<Set<String>> = context.dataStore.data.map { prefs ->
         prefs[Keys.HIDDEN_HOME_MODULES] ?: emptySet()
+    }
+
+    val initialPermissionsPromptedFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[Keys.INITIAL_PERMISSIONS_PROMPTED] ?: false
     }
 
     suspend fun setLanguage(language: AppLanguage) {
@@ -88,6 +94,12 @@ class PreferencesStore(private val context: Context) {
     suspend fun showAllModules() {
         context.dataStore.edit { prefs ->
             prefs.remove(Keys.HIDDEN_HOME_MODULES)
+        }
+    }
+
+    suspend fun markInitialPermissionsPrompted() {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.INITIAL_PERMISSIONS_PROMPTED] = true
         }
     }
 }

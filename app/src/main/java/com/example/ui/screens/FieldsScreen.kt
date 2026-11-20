@@ -91,12 +91,10 @@ import com.example.ui.components.FieldMapCanvas
 import com.example.ui.components.ScreenTopBar
 import com.example.ui.components.TabPillsRow
 import com.example.ui.components.formatNumber
+import com.example.ui.components.rememberGpsLocateAction
 import com.example.ui.theme.DangerRed
 import com.example.ui.theme.LocalAqroColors
 import com.example.ui.viewmodel.DocScanUiState
-import com.google.android.gms.location.LocationServices
-import com.google.android.gms.location.Priority
-import com.google.android.gms.tasks.CancellationTokenSource
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -171,70 +169,48 @@ fun FieldsScreen(
         }
     }
 
-    val performGpsLocate: (Boolean) -> Unit = { insertIntoCoordInput ->
-        isLocating = true
-        gpsStatusBanner = strings.btnLocating
-        fetchSingleGpsFix(
-            context = context,
-            onSuccess = { lat, lon, acc ->
-                isLocating = false
-                onUpdateGpsFix(lat, lon, acc)
-                val utm = GeoUtils.latLonToUtm(lat, lon)
-                gpsStatusBanner = String.format(
-                    language.locale,
-                    strings.gpsFoundFormat,
-                    acc.roundToInt(),
-                    formatNumber(lat, 6),
-                    formatNumber(lon, 6),
-                    utm.zone,
-                    utm.easting.roundToInt().toString(),
-                    utm.northing.roundToInt().toString(),
-                )
-                if (insertIntoCoordInput) {
-                    if (showBatchCoords) {
-                        if (useUtm) {
-                            utmZone = if (utm.zone == 39) 39 else 38
-                            val line = "${utm.easting.roundToInt()}, ${utm.northing.roundToInt()}"
-                            utmText = if (utmText.isBlank()) line else "${utmText.trim()}\n$line"
-                        } else {
-                            val line = "${formatNumber(lat, 6)}, ${formatNumber(lon, 6)}"
-                            latLonText = if (latLonText.isBlank()) line else "${latLonText.trim()}\n$line"
-                        }
-                    } else {
-                        onAddPoint(LatLon(lat, lon))
-                    }
-                }
-            },
-            onFailure = {
-                isLocating = false
-                gpsStatusBanner = strings.gpsUnavailable
-            },
-        )
-    }
-
     var pendingInsertGps by remember { mutableStateOf(false) }
-    val locationPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) {
-            performGpsLocate(pendingInsertGps)
-        } else {
-            gpsStatusBanner = strings.gpsPermissionDenied
-        }
-    }
+    val gpsLocateAction = rememberGpsLocateAction(
+        onFixSuccess = { lat, lon, acc ->
+            onUpdateGpsFix(lat, lon, acc)
+            val utm = GeoUtils.latLonToUtm(lat, lon)
+            gpsStatusBanner = String.format(
+                language.locale,
+                strings.gpsFoundFormat,
+                acc.roundToInt(),
+                formatNumber(lat, 6),
+                formatNumber(lon, 6),
+                utm.zone,
+                utm.easting.roundToInt().toString(),
+                utm.northing.roundToInt().toString(),
+            )
+            if (pendingInsertGps) {
+                if (showBatchCoords) {
+                    if (useUtm) {
+                        utmZone = if (utm.zone == 39) 39 else 38
+                        val line = "${utm.easting.roundToInt()}, ${utm.northing.roundToInt()}"
+                        utmText = if (utmText.isBlank()) line else "${utmText.trim()}\n$line"
+                    } else {
+                        val line = "${formatNumber(lat, 6)}, ${formatNumber(lon, 6)}"
+                        latLonText = if (latLonText.isBlank()) line else "${latLonText.trim()}\n$line"
+                    }
+                } else {
+                    onAddPoint(LatLon(lat, lon))
+                }
+            }
+        },
+        onStatusMessage = { msg -> gpsStatusBanner = msg },
+        onLoadingChange = { loading ->
+            isLocating = loading
+            if (loading) {
+                gpsStatusBanner = strings.btnLocating
+            }
+        },
+    )
 
     val triggerLocate: (Boolean) -> Unit = { insertToCoords ->
         pendingInsertGps = insertToCoords
-        val granted = ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.ACCESS_FINE_LOCATION,
-        ) == PackageManager.PERMISSION_GRANTED
-        if (granted) {
-            performGpsLocate(insertToCoords)
-        } else {
-            gpsStatusBanner = strings.gpsPermissionNeeded
-            locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-        }
+        gpsLocateAction()
     }
 
     val docPickerLauncher = rememberLauncherForActivityResult(
@@ -1102,22 +1078,11 @@ fun fetchSingleGpsFix(
     onSuccess: (Double, Double, Float) -> Unit,
     onFailure: () -> Unit,
 ) {
-    val client = LocationServices.getFusedLocationProviderClient(context)
-    val cts = CancellationTokenSource()
-    client.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, cts.token)
-        .addOnSuccessListener { loc ->
-            if (loc != null) {
-                onSuccess(loc.latitude, loc.longitude, loc.accuracy)
-            } else {
-                client.lastLocation
-                    .addOnSuccessListener { last ->
-                        if (last != null) onSuccess(last.latitude, last.longitude, last.accuracy)
-                        else onFailure()
-                    }
-                    .addOnFailureListener { onFailure() }
-            }
-        }
-        .addOnFailureListener { onFailure() }
+    com.example.ui.components.fetchRobustGpsFix(
+        context = context,
+        onSuccess = onSuccess,
+        onFailure = onFailure,
+    )
 }
 
 fun decodeUriToBitmap(context: Context, uri: Uri): Bitmap? = try {

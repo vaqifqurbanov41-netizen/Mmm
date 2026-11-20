@@ -65,6 +65,7 @@ import com.example.i18n.LocalStrings
 import com.example.ui.components.AqroCard
 import com.example.ui.components.DangerBannerBox
 import com.example.ui.components.formatNumber
+import com.example.ui.components.rememberGpsLocateAction
 import com.example.ui.theme.LocalAqroColors
 import com.example.ui.viewmodel.ClimateHistoryUiState
 import java.io.File
@@ -185,27 +186,21 @@ fun ClimateHistoryControlsCard(
     var selectedPresetMonths by remember { mutableIntStateOf(24) }
     var validationError by remember { mutableStateOf<String?>(null) }
 
-    val gpsLocate = {
-        fetchSingleGpsFix(
-            context = context,
-            onSuccess = { lat, lon, _ ->
-                latText = formatNumber(lat, 4)
-                lonText = formatNumber(lon, 4)
-                selectedFieldId = null
-                onSelectField(null)
-                selectedRegionId = ""
-                locationLabel = "GPS (${formatNumber(lat, 2)}, ${formatNumber(lon, 2)})"
-                validationError = null
-            },
-            onFailure = { validationError = strings.gpsUnavailable },
-        )
-    }
+    var gpsLoading by remember { mutableStateOf(false) }
 
-    val permLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) gpsLocate() else validationError = strings.gpsPermissionDenied
-    }
+    val triggerClimateGps = rememberGpsLocateAction(
+        onFixSuccess = { lat, lon, _ ->
+            latText = formatNumber(lat, 4)
+            lonText = formatNumber(lon, 4)
+            selectedFieldId = null
+            onSelectField(null)
+            selectedRegionId = ""
+            locationLabel = "GPS (${formatNumber(lat, 2)}, ${formatNumber(lon, 2)})"
+            validationError = null
+        },
+        onStatusMessage = { msg -> if (!msg.isNullOrBlank()) validationError = msg },
+        onLoadingChange = { loading -> gpsLoading = loading },
+    )
 
     AqroCard {
         Text(strings.climateLocationTitle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -345,16 +340,15 @@ fun ClimateHistoryControlsCard(
             modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
         ) {
             OutlinedButton(
-                onClick = {
-                    val granted = ContextCompat.checkSelfPermission(
-                        context,
-                        Manifest.permission.ACCESS_FINE_LOCATION,
-                    ) == PackageManager.PERMISSION_GRANTED
-                    if (granted) gpsLocate() else permLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-                },
+                onClick = triggerClimateGps,
+                enabled = !gpsLoading,
                 modifier = Modifier.weight(0.8f).fillMaxHeight().heightIn(min = 48.dp),
             ) {
-                Icon(Icons.Filled.MyLocation, contentDescription = null, modifier = Modifier.size(16.dp))
+                if (gpsLoading) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(Icons.Filled.MyLocation, contentDescription = null, modifier = Modifier.size(16.dp))
+                }
                 Spacer(modifier = Modifier.size(4.dp))
                 Text("GPS", maxLines = 1)
             }

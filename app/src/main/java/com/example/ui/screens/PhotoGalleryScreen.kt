@@ -29,6 +29,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Share
@@ -93,9 +94,10 @@ fun PhotoGalleryScreen(
 
     var pendingCaptureFile by remember { mutableStateOf<File?>(null) }
     var statusBanner by remember { mutableStateOf<String?>(null) }
+    var lastAutoSavedFileName by remember { mutableStateOf<String?>(null) }
     var permissionDeniedBanner by remember { mutableStateOf<String?>(null) }
-    var captionTargetFileName by remember { mutableStateOf<String?>(null) }
-    var captionDraft by remember { mutableStateOf("") }
+    var renameTargetFileName by remember { mutableStateOf<String?>(null) }
+    var renameDraft by remember { mutableStateOf("") }
     var selectedPhoto by remember { mutableStateOf<LocalGalleryPhoto?>(null) }
     var pendingDeletePhoto by remember { mutableStateOf<LocalGalleryPhoto?>(null) }
 
@@ -105,11 +107,11 @@ fun PhotoGalleryScreen(
         val file = pendingCaptureFile
         pendingCaptureFile = null
         if (file != null) {
-            if (success && store.finalizeCapturedPhoto(file)) {
-                statusBanner = strings.photoSavedMsg
+            val autoTitle = store.generateDefaultPhotoTitle(language = language, isScan = false)
+            if (success && store.finalizeCapturedPhoto(file, caption = autoTitle, language = language)) {
+                statusBanner = String.format(language.locale, strings.galleryAutoSavedFormat, autoTitle)
+                lastAutoSavedFileName = file.name
                 permissionDeniedBanner = null
-                captionTargetFileName = file.name
-                captionDraft = ""
             } else {
                 runCatching { if (file.exists()) file.delete() }
             }
@@ -142,11 +144,11 @@ fun PhotoGalleryScreen(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri ->
         if (uri != null) {
-            val saved = store.importPickedPhoto(uri)
+            val autoTitle = store.generateDefaultPhotoTitle(language = language, isScan = false)
+            val saved = store.importPickedPhoto(uri, caption = autoTitle, language = language)
             if (saved != null) {
-                statusBanner = strings.photoSavedMsg
-                captionTargetFileName = saved.fileName
-                captionDraft = ""
+                statusBanner = String.format(language.locale, strings.galleryAutoSavedFormat, saved.caption)
+                lastAutoSavedFileName = saved.fileName
             }
         }
     }
@@ -166,15 +168,15 @@ fun PhotoGalleryScreen(
         }
     }
 
-    if (captionTargetFileName != null) {
+    if (renameTargetFileName != null) {
         AlertDialog(
-            onDismissRequest = { captionTargetFileName = null },
-            title = { Text(strings.photoCaptionLabel, fontWeight = FontWeight.Bold) },
+            onDismissRequest = { renameTargetFileName = null },
+            title = { Text(strings.galleryRenameTitle, fontWeight = FontWeight.Bold) },
             text = {
                 OutlinedTextField(
-                    value = captionDraft,
-                    onValueChange = { captionDraft = it },
-                    label = { Text(strings.photoCaptionLabel) },
+                    value = renameDraft,
+                    onValueChange = { renameDraft = it },
+                    label = { Text(strings.photoNameLabel) },
                     placeholder = { Text(strings.photoCaptionHint) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth().testTag("photo_caption_input"),
@@ -183,10 +185,10 @@ fun PhotoGalleryScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        val fileName = captionTargetFileName
-                        captionTargetFileName = null
-                        if (fileName != null) {
-                            store.updatePhotoCaption(fileName, captionDraft)
+                        val fileName = renameTargetFileName
+                        renameTargetFileName = null
+                        if (fileName != null && store.renamePhoto(fileName, renameDraft)) {
+                            statusBanner = strings.photoNameRenamedMsg
                         }
                     },
                     modifier = Modifier.testTag("save_photo_caption_btn"),
@@ -195,7 +197,7 @@ fun PhotoGalleryScreen(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { captionTargetFileName = null }) {
+                TextButton(onClick = { renameTargetFileName = null }) {
                     Text(strings.cancel)
                 }
             },
@@ -273,15 +275,19 @@ fun PhotoGalleryScreen(
                         OutlinedTextField(
                             value = editCaption,
                             onValueChange = { editCaption = it },
-                            label = { Text(strings.photoCaptionLabel) },
+                            label = { Text(strings.photoNameLabel) },
                             placeholder = { Text(strings.photoCaptionHint) },
                             singleLine = true,
                             modifier = Modifier.weight(1f),
                         )
                         OutlinedButton(
-                            onClick = { store.updatePhotoCaption(current.fileName, editCaption) },
+                            onClick = {
+                                if (store.renamePhoto(current.fileName, editCaption)) {
+                                    statusBanner = strings.photoNameRenamedMsg
+                                }
+                            },
                         ) {
-                            Text(strings.save)
+                            Text(strings.galleryRenameBtn)
                         }
                     }
 
@@ -373,12 +379,33 @@ fun PhotoGalleryScreen(
                 }
                 if (statusBanner != null) {
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = statusBanner!!,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold,
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            text = statusBanner!!,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.weight(1f),
+                        )
+                        val targetFile = lastAutoSavedFileName
+                        if (targetFile != null) {
+                            val found = photos.firstOrNull { it.fileName == targetFile }
+                            if (found != null) {
+                                TextButton(
+                                    onClick = {
+                                        renameTargetFileName = found.fileName
+                                        renameDraft = found.caption
+                                    },
+                                ) {
+                                    Text(strings.galleryRenameBtn)
+                                }
+                            }
+                        }
+                    }
                 }
                 if (permissionDeniedBanner != null) {
                     Spacer(modifier = Modifier.height(8.dp))
@@ -409,6 +436,10 @@ fun PhotoGalleryScreen(
                                         photo = photo,
                                         language = language,
                                         onOpen = { selectedPhoto = photo },
+                                        onRename = {
+                                            renameTargetFileName = photo.fileName
+                                            renameDraft = photo.caption
+                                        },
                                         onShare = { sharePhoto(photo) },
                                         onDelete = { pendingDeletePhoto = photo },
                                         modifier = Modifier.weight(1f),
@@ -431,6 +462,7 @@ private fun GalleryPhotoTile(
     photo: LocalGalleryPhoto,
     language: AppLanguage,
     onOpen: () -> Unit,
+    onRename: () -> Unit,
     onShare: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
@@ -481,6 +513,17 @@ private fun GalleryPhotoTile(
                     horizontalArrangement = Arrangement.End,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
+                    IconButton(
+                        onClick = onRename,
+                        modifier = Modifier.size(36.dp).testTag("rename_photo_btn_${photo.fileName}"),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Edit,
+                            contentDescription = strings.galleryRenameBtn,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
                     IconButton(onClick = onShare, modifier = Modifier.size(36.dp)) {
                         Icon(
                             imageVector = Icons.Filled.Share,

@@ -29,6 +29,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Compare
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.LocalPharmacy
 import androidx.compose.material.icons.filled.Science
@@ -59,8 +60,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.example.data.ai.VisualThreatMatch
 import com.example.data.model.CropProtectionCatalog
 import com.example.data.model.CustomPesticide
+import com.example.data.model.DiseaseVisualCatalog
 import com.example.data.model.ThreatKind
 import com.example.i18n.AppLanguage
 import com.example.i18n.LocalStrings
@@ -68,7 +71,9 @@ import com.example.i18n.LocalizedPesticide
 import com.example.ui.components.AqroCard
 import com.example.ui.components.ConfirmDeleteDialog
 import com.example.ui.components.DangerBannerBox
+import com.example.ui.components.DiseasePhotoComparisonDialog
 import com.example.ui.components.EmptyStateMessage
+import com.example.ui.components.RealDiseasePhotoThumbnail
 import com.example.ui.components.ScreenTopBar
 import com.example.ui.components.TabPillsRow
 import com.example.ui.components.formatNumber
@@ -101,6 +106,7 @@ fun PesticideScreen(
     var selectedCropId by remember { mutableStateOf(CropProtectionCatalog.crops.first().id) }
     var threatFilterIndex by remember { mutableIntStateOf(0) } // 0=All, 1=Disease, 2=Pest
     var selectedThreatId by remember { mutableStateOf<String?>(CropProtectionCatalog.threatsForCrop("tomato").firstOrNull()?.id) }
+    var comparedThreatMatch by remember { mutableStateOf<VisualThreatMatch?>(null) }
 
     // Tab 1: Separate Preparation Search & Hectare Rate Check
     var prepQuery by remember { mutableStateOf("") }
@@ -183,6 +189,17 @@ fun PesticideScreen(
         },
         onDismiss = { pendingDelete = null },
     )
+
+    comparedThreatMatch?.let { match ->
+        DiseasePhotoComparisonDialog(
+            threat = match.threat,
+            profile = match.profile,
+            scannedBitmap = null,
+            similarityPct = null,
+            language = language,
+            onDismiss = { comparedThreatMatch = null },
+        )
+    }
 
     LazyColumn(
         state = listState,
@@ -350,6 +367,73 @@ fun PesticideScreen(
 
                             if (isSelected) {
                                 Spacer(modifier = Modifier.height(10.dp))
+                                val visualProfile = DiseaseVisualCatalog.profileFor(threat.id)
+                                if (visualProfile != null) {
+                                    Surface(
+                                        shape = RoundedCornerShape(14.dp),
+                                        color = MaterialTheme.colorScheme.surface,
+                                        border = BorderStroke(1.dp, extra.line),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(14.dp))
+                                            .clickable {
+                                                comparedThreatMatch = VisualThreatMatch(
+                                                    threat = threat,
+                                                    profile = visualProfile,
+                                                    similarityPct = 100,
+                                                )
+                                            }
+                                            .testTag("pest_real_photo_preview_${threat.id}"),
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                            modifier = Modifier.padding(8.dp),
+                                        ) {
+                                            RealDiseasePhotoThumbnail(
+                                                imageUrl = DiseaseVisualCatalog.resizedUrl(visualProfile.referenceImageUrl, 360),
+                                                contentDescription = threat.name.get(language),
+                                                size = 76.dp,
+                                            )
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = "${DiseaseVisualCatalog.patternLabel(visualProfile.patternType, language)} • ${visualProfile.plantPart.get(language)}",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.primary,
+                                                    fontWeight = FontWeight.Bold,
+                                                )
+                                                Spacer(modifier = Modifier.height(2.dp))
+                                                Text(
+                                                    text = visualProfile.visualCue.get(language),
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    maxLines = 2,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                )
+                                                Spacer(modifier = Modifier.height(3.dp))
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Filled.Compare,
+                                                        contentDescription = null,
+                                                        tint = MaterialTheme.colorScheme.primary,
+                                                        modifier = Modifier.size(13.dp),
+                                                    )
+                                                    Text(
+                                                        text = "${strings.scannerRealPhotoCompareBtn} • ${visualProfile.imageAttribution}",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.primary,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis,
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                }
+
                                 Text(
                                     text = strings.pestSymptomsLabel,
                                     style = MaterialTheme.typography.labelMedium,

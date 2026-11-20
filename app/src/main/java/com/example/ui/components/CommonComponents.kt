@@ -35,16 +35,20 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -64,12 +68,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.domain.WeatherHazardAlert
 import com.example.i18n.AppLanguage
 import com.example.i18n.LocalStrings
+import com.example.notifications.EquipmentReminderManager
 import com.example.ui.navigation.NavRoutes
 import com.example.ui.theme.DangerBorder
 import com.example.ui.theme.DangerRed
 import com.example.ui.theme.LocalAqroColors
+import com.example.ui.theme.WarningAmber
+import com.example.ui.viewmodel.EquipmentAlert
+import com.example.ui.viewmodel.EquipmentStatus
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -107,22 +116,15 @@ fun AqroTopHeader(
     onWeatherClick: () -> Unit,
     onThemeToggle: () -> Unit,
     onNotificationsClick: () -> Unit,
+    weatherRegionName: String = "",
+    alertCount: Int = if (hasAlertDot) 1 else 0,
 ) {
     val strings = LocalStrings.current
     val extra = LocalAqroColors.current
-    val dateText = remember(language) {
-        SimpleDateFormat("d MMMM", language.locale).format(Date())
-    }
-    val greeting = if (farmerFirstName.isNotBlank()) {
-        "${strings.greetingPrefix}, $farmerFirstName!"
-    } else {
-        "${strings.greetingPrefix}, ${strings.defaultFarmerName}!"
-    }
+    val regionLabel = weatherRegionName.trim()
 
     Surface(
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 1.dp,
-        shadowElevation = 2.dp,
+        color = MaterialTheme.colorScheme.background,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
@@ -132,28 +134,39 @@ fun AqroTopHeader(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = dateText.uppercase(language.locale),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = extra.muted,
-                )
-                Text(
-                    text = greeting,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.weight(1f).padding(end = 6.dp),
+            ) {
+                AqroLauncherIconEmblem(size = 40.dp)
+                Column {
+                    Text(
+                        text = strings.appName,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = strings.brandTagline,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = extra.muted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
 
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Surface(
                     shape = RoundedCornerShape(50),
-                    color = extra.pale,
+                    color = MaterialTheme.colorScheme.surface,
+                    shadowElevation = 2.dp,
                     border = BorderStroke(1.dp, extra.line),
                     modifier = Modifier
                         .minimumInteractiveComponentSize()
@@ -162,67 +175,111 @@ fun AqroTopHeader(
                         .testTag("header_weather_pill"),
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                        modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         Icon(
                             imageVector = Icons.Filled.WbSunny,
                             contentDescription = strings.tileWeatherTitle,
-                            tint = MaterialTheme.colorScheme.tertiary,
-                            modifier = Modifier.size(16.dp),
+                            tint = Color(0xFFF5A623),
+                            modifier = Modifier.size(18.dp),
                         )
-                        Text(
-                            text = weatherTempText ?: "--°C",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
+                        Column {
+                            Text(
+                                text = weatherTempText ?: "--°C",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                            )
+                            if (regionLabel.isNotBlank()) {
+                                Text(
+                                    text = regionLabel,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                    color = extra.muted,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
                     }
                 }
 
-                IconButton(
-                    onClick = onThemeToggle,
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(extra.pale)
-                        .testTag("theme_toggle_button"),
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surface,
+                    shadowElevation = 2.dp,
+                    border = BorderStroke(1.dp, extra.line),
+                    modifier = Modifier.size(40.dp),
                 ) {
-                    Icon(
-                        imageVector = if (isDark) Icons.Filled.LightMode else Icons.Filled.DarkMode,
-                        contentDescription = if (isDark) strings.themeToggleLight else strings.themeToggleDark,
-                        tint = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-
-                Box {
                     IconButton(
-                        onClick = onNotificationsClick,
+                        onClick = onThemeToggle,
                         modifier = Modifier
-                            .size(44.dp)
+                            .size(40.dp)
                             .clip(CircleShape)
-                            .background(extra.pale)
-                            .testTag("notifications_button"),
+                            .testTag("theme_toggle_button"),
                     ) {
                         Icon(
-                            imageVector = Icons.Filled.Notifications,
-                            contentDescription = strings.notificationsTitle,
+                            imageVector = if (isDark) Icons.Filled.LightMode else Icons.Filled.DarkMode,
+                            contentDescription = if (isDark) strings.themeToggleLight else strings.themeToggleDark,
                             tint = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.size(20.dp),
+                            modifier = Modifier.size(18.dp),
                         )
                     }
-                    if (hasAlertDot) {
+                }
+
+                val hasAnyNotif = hasAlertDot || alertCount > 0
+                Box {
+                    Surface(
+                        shape = CircleShape,
+                        color = if (hasAnyNotif) extra.dangerContainer else MaterialTheme.colorScheme.surface,
+                        shadowElevation = 2.dp,
+                        border = BorderStroke(if (hasAnyNotif) 1.5.dp else 1.dp, if (hasAnyNotif) DangerBorder else extra.line),
+                        modifier = Modifier.size(40.dp),
+                    ) {
+                        IconButton(
+                            onClick = onNotificationsClick,
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .testTag("notifications_button"),
+                        ) {
+                            Icon(
+                                imageVector = if (hasAnyNotif) Icons.Filled.NotificationsActive else Icons.Filled.Notifications,
+                                contentDescription = strings.notificationsTitle,
+                                tint = if (hasAnyNotif) DangerRed else MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(19.dp),
+                            )
+                        }
+                    }
+                    if (hasAnyNotif) {
+                        val badgeLabel = when {
+                            alertCount > 9 -> "9+"
+                            alertCount > 0 -> alertCount.toString()
+                            else -> ""
+                        }
                         Box(
+                            contentAlignment = Alignment.Center,
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
-                                .offset(x = (-6).dp, y = 6.dp)
-                                .size(9.dp)
+                                .offset(x = 1.dp, y = (-1).dp)
+                                .heightIn(min = if (badgeLabel.isEmpty()) 10.dp else 16.dp)
                                 .clip(CircleShape)
                                 .background(DangerRed)
-                                .border(1.5.dp, MaterialTheme.colorScheme.surface, CircleShape),
-                        )
+                                .border(1.5.dp, MaterialTheme.colorScheme.surface, CircleShape)
+                                .padding(horizontal = if (badgeLabel.isEmpty()) 5.dp else 4.dp)
+                                .testTag("notifications_active_indicator"),
+                        ) {
+                            if (badgeLabel.isNotEmpty()) {
+                                Text(
+                                    text = badgeLabel,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                    color = Color.White,
+                                    fontWeight = FontWeight.ExtraBold,
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -239,9 +296,10 @@ fun AqroBottomBar(
     val extra = LocalAqroColors.current
 
     Surface(
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
         color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 3.dp,
-        shadowElevation = 8.dp,
+        tonalElevation = 4.dp,
+        shadowElevation = 10.dp,
         border = BorderStroke(1.dp, extra.line),
         modifier = Modifier.fillMaxWidth(),
     ) {
@@ -284,48 +342,13 @@ fun AqroBottomBar(
                 modifier = Modifier.weight(1f),
             )
 
-            // Elevated Center Plant Scanner Button
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier
-                    .weight(1f)
-                    .minimumInteractiveComponentSize()
-                    .clickable { onNavigate(NavRoutes.SCANNER) }
-                    .testTag("nav_scanner"),
-            ) {
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .offset(y = (-8).dp)
-                        .size(48.dp)
-                        .shadow(6.dp, CircleShape)
-                        .clip(CircleShape)
-                        .background(
-                            Brush.linearGradient(
-                                listOf(extra.heroStart, extra.heroEnd)
-                            )
-                        )
-                        .border(2.5.dp, MaterialTheme.colorScheme.surface, CircleShape),
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.CenterFocusStrong,
-                        contentDescription = strings.navScanner,
-                        tint = Color.White,
-                        modifier = Modifier.size(22.dp),
-                    )
-                }
-                Text(
-                    text = strings.navScanner,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (currentRoute == NavRoutes.SCANNER) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        extra.muted
-                    },
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                )
-            }
+            GreenCameraScannerNavButton(
+                selected = currentRoute == NavRoutes.SCANNER,
+                contentDesc = strings.navScanner,
+                tag = "nav_scanner",
+                onClick = { onNavigate(NavRoutes.SCANNER) },
+                modifier = Modifier.weight(1f),
+            )
 
             BottomNavItem(
                 icon = Icons.Filled.Map,
@@ -342,6 +365,53 @@ fun AqroBottomBar(
                 tag = "nav_profile",
                 onClick = { onNavigate(NavRoutes.PROFILE) },
                 modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+@Composable
+fun GreenCameraScannerNavButton(
+    selected: Boolean,
+    contentDesc: String,
+    tag: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier
+            .minimumInteractiveComponentSize()
+            .clickable(onClick = onClick)
+            .testTag(tag),
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .offset(y = (-6).dp)
+                .size(54.dp)
+                .shadow(if (selected) 12.dp else 8.dp, CircleShape)
+                .clip(CircleShape)
+                .background(
+                    Brush.linearGradient(
+                        if (selected) {
+                            listOf(Color(0xFF0D4421), Color(0xFF218042))
+                        } else {
+                            listOf(Color(0xFF114C27), Color(0xFF288E4D))
+                        }
+                    )
+                )
+                .border(
+                    width = if (selected) 3.dp else 2.5.dp,
+                    color = if (selected) Color(0xFFA7F3D0) else MaterialTheme.colorScheme.surface,
+                    shape = CircleShape,
+                ),
+        ) {
+            Icon(
+                imageVector = Icons.Filled.PhotoCamera,
+                contentDescription = contentDesc,
+                tint = Color.White,
+                modifier = Modifier.size(26.dp),
             )
         }
     }
@@ -383,6 +453,14 @@ private fun BottomNavItem(
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+        )
+        Spacer(modifier = Modifier.height(2.dp))
+        Box(
+            modifier = Modifier
+                .width(if (selected) 20.dp else 0.dp)
+                .height(2.5.dp)
+                .clip(RoundedCornerShape(50))
+                .background(if (selected) MaterialTheme.colorScheme.primary else Color.Transparent),
         )
     }
 }
@@ -734,6 +812,206 @@ fun ModuleVisibilityDialog(
                 Text(strings.modulesShowAllBtn)
             }
         },
+    )
+}
+
+@Composable
+fun NotificationsDialog(
+    visible: Boolean,
+    weatherHazards: List<WeatherHazardAlert>,
+    equipmentAlerts: List<EquipmentAlert>,
+    onOpenWeather: () -> Unit,
+    onOpenEquipment: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    if (!visible) return
+    val strings = LocalStrings.current
+    val extra = LocalAqroColors.current
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    imageVector = if (weatherHazards.isNotEmpty() || equipmentAlerts.isNotEmpty()) {
+                        Icons.Filled.NotificationsActive
+                    } else {
+                        Icons.Filled.Notifications
+                    },
+                    contentDescription = strings.notificationsTitle,
+                    tint = if (weatherHazards.isNotEmpty() || equipmentAlerts.isNotEmpty()) DangerRed else MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    text = strings.notifDialogTitle,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        },
+        text = {
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 380.dp)
+                    .testTag("notifications_dialog_list"),
+            ) {
+                if (weatherHazards.isEmpty() && equipmentAlerts.isEmpty()) {
+                    item {
+                        EmptyStateMessage(
+                            icon = Icons.Filled.Notifications,
+                            message = strings.notifEmptyMsg,
+                        )
+                    }
+                }
+
+                if (weatherHazards.isNotEmpty()) {
+                    item {
+                        Text(
+                            text = strings.notifSectionWeatherTitle,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = DangerRed,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                    items(weatherHazards, key = { "dlg_wh_${it.id}" }) { alert ->
+                        val (title, advice) = EquipmentReminderManager.weatherHazardSummary(alert, strings)
+                        val srcLabel = EquipmentReminderManager.sourceKindLabel(alert.sourceKind, strings)
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = extra.dangerContainer,
+                            border = BorderStroke(1.dp, DangerBorder),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("notif_weather_item_${alert.id}"),
+                        ) {
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier.padding(10.dp),
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text(
+                                        text = title,
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        color = DangerRed,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    Surface(
+                                        shape = RoundedCornerShape(50),
+                                        color = MaterialTheme.colorScheme.surface,
+                                    ) {
+                                        Text(
+                                            text = "${alert.date} • ${alert.metricText}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                        )
+                                    }
+                                }
+                                Text(
+                                    text = "${alert.locationLabel} ($srcLabel)${if (alert.cropNames.isNotBlank()) " • ${alert.cropNames}" else ""}",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Text(
+                                    text = advice,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = extra.onDangerContainer,
+                                )
+                            }
+                        }
+                    }
+                    item {
+                        OutlinedButton(
+                            onClick = {
+                                onDismiss()
+                                onOpenWeather()
+                            },
+                            modifier = Modifier.fillMaxWidth().testTag("notif_open_weather_btn"),
+                        ) {
+                            Icon(Icons.Filled.WbSunny, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.size(6.dp))
+                            Text(strings.notifViewWeatherBtn)
+                        }
+                    }
+                }
+
+                if (weatherHazards.isNotEmpty() && equipmentAlerts.isNotEmpty()) {
+                    item { HorizontalDivider(color = extra.line) }
+                }
+
+                if (equipmentAlerts.isNotEmpty()) {
+                    item {
+                        Text(
+                            text = strings.notifSectionEquipmentTitle,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                    items(equipmentAlerts, key = { "dlg_eq_${it.itemName}_${it.status.name}" }) { eqAlert ->
+                        val isOverdue = eqAlert.status == EquipmentStatus.OVERDUE
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (isOverdue) extra.dangerContainer else extra.warningContainer,
+                            border = BorderStroke(1.dp, if (isOverdue) DangerBorder else WarningAmber.copy(alpha = 0.55f)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("notif_equipment_item_${eqAlert.itemName}"),
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier.padding(10.dp),
+                            ) {
+                                Text(
+                                    text = eqAlert.itemName,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Text(
+                                    text = if (isOverdue) strings.eqStatusOverdue else strings.eqStatusSoon,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isOverdue) DangerRed else WarningAmber,
+                                )
+                            }
+                        }
+                    }
+                    item {
+                        OutlinedButton(
+                            onClick = {
+                                onDismiss()
+                                onOpenEquipment()
+                            },
+                            modifier = Modifier.fillMaxWidth().testTag("notif_open_equipment_btn"),
+                        ) {
+                            Text(strings.notifViewEquipmentBtn)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.testTag("close_notifications_dialog_btn"),
+            ) {
+                Text(strings.coordDoneBtn, fontWeight = FontWeight.Bold)
+            }
+        },
+        modifier = Modifier.testTag("notifications_dialog"),
     )
 }
 

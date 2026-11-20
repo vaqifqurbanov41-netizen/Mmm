@@ -59,6 +59,7 @@ interface AppStrings {
     val kgUnit: String
 
     // Greeting & Header
+    val brandTagline: String
     val defaultFarmerName: String
     val greetingPrefix: String
     val themeToggleLight: String
@@ -80,13 +81,40 @@ interface AppStrings {
     val totalAreaStat: String
     val aiBannerTitle: String
     val aiBannerSub: String
+    val askNowBtn: String
+    val assistantOnlineLabel: String
+    val homeNoticesTitle: String
+    val homeWeatherSafeMsg: String
+    val homeWeatherHazardCountFormat: String
+    val homeMonthlyCalendarSub: String
     val alertNormalTitle: String
     val alertNormalSub: String
     val alertWeatherTitle: String
     val alertEquipmentTitle: String
     val frostWarning: String
+    val heatWarning: String
     val windWarning: String
     val rainWarning: String
+    val notifDialogTitle: String
+    val notifSectionWeatherTitle: String
+    val notifSectionEquipmentTitle: String
+    val notifEmptyMsg: String
+    val notifViewWeatherBtn: String
+    val notifViewEquipmentBtn: String
+    val notifSourceField: String
+    val notifSourceGps: String
+    val notifSourceRegion: String
+    val weatherHazardFrostTitle: String
+    val weatherHazardHeatTitle: String
+    val weatherHazardRainTitle: String
+    val weatherHazardWindTitle: String
+    val weatherHazardFrostAdvice: String
+    val weatherHazardHeatAdvice: String
+    val weatherHazardRainAdvice: String
+    val weatherHazardWindAdvice: String
+    val weatherHazardNotifChannel: String
+    val weatherHazardNotifTitle: String
+    val weatherHazardNotifBodyFormat: String
 
     // Home Tiles (9)
     val tileNpkTitle: String
@@ -225,6 +253,8 @@ interface AppStrings {
     val latLabel: String
     val lonLabel: String
     val btnGpsWeather: String
+    val gpsTurningOn: String
+    val gpsTurnOnRequired: String
     val btnRefreshWeather: String
     val weatherCurrentTemp: String
     val weatherHumidity: String
@@ -313,11 +343,30 @@ interface AppStrings {
     val scannerTitle: String
     val scannerPhotoCardTitle: String
     val scannerPhotoHint: String
+    val btnTakePlantPhoto: String
     val btnPickPlantPhoto: String
     val scannerNoteLabel: String
     val scannerNotePlaceholder: String
     val btnStartDiagnosis: String
     val scannerEmptyPhotoWarning: String
+    val scannerHybridBadge: String
+    val scannerConsultAgronomistTitle: String
+    val scannerConsultAgronomistBody: String
+    val scannerCropSelectLabel: String
+    val scannerCropAutoChip: String
+    val scannerVisualCompareTitle: String
+    val scannerVisualProfileLabel: String
+    val scannerBrowseAllDiseasesBtn: String
+    val scannerPhotoSavedGalleryFormat: String
+    val scannerRealPhotoCompareBtn: String
+    val scannerRealPhotoSimilarityLabel: String
+    val scannerYourPhotoLabel: String
+    val scannerReferencePhotoLabel: String
+    val scannerReferenceOfflineHint: String
+    val scannerAutoDiagnosingLabel: String
+    val scannerNoMatchTitle: String
+    val scannerNoMatchSubtitle: String
+    val scannerMatchFoundLabel: String
     val aiAppCheckHelpTitle: String
     val aiAppCheckHelpBody: String
     val aiDeviceDebugUuidLabel: String
@@ -482,6 +531,13 @@ interface AppStrings {
     val cameraPermissionDenied: String
     val photoSavedMsg: String
     val photoCountFormat: String
+    val galleryAutoSavedFormat: String
+    val galleryRenameBtn: String
+    val galleryRenameTitle: String
+    val photoNameLabel: String
+    val photoNameRenamedMsg: String
+    val photoDefaultFieldPrefix: String
+    val photoDefaultScanPrefix: String
 
     // Harvest Screen
     val harvestTitle: String

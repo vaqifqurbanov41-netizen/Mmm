@@ -10,13 +10,13 @@ val ForestDarker = Color(0xFF195E30)
 val EmeraldBright = Color(0xFF32A858)
 val EmeraldBrightLight = Color(0xFF42C26B)
 
-// Light Theme Surfaces
-val LightBg = Color(0xFFF0F6FC)
+// Light Theme Surfaces (soft organic sage-ivory palette)
+val LightBg = Color(0xFFF3F7F2)
 val LightSurface = Color(0xFFFFFFFF)
-val LightPale = Color(0xFFE4F0FC)
-val LightLine = Color(0xFFD0E1F2)
-val LightInk = Color(0xFF172533)
-val LightMuted = Color(0xFF576D82)
+val LightPale = Color(0xFFE7F2E9)
+val LightLine = Color(0xFFD8E6DB)
+val LightInk = Color(0xFF15241A)
+val LightMuted = Color(0xFF5A6F60)
 
 // Dark Theme Surfaces
 val DarkBg = Color(0xFF0F1511)

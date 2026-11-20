@@ -1,9 +1,5 @@
 package com.example.ui.screens
 
-import android.Manifest
-import android.content.pm.PackageManager
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -50,7 +46,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import com.example.i18n.LocalStrings
 import androidx.compose.runtime.mutableIntStateOf
 import com.example.data.model.FarmField
@@ -59,6 +54,7 @@ import com.example.ui.components.DangerBannerBox
 import com.example.ui.components.ScreenTopBar
 import com.example.ui.components.TabPillsRow
 import com.example.ui.components.formatNumber
+import com.example.ui.components.rememberGpsLocateAction
 import com.example.ui.theme.LocalAqroColors
 import com.example.ui.viewmodel.ClimateHistoryUiState
 import com.example.ui.viewmodel.WeatherUiState
@@ -84,28 +80,18 @@ fun WeatherScreen(
     var latText by remember(weatherState.lat) { mutableStateOf(formatNumber(weatherState.lat, 4)) }
     var lonText by remember(weatherState.lon) { mutableStateOf(formatNumber(weatherState.lon, 4)) }
     var gpsMsg by remember { mutableStateOf<String?>(null) }
+    var gpsLoading by remember { mutableStateOf(false) }
 
-    val locateAndFetch = {
-        fetchSingleGpsFix(
-            context = context,
-            onSuccess = { lat, lon, _ ->
-                latText = formatNumber(lat, 4)
-                lonText = formatNumber(lon, 4)
-                gpsMsg = null
-                onRefreshWeather(lat, lon)
-            },
-            onFailure = {
-                gpsMsg = strings.gpsUnavailable
-            },
-        )
-    }
-
-    val permLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) locateAndFetch()
-        else gpsMsg = strings.gpsPermissionDenied
-    }
+    val triggerGpsWeather = rememberGpsLocateAction(
+        onFixSuccess = { lat, lon, _ ->
+            latText = formatNumber(lat, 4)
+            lonText = formatNumber(lon, 4)
+            gpsMsg = null
+            onRefreshWeather(lat, lon)
+        },
+        onStatusMessage = { msg -> gpsMsg = msg },
+        onLoadingChange = { loading -> gpsLoading = loading },
+    )
 
     LazyColumn(
         contentPadding = PaddingValues(16.dp),
@@ -167,21 +153,19 @@ fun WeatherScreen(
                         modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
                     ) {
                         OutlinedButton(
-                            onClick = {
-                                val granted = ContextCompat.checkSelfPermission(
-                                    context,
-                                    Manifest.permission.ACCESS_FINE_LOCATION,
-                                ) == PackageManager.PERMISSION_GRANTED
-                                if (granted) locateAndFetch()
-                                else permLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-                            },
+                            onClick = triggerGpsWeather,
+                            enabled = !gpsLoading,
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight()
                                 .heightIn(min = 48.dp)
                                 .testTag("weather_gps_btn"),
                         ) {
-                            Icon(Icons.Filled.MyLocation, contentDescription = null, modifier = Modifier.size(18.dp))
+                            if (gpsLoading) {
+                                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                            } else {
+                                Icon(Icons.Filled.MyLocation, contentDescription = null, modifier = Modifier.size(18.dp))
+                            }
                             Spacer(modifier = Modifier.size(6.dp))
                             Text(strings.btnGpsWeather, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
@@ -266,6 +250,7 @@ fun WeatherScreen(
                         val reasons = buildList {
                             add(strings.weatherSprayAvoid)
                             if (weatherState.hasFrostRisk) add(strings.frostWarning)
+                            if (weatherState.hasHeatRisk) add(strings.heatWarning)
                             if (weatherState.hasHighWind) add(strings.windWarning)
                             if (weatherState.hasHeavyRain) add(strings.rainWarning)
                         }.joinToString("\n• ")
@@ -298,7 +283,7 @@ fun WeatherScreen(
                         fontWeight = FontWeight.Bold,
                     )
                 }
-                val count = minOf(5, daily.time.size)
+                val count = minOf(7, daily.time.size)
                 items(count) { idx ->
                     val date = daily.time.getOrElse(idx) { "" }
                     val tMin = daily.tempMin.getOrElse(idx) { 0.0 }

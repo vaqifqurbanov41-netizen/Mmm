@@ -1,11 +1,19 @@
 package com.example.data.local
 
+import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import androidx.core.content.FileProvider
 import com.example.data.model.EquipmentItem
 import com.example.data.model.FinanceEntry
 import com.example.domain.BackupManager
+import com.example.i18n.AppLanguage
+import com.example.i18n.StringsAz
+import com.example.i18n.StringsEn
+import com.example.i18n.StringsRu
 import com.example.ui.viewmodel.EquipmentAlert
 import com.example.ui.viewmodel.EquipmentStatus
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -318,7 +326,27 @@ class LocalRecordsStore(context: Context) {
         return importedCount
     }
 
-    // --- Offline Camera & Private In-App Photo Gallery ---
+    // --- Offline Camera & Photo Gallery ---
+    fun generateDefaultPhotoTitle(
+        language: AppLanguage = AppLanguage.AZ,
+        isScan: Boolean = false,
+        cropHint: String? = null,
+    ): String {
+        val strings = when (language) {
+            AppLanguage.AZ -> StringsAz
+            AppLanguage.EN -> StringsEn
+            AppLanguage.RU -> StringsRu
+        }
+        val nextIndex = (_photos.value.size + 1).coerceAtLeast(1)
+        val timeStamp = SimpleDateFormat("dd.MM HH:mm", language.locale).format(System.currentTimeMillis())
+        val base = when {
+            !cropHint.isNullOrBlank() -> "${strings.photoDefaultScanPrefix}: ${cropHint.trim()}"
+            isScan -> strings.photoDefaultScanPrefix
+            else -> strings.photoDefaultFieldPrefix
+        }
+        return "$base #$nextIndex ($timeStamp)"
+    }
+
     fun createCameraPhotoTarget(): Pair<Uri, File> {
         ensurePhotosDir()
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(System.currentTimeMillis())
@@ -331,20 +359,56 @@ class LocalRecordsStore(context: Context) {
     fun getShareUri(file: File): Uri =
         FileProvider.getUriForFile(appContext, "${appContext.packageName}.fileprovider", file)
 
-    fun finalizeCapturedPhoto(file: File, caption: String = ""): Boolean {
+    fun finalizeCapturedPhoto(
+        file: File,
+        caption: String = "",
+        language: AppLanguage = AppLanguage.AZ,
+        isScan: Boolean = false,
+        cropHint: String? = null,
+    ): Boolean {
         if (!file.exists() || file.length() <= 0L) {
             runCatching { if (file.exists()) file.delete() }
             return false
         }
-        val cleaned = caption.trim()
-        if (cleaned.isNotEmpty()) {
-            setCaptionInternal(file.name, cleaned)
+        val resolvedTitle = caption.trim().ifBlank {
+            generateDefaultPhotoTitle(language = language, isScan = isScan, cropHint = cropHint)
         }
+        setCaptionInternal(file.name, resolvedTitle)
+        exportFileToSystemGallery(file, resolvedTitle)
         refreshPhotos()
         return true
     }
 
-    fun importPickedPhoto(sourceUri: Uri, caption: String = ""): LocalGalleryPhoto? {
+    fun saveScannerFileToGallery(
+        tempFile: File,
+        cropHint: String? = null,
+        language: AppLanguage = AppLanguage.AZ,
+    ): LocalGalleryPhoto? {
+        if (!tempFile.exists() || tempFile.length() <= 0L) return null
+        ensurePhotosDir()
+        val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(System.currentTimeMillis())
+        val shortId = UUID.randomUUID().toString().take(6)
+        val destFile = File(photosDir, "aqro_scan_${stamp}_$shortId.jpg")
+        val copied = runCatching {
+            tempFile.copyTo(destFile, overwrite = true)
+            destFile.exists() && destFile.length() > 0L
+        }.getOrDefault(false)
+        if (!copied) {
+            runCatching { if (destFile.exists()) destFile.delete() }
+            return null
+        }
+        val title = generateDefaultPhotoTitle(language = language, isScan = true, cropHint = cropHint)
+        setCaptionInternal(destFile.name, title)
+        exportFileToSystemGallery(destFile, title)
+        refreshPhotos()
+        return _photos.value.firstOrNull { it.fileName == destFile.name }
+    }
+
+    fun importPickedPhoto(
+        sourceUri: Uri,
+        caption: String = "",
+        language: AppLanguage = AppLanguage.AZ,
+    ): LocalGalleryPhoto? {
         ensurePhotosDir()
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(System.currentTimeMillis())
         val shortId = UUID.randomUUID().toString().take(6)
@@ -363,17 +427,51 @@ class LocalRecordsStore(context: Context) {
             return null
         }
 
-        val cleaned = caption.trim()
-        if (cleaned.isNotEmpty()) {
-            setCaptionInternal(destFile.name, cleaned)
+        val resolvedTitle = caption.trim().ifBlank {
+            generateDefaultPhotoTitle(language = language, isScan = false)
         }
+        setCaptionInternal(destFile.name, resolvedTitle)
         refreshPhotos()
         return _photos.value.firstOrNull { it.fileName == destFile.name }
+    }
+
+    fun renamePhoto(fileName: String, newName: String): Boolean {
+        val cleaned = newName.trim()
+        if (cleaned.isBlank()) return false
+        setCaptionInternal(fileName, cleaned)
+        refreshPhotos()
+        return true
     }
 
     fun updatePhotoCaption(fileName: String, caption: String) {
         setCaptionInternal(fileName, caption.trim())
         refreshPhotos()
+    }
+
+    private fun exportFileToSystemGallery(sourceFile: File, displayTitle: String) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        runCatching {
+            val safeName = displayTitle
+                .replace(Regex("[^\\p{L}\\p{N}_\\- ]"), "_")
+                .trim()
+                .ifBlank { "aqro_${System.currentTimeMillis()}" }
+            val values = ContentValues().apply {
+                put(MediaStore.Images.Media.DISPLAY_NAME, "$safeName.jpg")
+                put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/AqroMeslehet")
+                put(MediaStore.Images.Media.IS_PENDING, 1)
+            }
+            val resolver = appContext.contentResolver
+            val insertedUri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return
+            resolver.openOutputStream(insertedUri)?.use { out ->
+                sourceFile.inputStream().use { input ->
+                    input.copyTo(out)
+                }
+            }
+            values.clear()
+            values.put(MediaStore.Images.Media.IS_PENDING, 0)
+            resolver.update(insertedUri, values, null, null)
+        }
     }
 
     fun deletePhoto(fileName: String) {

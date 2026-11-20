@@ -20,6 +20,9 @@ import com.example.R
 import com.example.data.local.daysUntilIsoDate
 import com.example.data.model.EquipmentItem
 import com.example.i18n.AppStrings
+import com.example.domain.LocationSourceKind
+import com.example.domain.WeatherHazardAlert
+import com.example.domain.WeatherHazardKind
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
@@ -28,9 +31,11 @@ import kotlin.math.abs
 object EquipmentReminderManager {
 
     private const val CHANNEL_ID = "aqro_equipment_reminders_v2"
+    private const val WEATHER_CHANNEL_ID = "aqro_weather_hazards_v1"
     private const val PREFS_NAME = "aqro_equipment_notif_prefs"
     private const val KEY_ALARM_CODES = "scheduled_alarm_codes"
     private const val KEY_NOTIFIED_PREFIX = "notified_"
+    private const val KEY_WEATHER_NOTIFIED_PREFIX = "weather_notified_"
     private const val TEST_NOTIFICATION_ID = 991001
 
     fun hasNotificationPermission(context: Context): Boolean {
@@ -44,7 +49,11 @@ object EquipmentReminderManager {
         }
     }
 
-    fun ensureNotificationChannel(context: Context, channelName: String) {
+    fun ensureNotificationChannel(
+        context: Context,
+        channelName: String,
+        channelId: String = CHANNEL_ID,
+    ) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
         val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
@@ -53,7 +62,7 @@ object EquipmentReminderManager {
             .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
             .build()
         val channel = NotificationChannel(
-            CHANNEL_ID,
+            channelId,
             channelName,
             NotificationManager.IMPORTANCE_HIGH,
         ).apply {
@@ -82,8 +91,9 @@ object EquipmentReminderManager {
         body: String,
         notificationId: Int,
         channelName: String,
+        channelId: String = CHANNEL_ID,
     ) {
-        ensureNotificationChannel(context, channelName)
+        ensureNotificationChannel(context, channelName, channelId)
         if (!hasNotificationPermission(context)) return
 
         val openAppIntent = Intent(context, MainActivity::class.java).apply {
@@ -96,7 +106,7 @@ object EquipmentReminderManager {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(R.mipmap.ic_launcher_round)
             .setContentTitle(title)
             .setContentText(body)
@@ -124,6 +134,64 @@ object EquipmentReminderManager {
             channelName = strings.eqNotifChannelName,
         )
         playNotificationChime(context)
+    }
+
+    fun sourceKindLabel(kind: LocationSourceKind, strings: AppStrings): String = when (kind) {
+        LocationSourceKind.FIELD -> strings.notifSourceField
+        LocationSourceKind.USER_GPS -> strings.notifSourceGps
+        LocationSourceKind.REGISTERED_REGION -> strings.notifSourceRegion
+    }
+
+    fun weatherHazardSummary(
+        alert: WeatherHazardAlert,
+        strings: AppStrings,
+    ): Pair<String, String> = when (alert.kind) {
+        WeatherHazardKind.FROST -> strings.weatherHazardFrostTitle to strings.weatherHazardFrostAdvice
+        WeatherHazardKind.HEAT_STRESS -> strings.weatherHazardHeatTitle to strings.weatherHazardHeatAdvice
+        WeatherHazardKind.HEAVY_RAIN_LEACHING -> strings.weatherHazardRainTitle to strings.weatherHazardRainAdvice
+        WeatherHazardKind.HIGH_WIND_SPRAY -> strings.weatherHazardWindTitle to strings.weatherHazardWindAdvice
+    }
+
+    fun syncWeatherHazards(
+        context: Context,
+        alerts: List<WeatherHazardAlert>,
+        strings: AppStrings,
+    ) {
+        if (alerts.isEmpty()) return
+        ensureNotificationChannel(context, strings.weatherHazardNotifChannel, WEATHER_CHANNEL_ID)
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        var playedChime = false
+
+        alerts.forEach { alert ->
+            val dedupKey = "${KEY_WEATHER_NOTIFIED_PREFIX}${alert.id}"
+            if (prefs.getBoolean(dedupKey, false)) return@forEach
+
+            val (eventTitle, advice) = weatherHazardSummary(alert, strings)
+            val srcLabel = sourceKindLabel(alert.sourceKind, strings)
+            val body = String.format(
+                Locale.getDefault(),
+                strings.weatherHazardNotifBodyFormat,
+                alert.locationLabel,
+                srcLabel,
+                alert.date,
+                alert.metricText,
+                advice,
+            )
+            val notifId = 810_000 + (abs(alert.id.hashCode()) % 150_000)
+            postNotification(
+                context = context,
+                title = "${strings.weatherHazardNotifTitle}: $eventTitle",
+                body = body,
+                notificationId = notifId,
+                channelName = strings.weatherHazardNotifChannel,
+                channelId = WEATHER_CHANNEL_ID,
+            )
+            if (!playedChime) {
+                playNotificationChime(context)
+                playedChime = true
+            }
+            prefs.edit().putBoolean(dedupKey, true).apply()
+        }
     }
 
     fun syncEquipmentReminders(

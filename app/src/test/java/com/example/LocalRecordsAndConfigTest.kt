@@ -248,7 +248,14 @@ class LocalRecordsAndConfigTest {
             "Ridomil", "Mospilan", "Score", "Aktara", "Karate",
             "Chorus", "Amistar", "Confidor", "Proclaim", "Decis",
             "Tilt", "Topas", "Vertimec", "Envidor", "Roundup",
+            "Thiovit", "Folicur",
         )
+        assertTrue(com.example.data.model.CropProtectionCatalog.crops.any { it.id == "hazelnut" })
+        assertTrue(com.example.data.model.CropProtectionCatalog.threatsForCrop("potato").size >= 6)
+        assertTrue(com.example.data.model.CropProtectionCatalog.threatsForCrop("wheat").size >= 6)
+        assertTrue(com.example.data.model.CropProtectionCatalog.threatsForCrop("alfalfa").size >= 5)
+        assertTrue(com.example.data.model.CropProtectionCatalog.threatsForCrop("hazelnut").size >= 4)
+
         com.example.data.model.CropProtectionCatalog.crops.forEach { crop ->
             val cropThreats = com.example.data.model.CropProtectionCatalog.threatsForCrop(crop.id)
             assertTrue("Expected threats for crop ${crop.id}", cropThreats.isNotEmpty())
@@ -268,6 +275,10 @@ class LocalRecordsAndConfigTest {
         assertTrue(mancozebPreps.any { it.tradeName.contains("Ridomil", ignoreCase = true) })
         val acetamipridPreps = com.example.data.model.CropProtectionCatalog.searchPreparations("Asetamiprid")
         assertTrue(acetamipridPreps.any { it.tradeName.contains("Mospilan", ignoreCase = true) })
+        val sulfurPreps = com.example.data.model.CropProtectionCatalog.searchPreparations("Kükürd")
+        assertTrue(sulfurPreps.isNotEmpty())
+        val tebuPreps = com.example.data.model.CropProtectionCatalog.searchPreparations("Tebukonazol")
+        assertTrue(tebuPreps.isNotEmpty())
 
         val azAnswer = com.example.data.ai.OfflineAgronomistAdvisor.answerOffline(
             question = "Pomidor yarpaqlarında fitoftoroz var, nə etməliyəm?",
@@ -276,6 +287,12 @@ class LocalRecordsAndConfigTest {
         )
         assertTrue(azAnswer.contains("Mankozeb"))
         assertTrue(azAnswer.contains("Offline timeout"))
+
+        val hazelnutAnswer = com.example.data.ai.OfflineAgronomistAdvisor.answerOffline(
+            question = "Fındıq unlu şeh xəstəliyi",
+            language = com.example.i18n.AppLanguage.AZ,
+        )
+        assertTrue(hazelnutAnswer.contains("Kükürd"))
 
         val enAnswer = com.example.data.ai.OfflineAgronomistAdvisor.answerOffline(
             question = "Colorado potato beetle damage on potato",
@@ -288,6 +305,17 @@ class LocalRecordsAndConfigTest {
             language = com.example.i18n.AppLanguage.RU,
         )
         assertTrue(ruAnswer.contains("Пропиконазол"))
+
+        val sampleBmp = android.graphics.Bitmap.createBitmap(16, 16, android.graphics.Bitmap.Config.ARGB_8888).apply {
+            eraseColor(android.graphics.Color.rgb(95, 55, 35))
+        }
+        val scanDiag = com.example.data.ai.OfflineAgronomistAdvisor.diagnosePlantPhotoOffline(
+            bitmap = sampleBmp,
+            note = "Kartof alternarioz ləkələr",
+            language = com.example.i18n.AppLanguage.AZ,
+        )
+        assertTrue(scanDiag.contains("Difenokonazol"))
+        assertTrue(scanDiag.contains("aqronomla məsləhətləşin", ignoreCase = true))
 
         val bannedAnswer = com.example.data.ai.OfflineAgronomistAdvisor.answerOffline(
             question = "DDT istifadə edə bilərəm?",
@@ -408,5 +436,90 @@ class LocalRecordsAndConfigTest {
         assertTrue(csv.contains("2024-07-20"))
         assertTrue(csv.contains("1006.0"))
     }
+
+    @Test
+    fun diseaseVisualCatalogCoversAllCropThreatsSupportsComparisonAndStartupPermissionsArePlayCompliant() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val threats = com.example.data.model.CropProtectionCatalog.threats
+        assertTrue(threats.size >= 40)
+
+        threats.forEach { threat ->
+            val profile = com.example.data.model.DiseaseVisualCatalog.profileFor(threat.id)
+            assertNotNull("Expected visual profile for ${threat.id}", profile)
+            assertTrue(profile!!.visualCue.az.isNotBlank())
+            assertTrue(profile.visualCue.en.isNotBlank())
+            assertTrue(profile.visualCue.ru.isNotBlank())
+            assertTrue(profile.plantPart.az.isNotBlank())
+        }
+
+        // Broad crop & full catalog queries should cover multiple diseases of added crops
+        val potatoOverview = com.example.data.ai.OfflineAgronomistAdvisor.answerOffline(
+            question = "Kartof xəstəlikləri və zərərvericiləri hansılardır?",
+            language = com.example.i18n.AppLanguage.AZ,
+        )
+        assertTrue(potatoOverview.contains("fitoftoroz", ignoreCase = true))
+        assertTrue(potatoOverview.contains("Kolorado", ignoreCase = true))
+
+        val allCropsOverview = com.example.data.ai.OfflineAgronomistAdvisor.answerOffline(
+            question = "Bütün bitkilər və xəstəliklər siyahısı",
+            language = com.example.i18n.AppLanguage.AZ,
+        )
+        assertTrue(allCropsOverview.contains("Pomidor"))
+        assertTrue(allCropsOverview.contains("Fındıq"))
+
+        // Visual color comparison with rust-orange bitmap matches rust profiles on wheat
+        val rustBmp = android.graphics.Bitmap.createBitmap(16, 16, android.graphics.Bitmap.Config.ARGB_8888).apply {
+            eraseColor(android.graphics.Color.rgb(215, 95, 25))
+        }
+        val matches = com.example.data.ai.OfflineAgronomistAdvisor.matchThreatsWithVisualComparison(
+            bitmap = rustBmp,
+            note = "Buğda yarpağında pas narıncı toz",
+            cropIdFilter = "wheat",
+            limit = 4,
+        )
+        assertTrue(matches.isNotEmpty())
+        assertTrue(matches.any { it.threat.id.contains("rust") })
+
+        // Startup permission set requests location, camera, notifications without banned storage permissions
+        val missing = collectMissingStartupPermissions(context)
+        assertTrue(missing.contains(android.Manifest.permission.ACCESS_FINE_LOCATION))
+        assertTrue(missing.contains(android.Manifest.permission.ACCESS_COARSE_LOCATION))
+        assertTrue(missing.contains(android.Manifest.permission.CAMERA))
+        assertFalse(missing.contains(android.Manifest.permission.READ_EXTERNAL_STORAGE))
+        assertFalse(missing.contains(android.Manifest.permission.WRITE_EXTERNAL_STORAGE))
+        assertFalse(missing.contains("android.permission.READ_MEDIA_IMAGES"))
+    }
+
+    @Test
+    fun cameraPhotosReceiveAutoGeneratedTitlesAndCanBeRenamedCleanly() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val store = LocalRecordsStore(context)
+
+        val (_, file) = store.createCameraPhotoTarget()
+        file.writeBytes(byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xE0.toByte()))
+        assertTrue(store.finalizeCapturedPhoto(file, caption = "", language = com.example.i18n.AppLanguage.AZ))
+        assertEquals(1, store.photos.value.size)
+        val firstCaption = store.photos.value.first().caption
+        assertTrue(firstCaption.contains(com.example.i18n.StringsAz.photoDefaultFieldPrefix))
+
+        val scanTemp = java.io.File(context.filesDir, "scan_tmp_test.jpg").apply {
+            writeBytes(byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xE0.toByte()))
+        }
+        val savedScan = store.saveScannerFileToGallery(
+            tempFile = scanTemp,
+            cropHint = "Fındıq",
+            language = com.example.i18n.AppLanguage.AZ,
+        )
+        assertNotNull(savedScan)
+        assertTrue(savedScan!!.caption.contains("${com.example.i18n.StringsAz.photoDefaultScanPrefix}: Fındıq"))
+
+        assertTrue(store.renamePhoto(savedScan.fileName, "Fındıq külələməsi nümunəsi"))
+        val updated = store.photos.value.firstOrNull { it.fileName == savedScan.fileName }
+        assertEquals("Fındıq külələməsi nümunəsi", updated?.caption)
+        assertFalse(store.renamePhoto(savedScan.fileName, "   "))
+
+        scanTemp.delete()
+    }
 }
+
 

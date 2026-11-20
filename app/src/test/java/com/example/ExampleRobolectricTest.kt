@@ -9,6 +9,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.firebase.getSigningSha1
 import androidx.compose.runtime.CompositionLocalProvider
@@ -25,6 +26,8 @@ import com.example.i18n.LocalStrings
 import com.example.i18n.StringsAz
 import com.example.i18n.StringsEn
 import com.example.i18n.StringsRu
+import com.example.ui.components.AqroBottomBar
+import com.example.ui.components.AqroTopHeader
 import com.example.ui.navigation.NavRoutes
 import com.example.ui.screens.AdminScreen
 import com.example.ui.screens.AgroCalendarScreen
@@ -36,7 +39,9 @@ import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.InsuranceCalcScreen
 import com.example.ui.screens.NpkScreen
 import com.example.ui.screens.PesticideScreen
+import com.example.ui.screens.PhotoGalleryScreen
 import com.example.ui.screens.ProfileScreen
+import com.example.ui.screens.ScannerScreen
 import com.example.ui.screens.SeedsScreen
 import com.example.ui.screens.StationsScreen
 import com.example.ui.screens.WeatherScreen
@@ -769,4 +774,206 @@ class ExampleRobolectricTest {
         composeTestRule.onNodeWithTag("weather_screen_list").performScrollToNode(hasTestTag("climate_chart_extremes"))
         composeTestRule.onNodeWithTag("climate_chart_extremes").assertIsDisplayed()
     }
+
+    @Test
+    fun `homeScreenDisplaysHeroStatsAiBannerTelegramBotAndQuickStrip`() {
+        var navigatedTo = ""
+        composeTestRule.setContent {
+            CompositionLocalProvider(LocalStrings provides StringsAz) {
+                AqroMeslehetTheme {
+                    HomeScreen(
+                        fields = listOf(
+                            com.example.data.model.FarmField(
+                                id = "f1",
+                                name = "Bərdə sahəsi",
+                                crop = "Pambıq",
+                                sizeHa = 11.51,
+                            )
+                        ),
+                        weatherState = WeatherUiState(),
+                        equipmentAlerts = emptyList(),
+                        onNavigate = { navigatedTo = it },
+                        farmerFirstName = "Vaqif",
+                    )
+                }
+            }
+        }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("hero_fields_stat").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("hero_area_stat").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Salam, Vaqif!", substring = true).assertIsDisplayed()
+        composeTestRule.onNodeWithText("11.51 ha", substring = true).assertIsDisplayed()
+
+        composeTestRule.onNodeWithTag("home_screen_list").performScrollToNode(hasTestTag("tile_ai_agronom"))
+        composeTestRule.onNodeWithTag("tile_ai_agronom").performScrollTo().assertIsDisplayed()
+
+        composeTestRule.onNodeWithTag("home_screen_list").performScrollToNode(hasTestTag("home_ai_banner"))
+        composeTestRule.onNodeWithTag("home_ai_banner").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithTag("home_screen_list").performScrollToNode(hasTestTag("home_telegram_bot_card"))
+        composeTestRule.onNodeWithTag("home_telegram_bot_card").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithTag("home_screen_list").performScrollToNode(hasTestTag("home_bottom_quick_strip"))
+        composeTestRule.onNodeWithTag("home_bottom_quick_strip").performScrollTo().assertIsDisplayed()
+
+        composeTestRule.onNodeWithTag("home_ai_banner").performScrollTo().performClick()
+        assertEquals(NavRoutes.CHAT, navigatedTo)
+    }
+
+    @Test
+    fun `headerEmblemBottomCameraIconHazelnutAndScannerControlsRender`() {
+        composeTestRule.setContent {
+            CompositionLocalProvider(LocalStrings provides StringsAz) {
+                AqroMeslehetTheme {
+                    androidx.compose.foundation.layout.Column {
+                        AqroTopHeader(
+                            farmerFirstName = "Vaqif",
+                            language = AppLanguage.AZ,
+                            weatherTempText = "12°C",
+                            hasAlertDot = false,
+                            isDark = false,
+                            onWeatherClick = {},
+                            onThemeToggle = {},
+                            onNotificationsClick = {},
+                        )
+                        AqroBottomBar(
+                            currentRoute = NavRoutes.HOME,
+                            onNavigate = {},
+                        )
+                        ScannerScreen(
+                            language = AppLanguage.AZ,
+                            selectedBitmap = null,
+                            diagnosisResult = "Daxili Baza + Onlayn Təxmin",
+                            isLoading = false,
+                            errorMessage = null,
+                            onSelectBitmap = {},
+                            onStartDiagnosis = { _, _ -> },
+                            onBack = {},
+                        )
+                    }
+                }
+            }
+        }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("header_app_icon").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("nav_scanner").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Skaner").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("scanner_hybrid_badge").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("scanner_screen").performScrollToNode(hasTestTag("take_plant_photo_btn"))
+        composeTestRule.onNodeWithTag("take_plant_photo_btn").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("pick_plant_photo_btn").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("scanner_screen").performScrollToNode(hasTestTag("scanner_diagnosis_result"))
+        composeTestRule.onNodeWithTag("scanner_diagnosis_result").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("scanner_screen").performScrollToNode(hasTestTag("scanner_agronomist_warning"))
+        composeTestRule.onNodeWithTag("scanner_agronomist_warning").assertIsDisplayed()
+    }
+
+    @Test
+    fun `pesticideScreenShowsHazelnutAndExpandedWheatPotatoAlfalfaDiseases`() {
+        composeTestRule.setContent {
+            CompositionLocalProvider(LocalStrings provides StringsAz) {
+                AqroMeslehetTheme {
+                    PesticideScreen(
+                        language = AppLanguage.AZ,
+                        customPesticides = emptyList(),
+                        onAddCustomPesticide = { _, _, _, _, _, _ -> },
+                        onDeleteCustomPesticide = {},
+                        onBack = {},
+                        isLocalOnly = true,
+                    )
+                }
+            }
+        }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("pest_crop_chip_hazelnut").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("pesticide_screen").performScrollToNode(hasTestTag("pest_active_ingredient_text_hazelnut_powdery_mildew"))
+        composeTestRule.onNodeWithTag("pest_active_ingredient_text_hazelnut_powdery_mildew")
+            .assertIsDisplayed()
+            .assertTextContains("Kükürd", substring = true)
+
+        composeTestRule.onNodeWithTag("pesticide_screen").performScrollToNode(hasTestTag("pest_crop_chip_alfalfa"))
+        composeTestRule.onNodeWithTag("pest_crop_chip_alfalfa").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("pesticide_screen").performScrollToNode(hasTestTag("pest_threat_card_alfalfa_leaf_spot"))
+        composeTestRule.onNodeWithTag("pest_threat_card_alfalfa_leaf_spot").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("pesticide_screen").performScrollToNode(hasTestTag("pest_active_ingredient_text_alfalfa_leaf_spot"))
+        composeTestRule.onNodeWithTag("pest_active_ingredient_text_alfalfa_leaf_spot")
+            .assertIsDisplayed()
+            .assertTextContains("Difenokonazol", substring = true)
+
+        composeTestRule.onNodeWithTag("pesticide_screen").performScrollToNode(hasTestTag("pest_crop_chip_wheat"))
+        composeTestRule.onNodeWithTag("pest_crop_chip_wheat").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("pesticide_screen").performScrollToNode(hasTestTag("pest_threat_card_wheat_fusarium_head_blight"))
+        composeTestRule.onNodeWithTag("pest_threat_card_wheat_fusarium_head_blight").assertIsDisplayed()
+    }
+
+    @Test
+    fun `scannerScreenDisplaysCropChipsAndVisualDiseaseComparisonCandidates`() {
+        val sampleBmp = android.graphics.Bitmap.createBitmap(16, 16, android.graphics.Bitmap.Config.ARGB_8888).apply {
+            eraseColor(android.graphics.Color.rgb(215, 95, 25))
+        }
+        composeTestRule.setContent {
+            CompositionLocalProvider(LocalStrings provides StringsAz) {
+                AqroMeslehetTheme {
+                    ScannerScreen(
+                        language = AppLanguage.AZ,
+                        selectedBitmap = sampleBmp,
+                        diagnosisResult = "",
+                        isLoading = false,
+                        errorMessage = null,
+                        onSelectBitmap = {},
+                        onStartDiagnosis = { _, _ -> },
+                        onBack = {},
+                    )
+                }
+            }
+        }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("scanner_crop_auto_chip").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("scanner_crop_chip_hazelnut").performScrollTo().performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("scanner_screen").performScrollToNode(hasTestTag("scanner_visual_comparison_card"))
+        composeTestRule.onNodeWithTag("scanner_visual_comparison_card").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("scanner_screen").performScrollToNode(hasTestTag("scanner_visual_match_hazelnut_powdery_mildew"))
+        composeTestRule.onNodeWithTag("scanner_visual_match_hazelnut_powdery_mildew").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("scanner_screen").performScrollToNode(hasTestTag("scanner_browse_diseases_btn"))
+        composeTestRule.onNodeWithTag("scanner_browse_diseases_btn").assertIsDisplayed()
+    }
+
+    @Test
+    fun `photoGalleryScreenDisplaysAutoNamedPhotoAndAllowsRename`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val store = com.example.data.local.LocalRecordsStore(context)
+        val (_, file) = store.createCameraPhotoTarget()
+        file.writeBytes(byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xE0.toByte()))
+        assertTrue(store.finalizeCapturedPhoto(file, caption = "", language = AppLanguage.AZ))
+        val autoName = store.photos.value.first().caption
+        assertTrue(autoName.isNotBlank())
+
+        composeTestRule.setContent {
+            CompositionLocalProvider(LocalStrings provides StringsAz) {
+                AqroMeslehetTheme {
+                    PhotoGalleryScreen(
+                        language = AppLanguage.AZ,
+                        store = store,
+                        onBack = {},
+                    )
+                }
+            }
+        }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithText(autoName, substring = true).assertIsDisplayed()
+        composeTestRule.onNodeWithTag("rename_photo_btn_${file.name}").performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("photo_caption_input").performTextReplacement("Xüsusi Sahə Adı")
+        composeTestRule.onNodeWithTag("save_photo_caption_btn").performClick()
+        composeTestRule.waitForIdle()
+
+        assertEquals("Xüsusi Sahə Adı", store.photos.value.first().caption)
+        store.deletePhoto(file.name)
+    }
 }
+

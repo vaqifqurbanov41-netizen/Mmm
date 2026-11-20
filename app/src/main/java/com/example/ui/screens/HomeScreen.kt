@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -17,24 +18,28 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Agriculture
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Eco
 import androidx.compose.material.icons.filled.Grass
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.LocalFlorist
 import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.RequestQuote
 import androidx.compose.material.icons.filled.Science
+import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Spa
 import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.Tune
@@ -49,6 +54,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -60,19 +66,25 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.lazy.items
+import androidx.compose.ui.unit.sp
+import com.example.R
 import com.example.data.model.AdminContentItem
 import com.example.data.model.FarmField
 import com.example.data.model.isAdminEmail
+import com.example.domain.WeatherHazardAlert
 import com.example.i18n.LocalStrings
+import com.example.notifications.EquipmentReminderManager
 import com.example.ui.components.AqroCard
+import com.example.ui.components.BotanicalCornerBackdrop
 import com.example.ui.components.KTN_TELEGRAM_BOT_URL
+import com.example.ui.components.ModuleIconMedallion
 import com.example.ui.components.ModuleVisibilityDialog
 import com.example.ui.components.formatNumber
 import com.example.ui.components.openExternalUrl
@@ -95,6 +107,7 @@ private data class HomeMenuTile(
     val icon: ImageVector,
     val accent: Color,
     val tag: String,
+    val alwaysVisible: Boolean = false,
 )
 
 @Composable
@@ -108,6 +121,8 @@ fun HomeScreen(
     hiddenModules: Set<String> = emptySet(),
     onToggleModuleVisible: (String, Boolean) -> Unit = { _, _ -> },
     onResetModules: () -> Unit = {},
+    farmerFirstName: String = "",
+    weatherHazards: List<WeatherHazardAlert> = emptyList(),
 ) {
     val strings = LocalStrings.current
     val extra = LocalAqroColors.current
@@ -117,27 +132,30 @@ fun HomeScreen(
     val totalHa = fields.sumOf { it.sizeHa }
     val showAdminTile = isAdminEmail(userEmail)
     val adminNotices = adminEntries.filter { it.category == "notice" }
+    val displayName = farmerFirstName.ifBlank { strings.defaultFarmerName }
 
     val allTiles = buildList {
+        add(HomeMenuTile(NavRoutes.CHAT, strings.aiBannerTitle, strings.aiBannerSub, Icons.Filled.SmartToy, EmeraldPrimary, "tile_ai_agronom", alwaysVisible = true))
+        add(HomeMenuTile(NavRoutes.PESTICIDE, strings.tilePestTitle, strings.tilePestSub, Icons.Filled.Science, WarningAmber, "tile_pesticide"))
         add(HomeMenuTile(NavRoutes.NPK, strings.tileNpkTitle, strings.tileNpkSub, Icons.Filled.Grass, EmeraldPrimary, "tile_npk"))
         add(HomeMenuTile(NavRoutes.WEATHER, strings.tileWeatherTitle, strings.tileWeatherSub, Icons.Filled.WbSunny, Color(0xFF2F80ED), "tile_weather"))
-        add(HomeMenuTile(NavRoutes.PESTICIDE, strings.tilePestTitle, strings.tilePestSub, Icons.Filled.Science, WarningAmber, "tile_pesticide"))
         add(HomeMenuTile(NavRoutes.FIELDS, strings.tileFieldsTitle, strings.tileFieldsSub, Icons.Filled.Map, Color(0xFF1F8A70), "tile_fields"))
-        add(HomeMenuTile(NavRoutes.AGRO_CALENDAR, strings.tileCalendarTitle, strings.tileCalendarSub, Icons.Filled.CalendarMonth, Color(0xFF7E22CE), "tile_calendar"))
-        add(HomeMenuTile(NavRoutes.INSURANCE, strings.tileInsuranceTitle, strings.tileInsuranceSub, Icons.Filled.VerifiedUser, Color(0xFF0369A1), "tile_insurance"))
-        add(HomeMenuTile(NavRoutes.STATIONS, strings.tileStationsTitle, strings.tileStationsSub, Icons.Filled.Storefront, Color(0xFF0D9488), "tile_stations"))
+        add(HomeMenuTile(NavRoutes.HARVEST, strings.tileHarvestTitle, strings.tileHarvestSub, Icons.Filled.Spa, EmeraldBright, "tile_harvest"))
         add(HomeMenuTile(NavRoutes.SUBSIDY, strings.tileSubsidyTitle, strings.tileSubsidySub, Icons.Filled.RequestQuote, PhosphorusAmber, "tile_subsidy"))
         add(HomeMenuTile(NavRoutes.EQUIPMENT, strings.tileEquipmentTitle, strings.tileEquipmentSub, Icons.Filled.Agriculture, PotassiumPlum, "tile_equipment"))
         add(HomeMenuTile(NavRoutes.FINANCE, strings.tileFinanceTitle, strings.tileFinanceSub, Icons.Filled.AccountBalanceWallet, Color(0xFF0F766E), "tile_finance"))
-        add(HomeMenuTile(NavRoutes.HARVEST, strings.tileHarvestTitle, strings.tileHarvestSub, Icons.Filled.Spa, EmeraldBright, "tile_harvest"))
-        add(HomeMenuTile(NavRoutes.GALLERY, strings.tileGalleryTitle, strings.tileGallerySub, Icons.Filled.PhotoCamera, Color(0xFF0284C7), "tile_gallery"))
         add(HomeMenuTile(NavRoutes.SEEDS, strings.tileSeedsTitle, strings.tileSeedsSub, Icons.Filled.LocalFlorist, Color(0xFF15803D), "tile_seeds"))
+        add(HomeMenuTile(NavRoutes.AGRO_CALENDAR, strings.tileCalendarTitle, strings.tileCalendarSub, Icons.Filled.CalendarMonth, Color(0xFF7E22CE), "tile_calendar"))
+        add(HomeMenuTile(NavRoutes.INSURANCE, strings.tileInsuranceTitle, strings.tileInsuranceSub, Icons.Filled.VerifiedUser, Color(0xFF0369A1), "tile_insurance"))
+        add(HomeMenuTile(NavRoutes.STATIONS, strings.tileStationsTitle, strings.tileStationsSub, Icons.Filled.Storefront, Color(0xFF0D9488), "tile_stations"))
+        add(HomeMenuTile(NavRoutes.GALLERY, strings.tileGalleryTitle, strings.tileGallerySub, Icons.Filled.PhotoCamera, Color(0xFF0284C7), "tile_gallery"))
         add(HomeMenuTile(NavRoutes.LINKS, strings.tileLinksTitle, strings.tileLinksSub, Icons.Filled.Link, Color(0xFF4F46E5), "tile_links"))
         if (showAdminTile) {
-            add(HomeMenuTile(NavRoutes.ADMIN, strings.tileAdminTitle, strings.tileAdminSub, Icons.Filled.AdminPanelSettings, Color(0xFFB45309), "tile_admin"))
+            add(HomeMenuTile(NavRoutes.ADMIN, strings.tileAdminTitle, strings.tileAdminSub, Icons.Filled.AdminPanelSettings, Color(0xFFB45309), "tile_admin", alwaysVisible = true))
         }
     }
-    val tiles = allTiles.filter { it.route == NavRoutes.ADMIN || it.route !in hiddenModules }
+    val visibleCustomizableCount = allTiles.count { !it.alwaysVisible && it.route !in hiddenModules }
+    val tiles = allTiles.filter { it.alwaysVisible || it.route !in hiddenModules }
 
     ModuleVisibilityDialog(
         visible = showCustomizeDialog,
@@ -148,410 +166,416 @@ fun HomeScreen(
         onDismiss = { showCustomizeDialog = false },
     )
 
-    LazyColumn(
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-        modifier = Modifier.fillMaxSize().testTag("home_screen_list"),
-    ) {
-        // Hero Farmer Panel Card
-        item {
-            Card(
-                shape = RoundedCornerShape(24.dp),
-                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Brush.linearGradient(listOf(extra.heroStart, extra.heroEnd)))
-                        .padding(18.dp),
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(
-                            text = strings.heroTitle,
-                            style = MaterialTheme.typography.headlineSmall,
-                            color = Color.White,
-                            fontWeight = FontWeight.ExtraBold,
-                        )
-                        Text(
-                            text = strings.heroSubtitle,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Color.White.copy(alpha = 0.9f),
-                        )
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
-                        ) {
-                            Surface(
-                                shape = RoundedCornerShape(14.dp),
-                                color = Color.White.copy(alpha = 0.16f),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight()
-                                    .clickable { onNavigate(NavRoutes.FIELDS) }
-                                    .testTag("hero_fields_stat"),
-                            ) {
-                                Column(modifier = Modifier.padding(12.dp)) {
-                                    Text(
-                                        text = strings.myFieldsStat,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = Color.White.copy(alpha = 0.85f),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    Text(
-                                        text = fields.size.toString(),
-                                        style = MaterialTheme.typography.headlineSmall,
-                                        color = Color.White,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        maxLines = 1,
-                                    )
-                                }
-                            }
-                            Surface(
-                                shape = RoundedCornerShape(14.dp),
-                                color = Color.White.copy(alpha = 0.16f),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight()
-                                    .clickable { onNavigate(NavRoutes.FIELDS) }
-                                    .testTag("hero_area_stat"),
-                            ) {
-                                Column(modifier = Modifier.padding(12.dp)) {
-                                    Text(
-                                        text = strings.totalAreaStat,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = Color.White.copy(alpha = 0.85f),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    Text(
-                                        text = "${formatNumber(totalHa, 2)} ha",
-                                        style = MaterialTheme.typography.headlineSmall,
-                                        color = Color.White,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        maxLines = 1,
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+    Box(modifier = Modifier.fillMaxSize()) {
+        BotanicalCornerBackdrop(modifier = Modifier.fillMaxSize())
 
-        // AI Agronomist Feature Card
-        item {
-            Card(
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(20.dp))
-                    .clickable { onNavigate(NavRoutes.CHAT) }
-                    .testTag("home_ai_banner"),
-            ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(extra.pale),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.AutoAwesome,
-                            contentDescription = strings.aiBannerTitle,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(26.dp),
-                        )
-                    }
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = strings.aiBannerTitle,
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Text(
-                            text = strings.aiBannerSub,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = extra.muted,
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Surface(
-                            shape = RoundedCornerShape(50),
-                            color = extra.pale,
-                        ) {
-                            Text(
-                                text = strings.aiLiveBadge,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                            )
-                        }
-                    }
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                        contentDescription = strings.open,
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
-                }
-            }
-        }
-
-        // KTN ASI Telegram Bot Card
-        item {
-            val telegramBlue = Color(0xFF0088CC)
-            Card(
-                shape = RoundedCornerShape(18.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = BorderStroke(1.dp, telegramBlue.copy(alpha = 0.35f)),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(18.dp))
-                    .clickable { openExternalUrl(context, KTN_TELEGRAM_BOT_URL) }
-                    .testTag("home_telegram_bot_card"),
-            ) {
-                Row(
-                    modifier = Modifier.padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(telegramBlue.copy(alpha = 0.14f)),
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.Send,
-                            contentDescription = strings.telegramBotTitle,
-                            tint = telegramBlue,
-                            modifier = Modifier.size(22.dp),
-                        )
-                    }
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = strings.telegramBotTitle,
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Text(
-                            text = strings.telegramBotSub,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = extra.muted,
-                        )
-                    }
-                    Surface(
-                        shape = RoundedCornerShape(50),
-                        color = telegramBlue.copy(alpha = 0.12f),
-                    ) {
-                        Text(
-                            text = strings.telegramBotBtn,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = telegramBlue,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        )
-                    }
-                }
-            }
-        }
-
-        // Weather Hazard Alert Card (only shown when frost, high wind, or heavy rain is detected)
-        if (weatherState.hasAnyHazard) {
+        LazyColumn(
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier.fillMaxSize().testTag("home_screen_list"),
+        ) {
+            // Illustrated Hero Greeting & Field Metrics Card
             item {
-                val alertTitle = strings.alertWeatherTitle
-                val alertSubtitle = buildList {
-                    if (weatherState.hasFrostRisk) add(strings.frostWarning)
-                    if (weatherState.hasHighWind) add(strings.windWarning)
-                    if (weatherState.hasHeavyRain) add(strings.rainWarning)
-                }.joinToString(" • ")
+                HomeHeroBannerCard(
+                    greeting = "${strings.greetingPrefix}, $displayName!",
+                    subtitle = strings.heroSubtitle,
+                    fieldsLabel = strings.myFieldsStat,
+                    fieldsCount = fields.size.toString(),
+                    areaLabel = strings.totalAreaStat,
+                    areaValue = "${formatNumber(totalHa, 2)} ha",
+                    onFieldsClick = { onNavigate(NavRoutes.FIELDS) },
+                )
+            }
 
-                Card(
-                    shape = RoundedCornerShape(18.dp),
-                    colors = CardDefaults.cardColors(containerColor = extra.dangerContainer),
-                    border = BorderStroke(1.dp, DangerBorder),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(18.dp))
-                        .clickable { onNavigate(NavRoutes.WEATHER) }
-                        .testTag("home_alert_card"),
-                ) {
-                    Row(
-                        modifier = Modifier.padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+            // Weather & Fertilization Hazard Alert Card (only shown when frost, heat, high wind, or heavy rain is detected)
+            if (weatherState.hasAnyHazard || weatherHazards.isNotEmpty()) {
+                item {
+                    val alertTitle = strings.alertWeatherTitle
+                    val hazardReasons = buildList {
+                        if (weatherState.hasFrostRisk) add(strings.frostWarning)
+                        if (weatherState.hasHeatRisk) add(strings.heatWarning)
+                        if (weatherState.hasHighWind) add(strings.windWarning)
+                        if (weatherState.hasHeavyRain) add(strings.rainWarning)
+                    }
+                    val locationSummaries = weatherHazards.take(2).map { alert ->
+                        val (title, _) = EquipmentReminderManager.weatherHazardSummary(alert, strings)
+                        "${alert.locationLabel}: $title (${alert.date}, ${alert.metricText})"
+                    }
+                    val alertSubtitle = (locationSummaries + hazardReasons)
+                        .distinct()
+                        .joinToString(" • ")
+
+                    Card(
+                        shape = RoundedCornerShape(18.dp),
+                        colors = CardDefaults.cardColors(containerColor = extra.dangerContainer),
+                        border = BorderStroke(1.dp, DangerBorder),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(18.dp))
+                            .clickable { onNavigate(NavRoutes.WEATHER) }
+                            .testTag("home_alert_card"),
                     ) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(DangerRed.copy(alpha = 0.14f)),
+                        Row(
+                            modifier = Modifier.padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(DangerRed.copy(alpha = 0.14f)),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Warning,
+                                    contentDescription = alertTitle,
+                                    tint = DangerRed,
+                                    modifier = Modifier.size(22.dp),
+                                )
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = alertTitle,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Text(
+                                    text = alertSubtitle,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = extra.onDangerContainer,
+                                )
+                            }
                             Icon(
-                                imageVector = Icons.Filled.Warning,
-                                contentDescription = alertTitle,
+                                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                contentDescription = strings.open,
                                 tint = DangerRed,
-                                modifier = Modifier.size(22.dp),
                             )
                         }
-                        Column(modifier = Modifier.weight(1f)) {
+                    }
+                }
+            }
+
+            // Admin Published Notices (visible to all signed-in users)
+            if (adminNotices.isNotEmpty()) {
+                items(adminNotices, key = { "home_notice_${it.id}" }) { notice ->
+                    Card(
+                        shape = RoundedCornerShape(18.dp),
+                        colors = CardDefaults.cardColors(containerColor = extra.pale),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .let { mod ->
+                                if (notice.contactOrUrl.isNotBlank()) {
+                                    mod.clip(RoundedCornerShape(18.dp)).clickable { openExternalUrl(context, notice.contactOrUrl) }
+                                } else {
+                                    mod
+                                }
+                            }
+                            .testTag("home_admin_notice_${notice.id}"),
+                    ) {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.padding(14.dp),
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.AdminPanelSettings,
+                                    contentDescription = strings.adminPublishedBannerTitle,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Text(
+                                    text = strings.adminPublishedBannerTitle,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                                if (notice.region.isNotBlank()) {
+                                    Text(
+                                        text = "• ${notice.region}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = extra.muted,
+                                    )
+                                }
+                            }
                             Text(
-                                text = alertTitle,
+                                text = notice.title,
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface,
                             )
                             Text(
-                                text = alertSubtitle,
+                                text = notice.details,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = extra.onDangerContainer,
+                                color = MaterialTheme.colorScheme.onSurface,
                             )
                         }
                     }
                 }
             }
-        }
 
-        // Admin Published Notices (visible to all signed-in users)
-        if (adminNotices.isNotEmpty()) {
-            items(adminNotices, key = { "home_notice_${it.id}" }) { notice ->
-                Card(
-                    shape = RoundedCornerShape(18.dp),
-                    colors = CardDefaults.cardColors(containerColor = extra.pale),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .let { mod ->
-                            if (notice.contactOrUrl.isNotBlank()) {
-                                mod.clip(RoundedCornerShape(18.dp)).clickable { openExternalUrl(context, notice.contactOrUrl) }
-                            } else {
-                                mod
-                            }
-                        }
-                        .testTag("home_admin_notice_${notice.id}"),
+            // Modules Header + Customize Visibility Button
+            item {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                        modifier = Modifier.padding(14.dp),
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.AdminPanelSettings,
-                                contentDescription = strings.adminPublishedBannerTitle,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp),
-                            )
-                            Text(
-                                text = strings.adminPublishedBannerTitle,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Bold,
-                            )
-                            if (notice.region.isNotBlank()) {
-                                Text(
-                                    text = "• ${notice.region}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = extra.muted,
-                                )
-                            }
-                        }
-                        Text(
-                            text = notice.title,
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Text(
-                            text = notice.details,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                    }
-                }
-            }
-        }
-
-        // Modules Header + Customize Visibility Button
-        item {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(
-                    text = strings.modulesSectionTitle,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground,
-                )
-                TextButton(
-                    onClick = { showCustomizeDialog = true },
-                    modifier = Modifier.testTag("customize_modules_btn"),
-                ) {
-                    Icon(Icons.Filled.Tune, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.size(4.dp))
-                    Text(strings.modulesCustomizeBtn, fontWeight = FontWeight.Bold)
-                }
-            }
-        }
-
-        // Adaptive Menu Grid
-        item {
-            if (tiles.isEmpty()) {
-                AqroCard {
                     Text(
-                        text = strings.modulesAllHiddenMsg,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = extra.muted,
+                        text = strings.modulesSectionTitle,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground,
                     )
-                    Spacer(modifier = Modifier.height(10.dp))
-                    OutlinedButton(
-                        onClick = onResetModules,
-                        modifier = Modifier.fillMaxWidth().testTag("show_all_modules_inline_btn"),
+                    TextButton(
+                        onClick = { showCustomizeDialog = true },
+                        modifier = Modifier.testTag("customize_modules_btn"),
                     ) {
-                        Text(strings.modulesShowAllBtn)
+                        Icon(Icons.Filled.Tune, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.size(4.dp))
+                        Text(strings.modulesCustomizeBtn, fontWeight = FontWeight.Bold)
                     }
                 }
-            } else {
-                BoxWithConstraints(modifier = Modifier.fillMaxWidth().testTag("home_tiles_grid")) {
-                    val cols = if (maxWidth >= 600.dp) 4 else 3
-                    val rows = tiles.chunked(cols)
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        rows.forEach { rowItems ->
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                rowItems.forEach { tile ->
-                                    HomeMenuTileCard(
-                                        tile = tile,
-                                        onClick = { onNavigate(tile.route) },
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                }
-                                repeat(cols - rowItems.size) {
-                                    Spacer(modifier = Modifier.weight(1f))
+            }
+
+            // Adaptive 3-Column Visual Module Grid
+            item {
+                if (visibleCustomizableCount == 0) {
+                    AqroCard {
+                        Text(
+                            text = strings.modulesAllHiddenMsg,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = extra.muted,
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        OutlinedButton(
+                            onClick = onResetModules,
+                            modifier = Modifier.fillMaxWidth().testTag("show_all_modules_inline_btn"),
+                        ) {
+                            Text(strings.modulesShowAllBtn)
+                        }
+                    }
+                } else {
+                    BoxWithConstraints(modifier = Modifier.fillMaxWidth().testTag("home_tiles_grid")) {
+                        val cols = if (maxWidth >= 600.dp) 4 else 3
+                        val rows = tiles.chunked(cols)
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            rows.forEach { rowItems ->
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Max),
+                                ) {
+                                    rowItems.forEach { tile ->
+                                        HomeMenuTileCard(
+                                            tile = tile,
+                                            onClick = { onNavigate(tile.route) },
+                                            modifier = Modifier.weight(1f).fillMaxHeight(),
+                                        )
+                                    }
+                                    repeat(cols - rowItems.size) {
+                                        Spacer(modifier = Modifier.weight(1f))
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
+
+            // Illustrated AqroM Assistant Banner Card (Online)
+            item {
+                HomeAssistantBannerCard(
+                    title = strings.aiBannerTitle,
+                    badgeLabel = strings.assistantOnlineLabel,
+                    subtitle = strings.aiBannerSub,
+                    actionLabel = strings.askNowBtn,
+                    tag = "home_ai_banner",
+                    onClick = { onNavigate(NavRoutes.CHAT) },
+                )
+            }
+
+            // KTN ASI Telegram Bot Card
+            item {
+                HomeTelegramBotCard(
+                    title = strings.telegramBotTitle,
+                    subtitle = strings.telegramBotSub,
+                    actionLabel = strings.telegramBotBtn,
+                    tag = "home_telegram_bot_card",
+                    onClick = { openExternalUrl(context, KTN_TELEGRAM_BOT_URL) },
+                )
+            }
+
+            // Bottom Twin Strip: Weather Alerts & Seasonal Agro Calendar
+            item {
+                HomeBottomQuickStrip(
+                    weatherState = weatherState,
+                    weatherHazards = weatherHazards,
+                    onOpenWeather = { onNavigate(NavRoutes.WEATHER) },
+                    onOpenCalendar = { onNavigate(NavRoutes.AGRO_CALENDAR) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun HomeHeroBannerCard(
+    greeting: String,
+    subtitle: String,
+    fieldsLabel: String,
+    fieldsCount: String,
+    areaLabel: String,
+    areaValue: String,
+    onFieldsClick: () -> Unit,
+    showStats: Boolean = true,
+) {
+    Card(
+        shape = RoundedCornerShape(24.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 5.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF0E4A25)),
+        ) {
+            Image(
+                painter = painterResource(id = R.drawable.img_home_hero_farm),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.matchParentSize(),
+            )
+            // Deep forest emerald gradient overlay on left/bottom so text and glass stats always pop cleanly
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(
+                        Brush.horizontalGradient(
+                            0.0f to Color(0xFF0A3D1E).copy(alpha = 0.94f),
+                            0.48f to Color(0xFF104F29).copy(alpha = 0.78f),
+                            0.78f to Color(0xFF135A2F).copy(alpha = 0.38f),
+                            1.0f to Color(0xFF0E4523).copy(alpha = 0.25f),
+                        )
+                    ),
+            )
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.padding(18.dp),
+            ) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.fillMaxWidth(0.76f),
+                ) {
+                    Text(
+                        text = greeting,
+                        style = MaterialTheme.typography.displaySmall.copy(fontSize = 24.sp),
+                        color = Color.White,
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White.copy(alpha = 0.92f),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+
+                if (showStats) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                    ) {
+                        HeroGlassStatPill(
+                            icon = Icons.Filled.Spa,
+                            label = fieldsLabel,
+                            value = fieldsCount,
+                            tag = "hero_fields_stat",
+                            onClick = onFieldsClick,
+                            modifier = Modifier.weight(1f).fillMaxHeight(),
+                        )
+                        HeroGlassStatPill(
+                            icon = Icons.Filled.Eco,
+                            label = areaLabel,
+                            value = areaValue,
+                            tag = "hero_area_stat",
+                            onClick = onFieldsClick,
+                            modifier = Modifier.weight(1f).fillMaxHeight(),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HeroGlassStatPill(
+    icon: ImageVector,
+    label: String,
+    value: String,
+    tag: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = Color(0xFF092A16).copy(alpha = 0.68f),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.22f)),
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick)
+            .testTag(tag),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
+        ) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color(0xFF42C26B).copy(alpha = 0.28f)),
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = label,
+                    tint = Color(0xFF9AF5B4),
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White.copy(alpha = 0.85f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = value,
+                    style = MaterialTheme.typography.titleLarge,
+                    color = Color.White,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = Color.White.copy(alpha = 0.78f),
+                modifier = Modifier.size(18.dp),
+            )
         }
     }
 }
@@ -564,55 +588,394 @@ private fun HomeMenuTileCard(
 ) {
     val extra = LocalAqroColors.current
     Card(
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(1.dp, extra.line),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         modifier = modifier
-            .height(114.dp)
-            .clip(RoundedCornerShape(18.dp))
+            .height(132.dp)
+            .clip(RoundedCornerShape(20.dp))
             .clickable(onClick = onClick)
             .testTag(tile.tag),
     ) {
         Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
+            verticalArrangement = Arrangement.SpaceBetween,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 6.dp, vertical = 10.dp),
+                .padding(horizontal = 10.dp, vertical = 10.dp),
+        ) {
+            ModuleIconMedallion(
+                route = tile.route,
+                fallbackIcon = tile.icon,
+                fallbackAccent = tile.accent,
+                size = 46.dp,
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text = tile.title,
+                        style = MaterialTheme.typography.labelLarge.copy(
+                            fontSize = 12.5.sp,
+                            lineHeight = 15.sp,
+                        ),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f).padding(end = 2.dp),
+                    )
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = extra.muted,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+                Text(
+                    text = tile.subtitle,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 10.5.sp,
+                        lineHeight = 13.sp,
+                    ),
+                    color = extra.muted,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun HomeAssistantBannerCard(
+    title: String,
+    badgeLabel: String,
+    subtitle: String,
+    actionLabel: String,
+    tag: String,
+    onClick: () -> Unit,
+) {
+    val extra = LocalAqroColors.current
+    val isDark = extra.isDark
+    val bannerBg = if (isDark) {
+        Brush.horizontalGradient(listOf(Color(0xFF193524), Color(0xFF15291D)))
+    } else {
+        Brush.horizontalGradient(listOf(Color(0xFFE7F3E7), Color(0xFFF3F8F1)))
+    }
+
+    Card(
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, extra.line),
+        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(22.dp))
+            .clickable(onClick = onClick)
+            .testTag(tag),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(bannerBg)
+                .padding(horizontal = 10.dp, vertical = 10.dp),
+        ) {
+            Image(
+                painter = painterResource(id = R.drawable.img_assistant_orb),
+                contentDescription = title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .size(64.dp)
+                    .clip(RoundedCornerShape(16.dp)),
+            )
+
+            Column(
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+                modifier = Modifier.weight(1f),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = if (isDark) Color(0xFF1E462C) else Color(0xFFD6F3DC),
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF28A745)),
+                            )
+                            Text(
+                                text = badgeLabel,
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                color = if (isDark) Color(0xFF9DF2B0) else Color(0xFF146C2E),
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
+                }
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = extra.muted,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+
+            Surface(
+                shape = RoundedCornerShape(50),
+                color = Color(0xFF0E4B25),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                ) {
+                    Text(
+                        text = actionLabel,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                    )
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun HomeTelegramBotCard(
+    title: String,
+    subtitle: String,
+    actionLabel: String,
+    tag: String,
+    onClick: () -> Unit,
+) {
+    val extra = LocalAqroColors.current
+    val telegramBlue = Color(0xFF0088CC)
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, telegramBlue.copy(alpha = 0.28f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .clickable(onClick = onClick)
+            .testTag(tag),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .size(40.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(tile.accent.copy(alpha = 0.14f)),
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(telegramBlue.copy(alpha = 0.13f)),
             ) {
                 Icon(
-                    imageVector = tile.icon,
-                    contentDescription = tile.title,
-                    tint = tile.accent,
-                    modifier = Modifier.size(22.dp),
+                    imageVector = Icons.AutoMirrored.Filled.Send,
+                    contentDescription = title,
+                    tint = telegramBlue,
+                    modifier = Modifier.size(20.dp),
                 )
             }
-            Spacer(modifier = Modifier.height(7.dp))
-            Text(
-                text = tile.title,
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = extra.muted,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Surface(
+                shape = RoundedCornerShape(50),
+                color = telegramBlue.copy(alpha = 0.12f),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                ) {
+                    Text(
+                        text = actionLabel,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = telegramBlue,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                    )
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = telegramBlue,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeBottomQuickStrip(
+    weatherState: WeatherUiState,
+    weatherHazards: List<WeatherHazardAlert> = emptyList(),
+    onOpenWeather: () -> Unit,
+    onOpenCalendar: () -> Unit,
+) {
+    val strings = LocalStrings.current
+    val extra = LocalAqroColors.current
+    val hazardCount = if (weatherHazards.isNotEmpty()) {
+        weatherHazards.size
+    } else {
+        listOf(
+            weatherState.hasFrostRisk,
+            weatherState.hasHeatRisk,
+            weatherState.hasHighWind,
+            weatherState.hasHeavyRain,
+        ).count { it }
+    }
+    val noticesSub = if (hazardCount > 0) {
+        String.format(strings.homeWeatherHazardCountFormat, hazardCount)
+    } else {
+        strings.homeWeatherSafeMsg
+    }
+
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, extra.line),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        modifier = Modifier.fillMaxWidth().testTag("home_bottom_quick_strip"),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(IntrinsicSize.Min),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable(onClick = onOpenWeather)
+                    .padding(horizontal = 12.dp, vertical = 12.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.NotificationsActive,
+                    contentDescription = strings.homeNoticesTitle,
+                    tint = Color(0xFFF59E0B),
+                    modifier = Modifier.size(22.dp),
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = strings.homeNoticesTitle,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                    )
+                    Text(
+                        text = noticesSub,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (hazardCount > 0) DangerRed else extra.muted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = extra.muted,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+
+            VerticalDivider(
+                thickness = 1.dp,
+                color = extra.line,
+                modifier = Modifier.padding(vertical = 10.dp),
             )
-            Text(
-                text = tile.subtitle,
-                style = MaterialTheme.typography.labelSmall,
-                color = extra.muted,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable(onClick = onOpenCalendar)
+                    .padding(horizontal = 12.dp, vertical = 12.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.CalendarMonth,
+                    contentDescription = strings.tileCalendarTitle,
+                    tint = Color(0xFFF59E0B),
+                    modifier = Modifier.size(22.dp),
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = strings.tileCalendarTitle,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                    )
+                    Text(
+                        text = strings.homeMonthlyCalendarSub,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = extra.muted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = extra.muted,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
         }
     }
 }
