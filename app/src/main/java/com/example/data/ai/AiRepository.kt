@@ -16,6 +16,13 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 
+import com.example.domain.CadastralDocumentParser
+import com.example.domain.DocCoordTarget
+import com.example.domain.LatLon
+import com.example.i18n.StringsAz
+import com.example.i18n.StringsEn
+import com.example.i18n.StringsRu
+
 data class ChatHistoryTurn(
     val isUser: Boolean,
     val text: String,
@@ -25,6 +32,10 @@ data class DocumentScanResult(
     val areaHa: Double?,
     val summary: String,
     val coordinates: List<Pair<Double, Double>>,
+    val coordTarget: DocCoordTarget = DocCoordTarget.UTM_38T,
+    val utmZone: Int = 38,
+    val utmLinesText: String = "",
+    val latLonLinesText: String = "",
 )
 
 interface AiRepository {
@@ -68,6 +79,15 @@ class FirebaseAiRepository : AiRepository {
         properties = mapOf(
             "areaHa" to Schema.double(description = "Total parcel area in hectares if shown on the document", nullable = true),
             "summary" to Schema.string(description = "Brief summary of the land document details and findings"),
+            "rawPairs" to Schema.array(
+                items = Schema.obj(
+                    properties = mapOf(
+                        "x" to Schema.string(description = "Value from X / Easting / Latitude column in exact row order"),
+                        "y" to Schema.string(description = "Value from Y / Northing / Longitude column in exact row order"),
+                    )
+                ),
+                description = "Exact sequential X and Y pairs from a cadastral coordinate table if present",
+            ),
             "coordinates" to Schema.array(
                 items = Schema.obj(
                     properties = mapOf(
@@ -78,7 +98,7 @@ class FirebaseAiRepository : AiRepository {
                 description = "Polygon corner coordinates in WGS84 lat/lon if extracted from the document",
             ),
         ),
-        optionalProperties = listOf("areaHa", "coordinates")
+        optionalProperties = listOf("areaHa", "rawPairs", "coordinates")
     )
 
     private val documentModel by lazy {
@@ -256,18 +276,30 @@ class FirebaseAiRepository : AiRepository {
         baseLon: Double,
         language: AppLanguage,
     ): DocumentScanResult {
+        val strings = when (language) {
+            AppLanguage.AZ -> StringsAz
+            AppLanguage.EN -> StringsEn
+            AppLanguage.RU -> StringsRu
+        }
+        // 1. Run bundled 100% offline ML Kit OCR table parser first
+        val offlineResult = OfflineDocumentScanner.scanBitmap(bitmap, language)
+        if (offlineResult != null && offlineResult.coordinates.size >= 3) {
+            return offlineResult
+        }
+
         val langName = when (language) {
             AppLanguage.AZ -> "Azerbaijani"
             AppLanguage.EN -> "English"
             AppLanguage.RU -> "Russian"
         }
-        val scaled = scaleBitmapIfNeeded(bitmap, maxDim = 1280)
+        val scaled = scaleBitmapIfNeeded(bitmap, maxDim = 1600)
         val prompt = """
-            Inspect this agricultural land parcel / cadastral extract document image.
+            Inspect this agricultural land parcel / cadastral extract document image (note: the image may be rotated 90 degrees).
             Extract:
-            - areaHa: the land area in hectares if readable (convert sot/m2 to hectares if needed, otherwise null).
+            - areaHa: the land area in hectares if readable (convert sot/m2 to hectares if needed, e.g. 'Sahəsi 1.6069', otherwise null).
             - summary: a short 1-2 sentence summary in $langName of what is shown on the document.
-            - coordinates: any WGS84 lat/lon boundary corner points if explicitly printed on the document; otherwise return an empty array.
+            - rawPairs: if the document has a coordinate table with columns X and Y, extract every corner point's X and Y string values in EXACT sequential order (1, 2, 3...). Do not include point numbers (1, 2, 3) or segment distances ('Məsafə').
+            - coordinates: any WGS84 lat/lon boundary corner points if explicitly printed on the document.
         """.trimIndent()
 
         return try {
@@ -281,8 +313,33 @@ class FirebaseAiRepository : AiRepository {
             }
             val jsonText = response.text ?: throw IllegalStateException("Empty document scan response")
             val json = JSONObject(jsonText)
-            val areaHa = if (json.has("areaHa") && !json.isNull("areaHa")) json.optDouble("areaHa") else null
+            val areaHa = if (json.has("areaHa") && !json.isNull("areaHa")) {
+                json.optDouble("areaHa").takeIf { !it.isNaN() && it > 0 }
+            } else {
+                null
+            }
             val summary = json.optString("summary", "")
+
+            val rawPairs = mutableListOf<Pair<String, String>>()
+            val pairsArr = json.optJSONArray("rawPairs")
+            if (pairsArr != null) {
+                for (i in 0 until pairsArr.length()) {
+                    val item = pairsArr.optJSONObject(i) ?: continue
+                    val x = item.optString("x", "").trim()
+                    val y = item.optString("y", "").trim()
+                    if (x.isNotBlank() && y.isNotBlank()) {
+                        rawPairs.add(x to y)
+                    }
+                }
+            }
+            val classifiedFromPairs = CadastralDocumentParser.classifyPairs(rawPairs, areaHa)
+            if (classifiedFromPairs != null && classifiedFromPairs.polygon.size >= 3) {
+                val baseDoc = OfflineDocumentScanner.toDocumentScanResult(classifiedFromPairs, language)
+                return baseDoc.copy(
+                    summary = if (summary.isNotBlank()) "$summary\n${baseDoc.summary}" else baseDoc.summary,
+                )
+            }
+
             val coordsList = mutableListOf<Pair<Double, Double>>()
             val arr = json.optJSONArray("coordinates")
             if (arr != null) {
@@ -295,19 +352,26 @@ class FirebaseAiRepository : AiRepository {
                     }
                 }
             }
+            val latLonText = coordsList.joinToString("\n") { (lat, lon) ->
+                String.format(java.util.Locale.US, "%.6f, %.6f", lat, lon)
+            }
             DocumentScanResult(
-                areaHa = if (areaHa != null && !areaHa.isNaN() && areaHa > 0) areaHa else null,
-                summary = summary,
+                areaHa = areaHa,
+                summary = summary.ifBlank { strings.docScanNoCoordsMsg },
                 coordinates = coordsList,
+                coordTarget = DocCoordTarget.LAT_LON,
+                utmZone = 38,
+                utmLinesText = "",
+                latLonLinesText = latLonText,
             )
         } catch (e: TimeoutCancellationException) {
-            Log.e(TAG, "Document scan timed out", e)
-            throw e
+            Log.w(TAG, "Document scan timed out, returning offline result", e)
+            DocumentScanResult(areaHa = null, summary = strings.docScanNoCoordsMsg, coordinates = emptyList())
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "Document scan failed", e)
-            throw e
+            Log.w(TAG, "Document scan AI fallback failed, returning offline status", e)
+            DocumentScanResult(areaHa = null, summary = strings.docScanNoCoordsMsg, coordinates = emptyList())
         }
     }
 

@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PinDrop
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Share
@@ -74,7 +75,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import com.example.data.model.FarmField
+import com.example.domain.DocCoordTarget
 import com.example.domain.FieldMeasurements
 import com.example.domain.GeoUtils
 import com.example.domain.KmzDocument
@@ -96,6 +99,8 @@ import com.example.ui.theme.DangerRed
 import com.example.ui.theme.LocalAqroColors
 import com.example.ui.viewmodel.DocScanUiState
 import kotlinx.coroutines.launch
+import java.io.File
+import java.util.UUID
 import kotlin.math.roundToInt
 
 @Composable
@@ -148,6 +153,9 @@ fun FieldsScreen(
 
     // Doc scan tab state
     var docBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var pendingDocCameraUri by remember { mutableStateOf<Uri?>(null) }
+    var pendingDocCameraFile by remember { mutableStateOf<File?>(null) }
+    var docCameraDenied by remember { mutableStateOf(false) }
 
     // Form state
     var fieldName by remember { mutableStateOf("") }
@@ -166,6 +174,31 @@ fun FieldsScreen(
             fieldSizeInput = formatNumber(measurements.areaHa, 4)
             fieldWidthInput = measurements.widthM.roundToInt().toString()
             fieldLengthInput = measurements.lengthM.roundToInt().toString()
+        }
+    }
+
+    // Route scanned X/Y coordinates in exact sequential order into UTM 38T or Lat/Lon
+    LaunchedEffect(docScanState.scanId) {
+        if (docScanState.scanId > 0L) {
+            when (docScanState.coordTarget) {
+                DocCoordTarget.UTM_38T -> if (docScanState.utmLinesText.isNotBlank()) {
+                    utmZone = if (docScanState.utmZone == 39) 39 else 38
+                    useUtm = true
+                    utmText = docScanState.utmLinesText
+                    showBatchCoords = true
+                    coordsError = null
+                }
+                DocCoordTarget.LAT_LON -> if (docScanState.latLonLinesText.isNotBlank()) {
+                    useUtm = false
+                    latLonText = docScanState.latLonLinesText
+                    showBatchCoords = true
+                    coordsError = null
+                }
+            }
+            val areaHa = docScanState.detectedAreaHa
+            if (areaHa != null && areaHa > 0) {
+                fieldSizeInput = formatNumber(areaHa, 4)
+            }
         }
     }
 
@@ -218,6 +251,48 @@ fun FieldsScreen(
     ) { uri: Uri? ->
         if (uri != null) {
             docBitmap = decodeUriToBitmap(context, uri)
+            docCameraDenied = false
+        }
+    }
+
+    val docTakePictureLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        val uri = pendingDocCameraUri
+        val file = pendingDocCameraFile
+        if (success && uri != null) {
+            docBitmap = decodeUriToBitmap(context, uri)
+            docCameraDenied = false
+        }
+        if (file != null) {
+            runCatching { if (file.exists()) file.delete() }
+        }
+        pendingDocCameraUri = null
+        pendingDocCameraFile = null
+    }
+
+    fun launchDocCamera() {
+        runCatching {
+            val dir = File(context.filesDir, "field_photos").apply { if (!exists()) mkdirs() }
+            val tempFile = File(dir, "doc_scan_${UUID.randomUUID().toString().take(8)}.jpg")
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", tempFile)
+            pendingDocCameraFile = tempFile
+            pendingDocCameraUri = uri
+            docTakePictureLauncher.launch(uri)
+        }.onFailure {
+            pendingDocCameraFile = null
+            pendingDocCameraUri = null
+        }
+    }
+
+    val docCameraPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            docCameraDenied = false
+            launchDocCamera()
+        } else {
+            docCameraDenied = true
         }
     }
 
@@ -713,17 +788,54 @@ fun FieldsScreen(
                     AqroCard {
                         Text(strings.docScanUploadLabel, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                         Spacer(modifier = Modifier.height(10.dp))
-                        OutlinedButton(
-                            onClick = {
-                                docPickerLauncher.launch(
-                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                )
-                            },
-                            modifier = Modifier.fillMaxWidth().testTag("pick_field_doc_btn"),
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
                         ) {
-                            Icon(Icons.Filled.DocumentScanner, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.size(8.dp))
-                            Text(strings.btnPickDocumentImage)
+                            Button(
+                                onClick = {
+                                    val granted = ContextCompat.checkSelfPermission(
+                                        context,
+                                        Manifest.permission.CAMERA,
+                                    ) == PackageManager.PERMISSION_GRANTED
+                                    if (granted) {
+                                        docCameraDenied = false
+                                        launchDocCamera()
+                                    } else {
+                                        docCameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                                    }
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .heightIn(min = 48.dp)
+                                    .testTag("scan_field_doc_camera_btn"),
+                            ) {
+                                Icon(Icons.Filled.PhotoCamera, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.size(6.dp))
+                                Text(strings.btnCaptureDocumentCamera, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    docPickerLauncher.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                    )
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .heightIn(min = 48.dp)
+                                    .testTag("pick_field_doc_btn"),
+                            ) {
+                                Icon(Icons.Filled.DocumentScanner, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.size(6.dp))
+                                Text(strings.btnPickDocumentImage, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+
+                        if (docCameraDenied) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            DangerBannerBox(text = strings.cameraPermissionDenied)
                         }
 
                         docBitmap?.let { bmp ->
@@ -747,7 +859,10 @@ fun FieldsScreen(
                                     }
                                 },
                                 enabled = !docScanState.isScanning,
-                                modifier = Modifier.fillMaxWidth().testTag("scan_field_doc_btn"),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 48.dp)
+                                    .testTag("scan_field_doc_btn"),
                             ) {
                                 if (docScanState.isScanning) {
                                     CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
@@ -762,18 +877,73 @@ fun FieldsScreen(
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
                                 color = extra.pale,
-                                modifier = Modifier.fillMaxWidth(),
+                                border = BorderStroke(1.dp, extra.line),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("doc_scan_result_card"),
                             ) {
-                                Text(
-                                    text = buildString {
-                                        if (docScanState.detectedAreaHa != null) {
-                                            append("${strings.docScanResultPrefix} ${formatNumber(docScanState.detectedAreaHa, 4)} ha\n")
-                                        }
-                                        append(docScanState.summary)
-                                    },
-                                    style = MaterialTheme.typography.bodySmall,
+                                Column(
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
                                     modifier = Modifier.padding(12.dp),
-                                )
+                                ) {
+                                    Text(
+                                        text = buildString {
+                                            if (docScanState.detectedAreaHa != null) {
+                                                append("${strings.docScanResultPrefix} ${formatNumber(docScanState.detectedAreaHa, 4)} ha\n")
+                                            }
+                                            append(docScanState.summary)
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                    val routingNote = when {
+                                        docScanState.coordTarget == DocCoordTarget.UTM_38T && docScanState.utmLinesText.isNotBlank() ->
+                                            strings.docScanUtm38Applied
+                                        docScanState.coordTarget == DocCoordTarget.LAT_LON && docScanState.latLonLinesText.isNotBlank() ->
+                                            strings.docScanLatLonApplied
+                                        else -> null
+                                    }
+                                    if (routingNote != null) {
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                                        ) {
+                                            Text(
+                                                text = routingNote,
+                                                style = MaterialTheme.typography.labelMedium,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier
+                                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                                                    .testTag("doc_scan_routing_badge"),
+                                            )
+                                        }
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                                        ) {
+                                            OutlinedButton(
+                                                onClick = { activeTab = 1 },
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .fillMaxHeight()
+                                                    .heightIn(min = 48.dp)
+                                                    .testTag("doc_open_coords_btn"),
+                                            ) {
+                                                Text(strings.docScanOpenCoordsBtn, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            }
+                                            Button(
+                                                onClick = { activeTab = 0 },
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .fillMaxHeight()
+                                                    .heightIn(min = 48.dp)
+                                                    .testTag("doc_open_map_btn"),
+                                            ) {
+                                                Text(strings.docScanOpenMapBtn, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                         if (docScanState.error != null) {
@@ -1086,8 +1256,22 @@ fun fetchSingleGpsFix(
 }
 
 fun decodeUriToBitmap(context: Context, uri: Uri): Bitmap? = try {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     context.contentResolver.openInputStream(uri)?.use { stream ->
-        BitmapFactory.decodeStream(stream)
+        BitmapFactory.decodeStream(stream, null, bounds)
+    }
+    val maxDim = 2048
+    var sampleSize = 1
+    if (bounds.outWidth > maxDim || bounds.outHeight > maxDim) {
+        val halfW = bounds.outWidth / 2
+        val halfH = bounds.outHeight / 2
+        while ((halfW / sampleSize) >= maxDim && (halfH / sampleSize) >= maxDim) {
+            sampleSize *= 2
+        }
+    }
+    val opts = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+    context.contentResolver.openInputStream(uri)?.use { stream ->
+        BitmapFactory.decodeStream(stream, null, opts)
     }
 } catch (_: Exception) {
     null

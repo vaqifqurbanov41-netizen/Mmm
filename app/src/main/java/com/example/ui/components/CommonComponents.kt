@@ -31,6 +31,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.CenterFocusStrong
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LightMode
@@ -701,9 +702,7 @@ fun rememberCustomizableModules(isLocalOnly: Boolean): List<CustomizableModuleEn
             add(CustomizableModuleEntry(NavRoutes.NPK, strings.tileNpkTitle, strings.tileNpkSub))
             add(CustomizableModuleEntry(NavRoutes.WEATHER, strings.tileWeatherTitle, strings.tileWeatherSub))
             add(CustomizableModuleEntry(NavRoutes.PESTICIDE, strings.tilePestTitle, strings.tilePestSub))
-            if (!isLocalOnly) {
-                add(CustomizableModuleEntry(NavRoutes.FIELDS, strings.tileFieldsTitle, strings.tileFieldsSub))
-            }
+            add(CustomizableModuleEntry(NavRoutes.FIELDS, strings.tileFieldsTitle, strings.tileFieldsSub))
             add(CustomizableModuleEntry(NavRoutes.AGRO_CALENDAR, strings.tileCalendarTitle, strings.tileCalendarSub))
             add(CustomizableModuleEntry(NavRoutes.INSURANCE, strings.tileInsuranceTitle, strings.tileInsuranceSub))
             add(CustomizableModuleEntry(NavRoutes.STATIONS, strings.tileStationsTitle, strings.tileStationsSub))
@@ -824,6 +823,9 @@ fun NotificationsDialog(
     onOpenWeather: () -> Unit,
     onOpenEquipment: () -> Unit,
     onDismiss: () -> Unit,
+    onClearAll: (() -> Unit)? = null,
+    onDismissWeather: ((WeatherHazardAlert) -> Unit)? = null,
+    onDismissEquipment: ((EquipmentAlert) -> Unit)? = null,
 ) {
     if (!visible) return
     val strings = LocalStrings.current
@@ -916,6 +918,21 @@ fun NotificationsDialog(
                                             color = MaterialTheme.colorScheme.onSurface,
                                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                                         )
+                                    }
+                                    if (onDismissWeather != null) {
+                                        IconButton(
+                                            onClick = { onDismissWeather(alert) },
+                                            modifier = Modifier
+                                                .size(28.dp)
+                                                .testTag("dismiss_weather_${alert.id}"),
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Filled.Close,
+                                                contentDescription = strings.cancel,
+                                                tint = extra.muted,
+                                                modifier = Modifier.size(16.dp),
+                                            )
+                                        }
                                     }
                                 }
                                 Text(
@@ -1074,6 +1091,21 @@ fun NotificationsDialog(
                                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                                                     )
                                                 }
+                                                if (onDismissEquipment != null) {
+                                                    IconButton(
+                                                        onClick = { onDismissEquipment(eqAlert) },
+                                                        modifier = Modifier
+                                                            .size(26.dp)
+                                                            .testTag("dismiss_equipment_${eqAlert.itemName}"),
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Filled.Close,
+                                                            contentDescription = strings.cancel,
+                                                            tint = extra.muted,
+                                                            modifier = Modifier.size(14.dp),
+                                                        )
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -1084,6 +1116,17 @@ fun NotificationsDialog(
                 }
             }
         },
+        dismissButton = if (onClearAll != null && (weatherHazards.isNotEmpty() || equipmentAlerts.isNotEmpty())) {
+            {
+                TextButton(
+                    onClick = onClearAll,
+                    colors = ButtonDefaults.textButtonColors(contentColor = DangerRed),
+                    modifier = Modifier.testTag("clear_all_notifications_btn"),
+                ) {
+                    Text(strings.notifClearAllBtn, fontWeight = FontWeight.Bold)
+                }
+            }
+        } else null,
         confirmButton = {
             TextButton(
                 onClick = onDismiss,

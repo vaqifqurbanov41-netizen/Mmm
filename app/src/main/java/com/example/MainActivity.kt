@@ -26,7 +26,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -260,6 +262,10 @@ private fun AuthenticatedMainApp(
     val isScannerLoading by viewModel.isScannerLoading.collectAsStateWithLifecycle()
     val scannerError by viewModel.scannerError.collectAsStateWithLifecycle()
     val equipmentReminderDays by viewModel.equipmentReminderDays.collectAsStateWithLifecycle()
+    val preferencesStore = remember(context) { PreferencesStore(context.applicationContext) }
+    val seenNotifSignature by preferencesStore.seenNotifSignatureFlow.collectAsStateWithLifecycle(initialValue = "")
+    val dismissedNotifKeys by preferencesStore.dismissedNotifKeysFlow.collectAsStateWithLifecycle(initialValue = emptySet())
+    val scope = rememberCoroutineScope()
     val strings = LocalStrings.current
     var showNotificationsDialog by remember { mutableStateOf(false) }
 
@@ -317,16 +323,44 @@ private fun AuthenticatedMainApp(
         "${formatNumber(it.temperature2m, 0)}°C"
     }
 
-    val alertCount = weatherHazards.size + equipmentAlerts.size
-    val hasAlertDot = weatherHazards.isNotEmpty() || weatherState.hasAnyHazard || equipmentAlerts.isNotEmpty()
+    val visibleWeatherHazards = remember(weatherHazards, dismissedNotifKeys) {
+        weatherHazards.filter { EquipmentReminderManager.weatherAlertKey(it) !in dismissedNotifKeys }
+    }
+    val visibleEquipmentAlerts = remember(equipmentAlerts, dismissedNotifKeys) {
+        equipmentAlerts.filter { EquipmentReminderManager.equipmentAlertKey(it) !in dismissedNotifKeys }
+    }
+    val activeNotifSignature = remember(visibleWeatherHazards, visibleEquipmentAlerts) {
+        EquipmentReminderManager.buildNotificationSignature(visibleWeatherHazards, visibleEquipmentAlerts)
+    }
+    val hasUnseenAlerts = activeNotifSignature.isNotBlank() && activeNotifSignature != seenNotifSignature
+    val alertCount = if (hasUnseenAlerts) visibleWeatherHazards.size + visibleEquipmentAlerts.size else 0
+    val hasAlertDot = hasUnseenAlerts
 
     NotificationsDialog(
         visible = showNotificationsDialog,
-        weatherHazards = weatherHazards,
-        equipmentAlerts = equipmentAlerts,
+        weatherHazards = visibleWeatherHazards,
+        equipmentAlerts = visibleEquipmentAlerts,
         onOpenWeather = { navigateTo(NavRoutes.WEATHER) },
         onOpenEquipment = { navigateTo(NavRoutes.EQUIPMENT) },
         onDismiss = { showNotificationsDialog = false },
+        onClearAll = {
+            val allKeys = visibleWeatherHazards.map { EquipmentReminderManager.weatherAlertKey(it) } +
+                visibleEquipmentAlerts.map { EquipmentReminderManager.equipmentAlertKey(it) }
+            scope.launch {
+                preferencesStore.dismissNotifications(allKeys)
+                preferencesStore.markNotificationsViewed("")
+            }
+        },
+        onDismissWeather = { alert ->
+            scope.launch {
+                preferencesStore.dismissNotifications(listOf(EquipmentReminderManager.weatherAlertKey(alert)))
+            }
+        },
+        onDismissEquipment = { eqAlert ->
+            scope.launch {
+                preferencesStore.dismissNotifications(listOf(EquipmentReminderManager.equipmentAlertKey(eqAlert)))
+            }
+        },
     )
 
     Scaffold(
@@ -340,7 +374,10 @@ private fun AuthenticatedMainApp(
                 isDark = extraColors.isDark,
                 onWeatherClick = { navigateTo(NavRoutes.WEATHER) },
                 onThemeToggle = { onToggleDark(extraColors.isDark) },
-                onNotificationsClick = { showNotificationsDialog = true },
+                onNotificationsClick = {
+                    scope.launch { preferencesStore.markNotificationsViewed(activeNotifSignature) }
+                    showNotificationsDialog = true
+                },
                 weatherRegionName = regionLabel,
                 alertCount = alertCount,
             )

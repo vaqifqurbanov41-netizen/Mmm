@@ -331,4 +331,17 @@ object EquipmentReminderManager {
         val rawHash = "$itemId:$kind".hashCode()
         return 10_000 + (abs(rawHash) % 800_000)
     }
+
+    fun weatherAlertKey(alert: WeatherHazardAlert): String = "wh:${alert.id}"
+
+    fun equipmentAlertKey(alert: com.example.ui.viewmodel.EquipmentAlert): String =
+        "eq:${alert.itemName}:${alert.status.name}"
+
+    fun buildNotificationSignature(
+        weatherHazards: List<WeatherHazardAlert>,
+        equipmentAlerts: List<com.example.ui.viewmodel.EquipmentAlert>,
+    ): String {
+        val keys = (weatherHazards.map(::weatherAlertKey) + equipmentAlerts.map(::equipmentAlertKey)).sorted()
+        return keys.joinToString("|")
+    }
 }

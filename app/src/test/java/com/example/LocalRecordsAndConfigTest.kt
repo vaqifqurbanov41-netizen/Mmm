@@ -11,6 +11,7 @@ import com.example.data.firebase.saveAndInitializeFirebaseFromJson
 import com.example.data.local.LocalRecordsStore
 import com.example.ui.auth.isShaOrCertMismatchError
 import androidx.core.content.FileProvider
+import kotlinx.coroutines.flow.first
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -609,7 +610,144 @@ class LocalRecordsAndConfigTest {
         assertTrue(hazards.any { it.kind == com.example.domain.WeatherHazardKind.HEAVY_RAIN_LEACHING })
         assertTrue(hazards.any { it.kind == com.example.domain.WeatherHazardKind.HIGH_WIND_SPRAY })
     }
+
+    @Test
+    fun cadastralDocumentParserExtractsSequentialUtm38TAndRoutesXStartingWith4ToLatLonOffline() {
+        val expectedX = listOf("703195.81", "703095.5", "703094.45", "702729.11", "702701.95", "702701.49", "702700.8", "703194.12")
+        val expectedY = listOf("4437081.26", "4437076.25", "4437061.04", "4437042.58", "4437042.62", "4437056.28", "4437076.49", "4437101.43")
+        val distances = listOf("100.43", "15.24", "365.8", "27.16", "13.67", "20.22", "493.95", "20.24")
+
+        val tokens = mutableListOf(
+            com.example.domain.OcrToken("Nömrəsi", 60f, 50f),
+            com.example.domain.OcrToken("X", 200f, 50f),
+            com.example.domain.OcrToken("Y", 360f, 50f),
+            com.example.domain.OcrToken("Nöqtələr", 500f, 50f),
+            com.example.domain.OcrToken("Məsafə", 640f, 50f),
+        )
+        for (i in expectedX.indices) {
+            val rowY = 100f + i * 45f
+            tokens += com.example.domain.OcrToken("${i + 1}", 60f, rowY)
+            tokens += com.example.domain.OcrToken(expectedX[i], 200f, rowY)
+            tokens += com.example.domain.OcrToken(expectedY[i], 360f, rowY)
+            val nextIdx = if (i == expectedX.lastIndex) 1 else i + 2
+            tokens += com.example.domain.OcrToken("${i + 1}-$nextIdx", 500f, rowY)
+            tokens += com.example.domain.OcrToken(distances[i], 640f, rowY)
+        }
+
+        val fullHint = "Torpaq sahəsinin döngə nöqtələrinin koordinatları\nSahəsi: 1.6069"
+        val spatialParsed = com.example.domain.CadastralDocumentParser.parseSpatialTokens(tokens, fullHint)
+        assertNotNull(spatialParsed)
+        assertEquals(com.example.domain.DocCoordTarget.UTM_38T, spatialParsed!!.target)
+        assertEquals(38, spatialParsed.utmZone)
+        assertEquals(8, spatialParsed.points.size)
+        assertEquals(1.6069, spatialParsed.areaHa ?: 0.0, 1e-4)
+        assertEquals(expectedX, spatialParsed.points.map { it.rawX })
+        assertEquals(expectedY, spatialParsed.points.map { it.rawY })
+        assertTrue(spatialParsed.utmLinesText.lines().first().startsWith("703195.81, 4437081.26"))
+        assertTrue(spatialParsed.utmLinesText.lines().last().startsWith("703194.12, 4437101.43"))
+        assertTrue(spatialParsed.polygon.all { it.lat in 38.0..42.5 && it.lon in 44.0..51.5 })
+
+        // Raw text parsing fallback on the same table
+        val rawBlock = buildString {
+            append("Torpaq sahəsinin döngə nöqtələrinin koordinatları Sahəsi: 1.6069\n")
+            append("1 X 703195.81 Y 4437081.26 1-2 100.43\n")
+            append("2 703095.5 4437076.25 2-3 15.24\n")
+            append("3 703094.45 4437061.04 3-4 365.8\n")
+            append("4 702729.11 4437042.58 4-5 27.16\n")
+        }
+        val rawParsed = com.example.domain.CadastralDocumentParser.parseRawText(rawBlock)
+        assertNotNull(rawParsed)
+        assertEquals(com.example.domain.DocCoordTarget.UTM_38T, rawParsed!!.target)
+        assertEquals(4, rawParsed.points.size)
+
+        // X starting with 4 in Lat/Lon degrees -> LAT_LON target
+        val latLonPairs = listOf(
+            "40.678210" to "46.360610",
+            "40.679520" to "46.360640",
+            "40.679520" to "46.362510",
+            "40.678210" to "46.362510",
+        )
+        val geoParsed = com.example.domain.CadastralDocumentParser.classifyPairs(latLonPairs, areaHaHint = 2.5)
+        assertNotNull(geoParsed)
+        assertEquals(com.example.domain.DocCoordTarget.LAT_LON, geoParsed!!.target)
+        assertEquals(4, geoParsed.polygon.size)
+        assertTrue(geoParsed.latLonLinesText.lines().first().startsWith("40.678210"))
+
+        // X starting with 4 as swapped 7-digit Northing -> converted sequentially to LAT_LON target
+        val swappedNorthingFirst = expectedY.zip(expectedX)
+        val swappedParsed = com.example.domain.CadastralDocumentParser.classifyPairs(swappedNorthingFirst, areaHaHint = 1.6069)
+        assertNotNull(swappedParsed)
+        assertEquals(com.example.domain.DocCoordTarget.LAT_LON, swappedParsed!!.target)
+        assertEquals(8, swappedParsed.polygon.size)
+        assertTrue(swappedParsed.polygon.all { it.lat in 38.0..42.5 && it.lon in 44.0..51.5 })
+
+        // Western-Azerbaijan 6-digit UTM Easting starting with 4 stays UTM 38T
+        val westAzUtm = listOf(
+            "450123.45" to "4542100.12",
+            "450223.45" to "4542100.12",
+            "450223.45" to "4542200.12",
+            "450123.45" to "4542200.12",
+        )
+        val westParsed = com.example.domain.CadastralDocumentParser.classifyPairs(westAzUtm, areaHaHint = 1.0)
+        assertNotNull(westParsed)
+        assertEquals(com.example.domain.DocCoordTarget.UTM_38T, westParsed!!.target)
+        assertEquals(38, westParsed.utmZone)
+    }
+
+    @Test
+    fun offlineFieldsPersistenceBackupAndNotificationSeenClearFlowsWork() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val store = LocalRecordsStore(context)
+        store.addField(
+            name = "Oflayn Pay Sahəsi",
+            crop = "Buğda",
+            sizeHa = 1.6069,
+            widthM = 100.0,
+            lengthM = 160.0,
+            location = "Bərdə",
+            coords = listOf("40.064200,47.379400", "40.064100,47.378200", "40.063900,47.378200"),
+        )
+        assertEquals(1, store.fields.value.size)
+        val savedId = store.fields.value.first().id
+        val backup = store.exportBackupJson()
+        assertTrue(backup.contains("Oflayn Pay Sahəsi"))
+        store.deleteField(savedId)
+        assertTrue(store.fields.value.isEmpty())
+        val restored = store.importBackupJson(backup)
+        assertTrue(restored >= 1)
+        assertEquals(1, store.fields.value.size)
+        assertEquals("Oflayn Pay Sahəsi", store.fields.value.first().name)
+
+        // Signature stability & order invariance
+        val h1 = com.example.domain.WeatherHazardAlert(
+            id = "wh1",
+            locationLabel = "Bərdə",
+            sourceKind = com.example.domain.LocationSourceKind.FIELD,
+            kind = com.example.domain.WeatherHazardKind.FROST,
+            date = "2026-11-24",
+            metricText = "-2°C",
+        )
+        val e1 = com.example.ui.viewmodel.EquipmentAlert("MTZ-82", com.example.ui.viewmodel.EquipmentStatus.SOON)
+        val sigA = com.example.notifications.EquipmentReminderManager.buildNotificationSignature(listOf(h1), listOf(e1))
+        val sigB = com.example.notifications.EquipmentReminderManager.buildNotificationSignature(listOf(h1), listOf(e1))
+        assertEquals(sigA, sigB)
+        assertTrue(sigA.isNotBlank())
+
+        kotlinx.coroutines.runBlocking {
+            val prefs = com.example.data.local.PreferencesStore(context)
+            prefs.markNotificationsViewed(sigA)
+            assertEquals(sigA, prefs.seenNotifSignatureFlow.first())
+            val keys = listOf(
+                com.example.notifications.EquipmentReminderManager.weatherAlertKey(h1),
+                com.example.notifications.EquipmentReminderManager.equipmentAlertKey(e1),
+            )
+            prefs.dismissNotifications(keys)
+            val dismissed = prefs.dismissedNotifKeysFlow.first()
+            assertTrue(dismissed.containsAll(keys))
+        }
+    }
 }
+
 
 
 

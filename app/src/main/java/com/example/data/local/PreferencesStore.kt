@@ -30,6 +30,8 @@ class PreferencesStore(private val context: Context) {
         val EQUIPMENT_REMINDER_DAYS = intPreferencesKey("equipment_reminder_days")
         val HIDDEN_HOME_MODULES = stringSetPreferencesKey("hidden_home_modules")
         val INITIAL_PERMISSIONS_PROMPTED = booleanPreferencesKey("initial_permissions_prompted")
+        val SEEN_NOTIF_SIGNATURE = stringPreferencesKey("seen_notif_signature")
+        val DISMISSED_NOTIF_KEYS = stringSetPreferencesKey("dismissed_notif_keys")
     }
 
     val languageFlow: Flow<AppLanguage> = context.dataStore.data.map { prefs ->
@@ -56,6 +58,14 @@ class PreferencesStore(private val context: Context) {
 
     val initialPermissionsPromptedFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
         prefs[Keys.INITIAL_PERMISSIONS_PROMPTED] ?: false
+    }
+
+    val seenNotifSignatureFlow: Flow<String> = context.dataStore.data.map { prefs ->
+        prefs[Keys.SEEN_NOTIF_SIGNATURE] ?: ""
+    }
+
+    val dismissedNotifKeysFlow: Flow<Set<String>> = context.dataStore.data.map { prefs ->
+        prefs[Keys.DISMISSED_NOTIF_KEYS] ?: emptySet()
     }
 
     suspend fun setLanguage(language: AppLanguage) {
@@ -100,6 +110,21 @@ class PreferencesStore(private val context: Context) {
     suspend fun markInitialPermissionsPrompted() {
         context.dataStore.edit { prefs ->
             prefs[Keys.INITIAL_PERMISSIONS_PROMPTED] = true
+        }
+    }
+
+    suspend fun markNotificationsViewed(signature: String) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.SEEN_NOTIF_SIGNATURE] = signature
+        }
+    }
+
+    suspend fun dismissNotifications(keys: Collection<String>) {
+        if (keys.isEmpty()) return
+        context.dataStore.edit { prefs ->
+            val current = prefs[Keys.DISMISSED_NOTIF_KEYS]?.toMutableSet() ?: mutableSetOf()
+            current.addAll(keys)
+            prefs[Keys.DISMISSED_NOTIF_KEYS] = current
         }
     }
 }

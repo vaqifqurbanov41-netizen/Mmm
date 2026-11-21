@@ -8,6 +8,7 @@ import android.os.Environment
 import android.provider.MediaStore
 import androidx.core.content.FileProvider
 import com.example.data.model.EquipmentItem
+import com.example.data.model.FarmField
 import com.example.data.model.FinanceEntry
 import com.example.domain.BackupManager
 import com.example.i18n.AppLanguage
@@ -86,10 +87,14 @@ fun collectEquipmentAlerts(items: List<EquipmentItem>, warningDays: Int = 30): L
 class LocalRecordsStore(context: Context) {
 
     private val appContext = context.applicationContext
+    private val fieldsFile = File(appContext.filesDir, "local_fields.json")
     private val equipmentFile = File(appContext.filesDir, "local_equipment.json")
     private val financeFile = File(appContext.filesDir, "local_finance.json")
     private val photosDir = File(appContext.filesDir, "field_photos")
     private val captionsFile = File(photosDir, "captions.json")
+
+    private val _fields = MutableStateFlow(loadFields())
+    val fields: StateFlow<List<FarmField>> = _fields.asStateFlow()
 
     private val _equipment = MutableStateFlow(loadEquipment())
     val equipment: StateFlow<List<EquipmentItem>> = _equipment.asStateFlow()
@@ -102,6 +107,94 @@ class LocalRecordsStore(context: Context) {
 
     init {
         refreshPhotos()
+    }
+
+    // --- Offline Fields CRUD ---
+    fun addField(
+        name: String,
+        crop: String,
+        sizeHa: Double,
+        widthM: Double,
+        lengthM: Double,
+        location: String,
+        coords: List<String>,
+    ) {
+        val newField = FarmField(
+            id = UUID.randomUUID().toString(),
+            userId = "local",
+            name = name.trim(),
+            crop = crop.trim(),
+            sizeHa = sizeHa,
+            widthM = widthM,
+            lengthM = lengthM,
+            location = location.trim(),
+            coords = coords,
+        )
+        val updated = listOf(newField) + _fields.value
+        persistFields(updated)
+        _fields.value = updated
+    }
+
+    fun deleteField(id: String) {
+        val updated = _fields.value.filterNot { it.id == id }
+        persistFields(updated)
+        _fields.value = updated
+    }
+
+    private fun loadFields(): List<FarmField> {
+        if (!fieldsFile.exists()) return emptyList()
+        return runCatching {
+            val arr = JSONArray(fieldsFile.readText())
+            buildList {
+                for (i in 0 until arr.length()) {
+                    val o = arr.optJSONObject(i) ?: continue
+                    val name = o.optString("name").trim()
+                    val sizeHa = o.optDouble("sizeHa", 0.0)
+                    if (name.isBlank() || sizeHa <= 0.0) continue
+                    val coords = buildList {
+                        o.optJSONArray("coords")?.let { ca ->
+                            for (j in 0 until ca.length()) {
+                                val c = ca.optString(j).trim()
+                                if (c.isNotEmpty()) add(c)
+                            }
+                        }
+                    }
+                    add(
+                        FarmField(
+                            id = o.optString("id").ifBlank { UUID.randomUUID().toString() },
+                            userId = "local",
+                            name = name,
+                            crop = o.optString("crop").trim(),
+                            sizeHa = sizeHa,
+                            widthM = o.optDouble("widthM", 0.0),
+                            lengthM = o.optDouble("lengthM", 0.0),
+                            location = o.optString("location").trim(),
+                            coords = coords,
+                        )
+                    )
+                }
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    private fun persistFields(list: List<FarmField>) {
+        val arr = JSONArray().apply {
+            list.forEach { f ->
+                put(
+                    JSONObject().apply {
+                        put("id", f.id)
+                        put("name", f.name)
+                        put("crop", f.crop)
+                        put("sizeHa", f.sizeHa)
+                        put("widthM", f.widthM)
+                        put("lengthM", f.lengthM)
+                        put("location", f.location)
+                        put("coords", JSONArray(f.coords))
+                    }
+                )
+            }
+        }
+        fieldsFile.writeText(arr.toString())
     }
 
     // --- Equipment CRUD ---
@@ -259,7 +352,7 @@ class LocalRecordsStore(context: Context) {
     }
 
     fun exportBackupJson(): String = BackupManager.exportToJson(
-        fields = emptyList(),
+        fields = _fields.value,
         equipment = _equipment.value,
         finance = _finance.value,
         harvests = emptyList(),
@@ -271,6 +364,42 @@ class LocalRecordsStore(context: Context) {
     fun importBackupJson(jsonText: String): Int {
         val root = JSONObject(jsonText)
         var importedCount = 0
+
+        root.optJSONArray("fields")?.let { arr ->
+            val current = _fields.value.toMutableList()
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val name = o.optString("name").trim()
+                val sizeHa = o.optDouble("sizeHa", 0.0)
+                if (name.isNotBlank() && sizeHa > 0.0) {
+                    val coords = buildList {
+                        o.optJSONArray("coords")?.let { ca ->
+                            for (j in 0 until ca.length()) {
+                                val c = ca.optString(j).trim()
+                                if (c.isNotEmpty()) add(c)
+                            }
+                        }
+                    }
+                    current.add(
+                        0,
+                        FarmField(
+                            id = UUID.randomUUID().toString(),
+                            userId = "local",
+                            name = name,
+                            crop = o.optString("crop").trim(),
+                            sizeHa = sizeHa,
+                            widthM = o.optDouble("widthM", 0.0),
+                            lengthM = o.optDouble("lengthM", 0.0),
+                            location = o.optString("location").trim(),
+                            coords = coords,
+                        )
+                    )
+                    importedCount++
+                }
+            }
+            persistFields(current)
+            _fields.value = current
+        }
 
         root.optJSONArray("equipment")?.let { arr ->
             val current = _equipment.value.toMutableList()

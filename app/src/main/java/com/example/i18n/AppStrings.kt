@@ -101,6 +101,7 @@ interface AppStrings {
     val notifEmptyMsg: String
     val notifViewWeatherBtn: String
     val notifViewEquipmentBtn: String
+    val notifClearAllBtn: String
     val notifSourceField: String
     val notifSourceGps: String
     val notifSourceRegion: String
@@ -170,8 +171,15 @@ interface AppStrings {
     val minThreePointsError: String
     val docScanUploadLabel: String
     val btnPickDocumentImage: String
+    val btnCaptureDocumentCamera: String
     val btnScanFieldDoc: String
     val docScanResultPrefix: String
+    val docScanUtm38Applied: String
+    val docScanLatLonApplied: String
+    val docScanNoCoordsMsg: String
+    val docScanOpenCoordsBtn: String
+    val docScanOpenMapBtn: String
+    val docScanFoundPointsFormat: String
     val metricAreaHa: String
     val metricWidth: String
     val metricWidthSub: String

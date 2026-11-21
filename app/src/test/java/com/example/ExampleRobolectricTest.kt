@@ -1069,6 +1069,189 @@ class ExampleRobolectricTest {
         composeTestRule.onNodeWithTag("disease_photo_comparison_dialog").assertIsDisplayed()
         composeTestRule.onNodeWithTag("close_disease_compare_dialog_btn").performClick()
     }
+
+    @Test
+    fun `fieldsScreenRoutesScannedUtm38TAndLatLonInOrderAndShowsCameraButton`() {
+        val utmState = DocScanUiState(
+            isScanning = false,
+            summary = "8 döngə nöqtəsi sıra ilə çıxarıldı və xəritədə quruldu.",
+            detectedAreaHa = 1.6069,
+            coordTarget = com.example.domain.DocCoordTarget.UTM_38T,
+            utmZone = 38,
+            utmLinesText = "703195.81, 4437081.26\n703095.5, 4437076.25\n703194.12, 4437101.43",
+            pointCount = 8,
+            scanId = 101L,
+        )
+        val latLonState = DocScanUiState(
+            isScanning = false,
+            summary = "4 döngə nöqtəsi sıra ilə çıxarıldı.",
+            detectedAreaHa = 2.5,
+            coordTarget = com.example.domain.DocCoordTarget.LAT_LON,
+            latLonLinesText = "40.678210, 46.360610\n40.679520, 46.360640\n40.679520, 46.362510",
+            pointCount = 3,
+            scanId = 202L,
+        )
+        var currentState by mutableStateOf(utmState)
+
+        composeTestRule.setContent {
+            CompositionLocalProvider(LocalStrings provides StringsAz) {
+                AqroMeslehetTheme {
+                    FieldsScreen(
+                        language = AppLanguage.AZ,
+                        fields = emptyList(),
+                        mapPoints = emptyList(),
+                        measurements = com.example.domain.GeoUtils.calculateMeasurements(emptyList()),
+                        mapCenter = com.example.domain.LatLon(40.6782, 46.3606),
+                        mapZoom = 15,
+                        isSatellite = true,
+                        gpsLocation = null,
+                        gpsAccuracyM = null,
+                        docScanState = currentState,
+                        onAddPoint = {},
+                        onMovePoint = { _, _ -> },
+                        onUndoPoint = {},
+                        onClearPoints = {},
+                        onSetPolygon = {},
+                        onCenterChanged = {},
+                        onZoomChanged = {},
+                        onToggleLayer = {},
+                        onUpdateGpsFix = { _, _, _ -> },
+                        onScanDocument = { _, _, _ -> },
+                        onSaveField = { _, _, _, _, _, _, _ -> },
+                        onFocusFieldOnMap = {},
+                        onDeleteField = {},
+                        onBack = {},
+                    )
+                }
+            }
+        }
+        composeTestRule.waitForIdle()
+
+        // Switch to Sənəd Skan tab (tab_pill_2) and verify Camera + Gallery buttons + routing card
+        composeTestRule.onNodeWithTag("tab_pill_2").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("scan_field_doc_camera_btn").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("pick_field_doc_btn").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("fields_screen_list").performScrollToNode(hasTestTag("doc_open_coords_btn"))
+        composeTestRule.onNodeWithTag("doc_scan_result_card").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("doc_scan_routing_badge").assertIsDisplayed()
+
+        // Jump to Coords/UTM tab via doc_open_coords_btn and confirm UTM 38T points in sequential order
+        composeTestRule.onNodeWithTag("doc_open_coords_btn").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("fields_screen_list").performScrollToNode(hasTestTag("utm_points_input"))
+        composeTestRule.onNodeWithTag("utm_points_input").assertTextContains("703195.81, 4437081.26", substring = true)
+
+        // Now trigger X starting with 4 -> Lat/Lon routing
+        currentState = latLonState
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("fields_screen_list").performScrollToNode(hasTestTag("lat_lon_input"))
+        composeTestRule.onNodeWithTag("lat_lon_input").assertTextContains("40.678210, 46.360610", substring = true)
+    }
+
+    @Test
+    fun `notificationBellResetsOnViewClearsAlertsAndReTriggersWhenNewAlertArrives`() {
+        val firstHazard = com.example.domain.WeatherHazardAlert(
+            id = "wh_first",
+            locationLabel = "Bərdə",
+            sourceKind = com.example.domain.LocationSourceKind.FIELD,
+            kind = com.example.domain.WeatherHazardKind.FROST,
+            date = "2026-11-24",
+            metricText = "-1.0°C",
+        )
+        val secondHazard = com.example.domain.WeatherHazardAlert(
+            id = "wh_second",
+            locationLabel = "Gəncə",
+            sourceKind = com.example.domain.LocationSourceKind.USER_GPS,
+            kind = com.example.domain.WeatherHazardKind.HIGH_WIND_SPRAY,
+            date = "2026-11-25",
+            metricText = "42 km/h",
+        )
+        val eqAlert = EquipmentAlert("MTZ-82", EquipmentStatus.SOON)
+
+        var triggerNewAlert by mutableStateOf(false)
+
+        composeTestRule.setContent {
+            var showDialog by remember { mutableStateOf(false) }
+            var dismissed by remember { mutableStateOf(setOf<String>()) }
+            var seenSig by remember { mutableStateOf("") }
+
+            val allHazards = if (triggerNewAlert) listOf(firstHazard, secondHazard) else listOf(firstHazard)
+            val allEquipment = listOf(eqAlert)
+            val visibleHazards = allHazards.filter {
+                com.example.notifications.EquipmentReminderManager.weatherAlertKey(it) !in dismissed
+            }
+            val visibleEquip = allEquipment.filter {
+                com.example.notifications.EquipmentReminderManager.equipmentAlertKey(it) !in dismissed
+            }
+            val sig = com.example.notifications.EquipmentReminderManager.buildNotificationSignature(
+                visibleHazards,
+                visibleEquip,
+            )
+            val hasUnseen = sig.isNotBlank() && sig != seenSig
+
+            CompositionLocalProvider(LocalStrings provides StringsAz) {
+                AqroMeslehetTheme {
+                    androidx.compose.foundation.layout.Column {
+                        AqroTopHeader(
+                            farmerFirstName = "Vaqif",
+                            language = AppLanguage.AZ,
+                            weatherTempText = "11°C",
+                            hasAlertDot = hasUnseen,
+                            isDark = false,
+                            onWeatherClick = {},
+                            onThemeToggle = {},
+                            onNotificationsClick = {
+                                seenSig = sig
+                                showDialog = true
+                            },
+                            alertCount = if (hasUnseen) visibleHazards.size + visibleEquip.size else 0,
+                        )
+                        com.example.ui.components.NotificationsDialog(
+                            visible = showDialog,
+                            weatherHazards = visibleHazards,
+                            equipmentAlerts = visibleEquip,
+                            onOpenWeather = {},
+                            onOpenEquipment = {},
+                            onDismiss = { showDialog = false },
+                            onClearAll = {
+                                dismissed = dismissed +
+                                    visibleHazards.map { com.example.notifications.EquipmentReminderManager.weatherAlertKey(it) } +
+                                    visibleEquip.map { com.example.notifications.EquipmentReminderManager.equipmentAlertKey(it) }
+                                seenSig = ""
+                            },
+                        )
+                    }
+                }
+            }
+        }
+        composeTestRule.waitForIdle()
+
+        // Initially active red dot indicator is shown
+        composeTestRule.onNodeWithTag("notifications_active_indicator").assertIsDisplayed()
+
+        // Opening NotificationsDialog returns bell to normal state immediately
+        composeTestRule.onNodeWithTag("notifications_button").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("notifications_dialog").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("notifications_active_indicator").assertDoesNotExist()
+
+        // Clicking clear all clears the alerts and displays empty state
+        composeTestRule.onNodeWithTag("clear_all_notifications_btn").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("notif_weather_item_wh_first").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("notif_equipment_item_MTZ-82").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("clear_all_notifications_btn").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("close_notifications_dialog_btn").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("notifications_active_indicator").assertDoesNotExist()
+
+        // New incoming alert re-activates the bell indicator
+        triggerNewAlert = true
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("notifications_active_indicator").assertIsDisplayed()
+    }
 }
+
 
 

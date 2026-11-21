@@ -24,6 +24,7 @@ import com.example.data.repository.FarmRepository
 import com.example.domain.BackupManager
 import com.example.domain.ClimateHistorySummary
 import com.example.domain.ClimateHistoryUtils
+import com.example.domain.DocCoordTarget
 import com.example.domain.FieldMeasurements
 import com.example.domain.GeoUtils
 import com.example.domain.LatLon
@@ -113,6 +114,12 @@ data class DocScanUiState(
     val summary: String? = null,
     val detectedAreaHa: Double? = null,
     val error: String? = null,
+    val coordTarget: DocCoordTarget = DocCoordTarget.UTM_38T,
+    val utmZone: Int = 38,
+    val utmLinesText: String = "",
+    val latLonLinesText: String = "",
+    val pointCount: Int = 0,
+    val scanId: Long = 0L,
 )
 
 enum class EquipmentStatus { OVERDUE, SOON, VALID }
@@ -468,17 +475,28 @@ class FarmViewModel(
             try {
                 val center = _mapCenter.value
                 val res = aiRepository.scanFieldDocument(bitmap, center.lat, center.lon, language)
-                if (res.coordinates.size >= 3) {
-                    setMapPolygon(res.coordinates.map { (lat, lon) -> LatLon(lat, lon) })
-                    _mapZoom.value = 16
+                val polygon = res.coordinates.map { (lat, lon) -> LatLon(lat, lon) }
+                if (polygon.size >= 3) {
+                    setMapPolygon(polygon)
+                    val (fitCenter, fitZoom) = GeoUtils.computeBoundsCenterAndZoom(polygon)
+                    _mapCenter.value = fitCenter
+                    _mapZoom.value = fitZoom
                 }
+                val resolvedAreaHa = res.areaHa
+                    ?: polygon.takeIf { it.size >= 3 }?.let { GeoUtils.calculateMeasurements(it).areaHa.takeIf { a -> a > 0 } }
                 _docScanState.value = DocScanUiState(
                     isScanning = false,
                     summary = res.summary,
-                    detectedAreaHa = res.areaHa,
+                    detectedAreaHa = resolvedAreaHa,
                     error = null,
+                    coordTarget = res.coordTarget,
+                    utmZone = res.utmZone,
+                    utmLinesText = res.utmLinesText,
+                    latLonLinesText = res.latLonLinesText,
+                    pointCount = polygon.size,
+                    scanId = System.currentTimeMillis(),
                 )
-                onResult(res.areaHa)
+                onResult(resolvedAreaHa)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

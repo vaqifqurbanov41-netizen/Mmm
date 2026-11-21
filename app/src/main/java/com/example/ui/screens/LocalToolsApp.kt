@@ -82,7 +82,10 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import android.graphics.Bitmap
+import androidx.compose.material.icons.filled.Map
 import com.example.data.ai.OfflineAgronomistAdvisor
+import com.example.data.ai.OfflineDocumentScanner
 import com.example.data.ai.ReferenceImageMatcher
 import com.example.data.local.LocalRecordsStore
 import com.example.data.local.PreferencesStore
@@ -91,6 +94,9 @@ import com.example.data.local.evaluateEquipmentStatus
 import com.example.data.remote.OpenMeteoService
 import com.example.i18n.AppLanguage
 import com.example.i18n.LocalStrings
+import com.example.i18n.StringsAz
+import com.example.i18n.StringsEn
+import com.example.i18n.StringsRu
 import com.example.notifications.EquipmentReminderManager
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -115,15 +121,20 @@ import com.example.ui.theme.PotassiumPlum
 import com.example.ui.theme.ThemePreference
 import com.example.ui.theme.WarningAmber
 import com.example.domain.ClimateHistoryUtils
+import com.example.domain.GeoUtils
+import com.example.domain.LatLon
 import com.example.domain.WeatherHazardMonitor
 import com.example.ui.viewmodel.ChatMessageUi
 import com.example.ui.viewmodel.ClimateHistoryUiState
+import com.example.ui.viewmodel.DocScanUiState
 import com.example.ui.viewmodel.EquipmentAlert
 import com.example.ui.viewmodel.EquipmentStatus
 import com.example.ui.viewmodel.WeatherUiState
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 @Composable
@@ -141,12 +152,25 @@ fun LocalToolsApp(
     val localRecordsStore = remember(context) { LocalRecordsStore(context.applicationContext) }
     val weatherService = remember { OpenMeteoService.create() }
 
+    val localFields by localRecordsStore.fields.collectAsStateWithLifecycle()
     val localEquipment by localRecordsStore.equipment.collectAsStateWithLifecycle()
     val localFinance by localRecordsStore.finance.collectAsStateWithLifecycle()
     val reminderDays by preferencesStore.equipmentReminderDaysFlow.collectAsStateWithLifecycle(initialValue = 7)
     val hiddenModules by preferencesStore.hiddenModulesFlow.collectAsStateWithLifecycle(initialValue = emptySet())
+    val seenNotifSignature by preferencesStore.seenNotifSignatureFlow.collectAsStateWithLifecycle(initialValue = "")
+    val dismissedNotifKeys by preferencesStore.dismissedNotifKeysFlow.collectAsStateWithLifecycle(initialValue = emptySet())
+
+    var mapPoints by remember { mutableStateOf<List<LatLon>>(emptyList()) }
+    var mapCenter by remember { mutableStateOf(LatLon(40.6782, 46.3606)) }
+    var mapZoom by remember { mutableStateOf(15) }
+    var isSatellite by remember { mutableStateOf(true) }
+    var gpsLocation by remember { mutableStateOf<LatLon?>(null) }
+    var gpsAccuracyM by remember { mutableStateOf<Float?>(null) }
+    var docScanState by remember { mutableStateOf(DocScanUiState()) }
+    val mapMeasurements = remember(mapPoints) { GeoUtils.calculateMeasurements(mapPoints) }
+
     var offlineChatMessages by remember { mutableStateOf<List<ChatMessageUi>>(emptyList()) }
-    var offlineScannerBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+    var offlineScannerBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var offlineScannerResult by remember { mutableStateOf("") }
     var isOfflineScannerLoading by remember { mutableStateOf(false) }
     var showNotificationsDialog by remember { mutableStateOf(false) }
@@ -280,10 +304,10 @@ fun LocalToolsApp(
         "${formatNumber(it.temperature2m, 0)}°C"
     }
 
-    val localWeatherHazards = remember(weatherState.response, weatherState.lat, weatherState.lon, strings.notifSourceGps) {
+    val localWeatherHazards = remember(localFields, weatherState.response, weatherState.lat, weatherState.lon, strings.notifSourceGps) {
         val resp = weatherState.response ?: return@remember emptyList()
         WeatherHazardMonitor.collectMonitoredLocations(
-            fields = emptyList(),
+            fields = localFields,
             userLat = weatherState.lat,
             userLon = weatherState.lon,
             profilePlace = null,
@@ -301,16 +325,44 @@ fun LocalToolsApp(
         )
     }
 
-    val alertCount = localWeatherHazards.size + equipmentAlerts.size
-    val hasAlertDot = localWeatherHazards.isNotEmpty() || weatherState.hasAnyHazard || equipmentAlerts.isNotEmpty()
+    val visibleWeatherHazards = remember(localWeatherHazards, dismissedNotifKeys) {
+        localWeatherHazards.filter { EquipmentReminderManager.weatherAlertKey(it) !in dismissedNotifKeys }
+    }
+    val visibleEquipmentAlerts = remember(equipmentAlerts, dismissedNotifKeys) {
+        equipmentAlerts.filter { EquipmentReminderManager.equipmentAlertKey(it) !in dismissedNotifKeys }
+    }
+    val activeNotifSignature = remember(visibleWeatherHazards, visibleEquipmentAlerts) {
+        EquipmentReminderManager.buildNotificationSignature(visibleWeatherHazards, visibleEquipmentAlerts)
+    }
+    val hasUnseenAlerts = activeNotifSignature.isNotBlank() && activeNotifSignature != seenNotifSignature
+    val alertCount = if (hasUnseenAlerts) visibleWeatherHazards.size + visibleEquipmentAlerts.size else 0
+    val hasAlertDot = hasUnseenAlerts
 
     NotificationsDialog(
         visible = showNotificationsDialog,
-        weatherHazards = localWeatherHazards,
-        equipmentAlerts = equipmentAlerts,
+        weatherHazards = visibleWeatherHazards,
+        equipmentAlerts = visibleEquipmentAlerts,
         onOpenWeather = { navigateTo(NavRoutes.WEATHER) },
         onOpenEquipment = { navigateTo(NavRoutes.EQUIPMENT) },
         onDismiss = { showNotificationsDialog = false },
+        onClearAll = {
+            val allKeys = visibleWeatherHazards.map { EquipmentReminderManager.weatherAlertKey(it) } +
+                visibleEquipmentAlerts.map { EquipmentReminderManager.equipmentAlertKey(it) }
+            scope.launch {
+                preferencesStore.dismissNotifications(allKeys)
+                preferencesStore.markNotificationsViewed("")
+            }
+        },
+        onDismissWeather = { alert ->
+            scope.launch {
+                preferencesStore.dismissNotifications(listOf(EquipmentReminderManager.weatherAlertKey(alert)))
+            }
+        },
+        onDismissEquipment = { eqAlert ->
+            scope.launch {
+                preferencesStore.dismissNotifications(listOf(EquipmentReminderManager.equipmentAlertKey(eqAlert)))
+            }
+        },
     )
 
     Scaffold(
@@ -324,7 +376,10 @@ fun LocalToolsApp(
                 isDark = extraColors.isDark,
                 onWeatherClick = { navigateTo(NavRoutes.WEATHER) },
                 onThemeToggle = { onToggleDark(extraColors.isDark) },
-                onNotificationsClick = { showNotificationsDialog = true },
+                onNotificationsClick = {
+                    scope.launch { preferencesStore.markNotificationsViewed(activeNotifSignature) }
+                    showNotificationsDialog = true
+                },
                 alertCount = alertCount,
             )
         },
@@ -354,6 +409,8 @@ fun LocalToolsApp(
             ) {
                 composable(NavRoutes.HOME) {
                     LocalToolsHomeScreen(
+                        fieldsCount = localFields.size,
+                        totalAreaHa = localFields.sumOf { it.sizeHa },
                         hiddenModules = hiddenModules,
                         onToggleModuleVisible = { route, visible ->
                             scope.launch { preferencesStore.setModuleVisible(route, visible) }
@@ -363,6 +420,107 @@ fun LocalToolsApp(
                         },
                         onNavigate = navigateTo,
                         onOpenFirebaseSetup = onOpenFirebaseSetup,
+                    )
+                }
+
+                composable(NavRoutes.FIELDS) {
+                    FieldsScreen(
+                        language = language,
+                        fields = localFields,
+                        mapPoints = mapPoints,
+                        measurements = mapMeasurements,
+                        mapCenter = mapCenter,
+                        mapZoom = mapZoom,
+                        isSatellite = isSatellite,
+                        gpsLocation = gpsLocation,
+                        gpsAccuracyM = gpsAccuracyM,
+                        docScanState = docScanState,
+                        onAddPoint = { pt -> mapPoints = mapPoints + pt },
+                        onMovePoint = { idx, pt ->
+                            val current = mapPoints.toMutableList()
+                            if (idx in current.indices) {
+                                current[idx] = pt
+                                mapPoints = current
+                            }
+                        },
+                        onUndoPoint = {
+                            if (mapPoints.isNotEmpty()) mapPoints = mapPoints.dropLast(1)
+                        },
+                        onClearPoints = { mapPoints = emptyList() },
+                        onSetPolygon = { pts ->
+                            mapPoints = pts
+                            if (pts.isNotEmpty()) {
+                                mapCenter = LatLon(pts.map { it.lat }.average(), pts.map { it.lon }.average())
+                            }
+                        },
+                        onCenterChanged = { mapCenter = it },
+                        onZoomChanged = { mapZoom = it.coerceIn(5, 19) },
+                        onToggleLayer = { isSatellite = !isSatellite },
+                        onUpdateGpsFix = { lat, lon, acc ->
+                            val loc = LatLon(lat, lon)
+                            gpsLocation = loc
+                            gpsAccuracyM = acc
+                            mapCenter = loc
+                            mapZoom = maxOf(mapZoom, 16)
+                            scope.launch { preferencesStore.setCoordinates(lat, lon) }
+                        },
+                        onScanDocument = { bmp, lang, onResult ->
+                            scope.launch {
+                                docScanState = DocScanUiState(isScanning = true)
+                                val offlineRes = withContext(Dispatchers.Default) {
+                                    OfflineDocumentScanner.scanBitmap(bmp, lang)
+                                }
+                                if (offlineRes != null && offlineRes.coordinates.isNotEmpty()) {
+                                    val polygon = offlineRes.coordinates.map { (lat, lon) -> LatLon(lat, lon) }
+                                    if (polygon.size >= 3) {
+                                        mapPoints = polygon
+                                        val (fitCenter, fitZoom) = GeoUtils.computeBoundsCenterAndZoom(polygon)
+                                        mapCenter = fitCenter
+                                        mapZoom = fitZoom
+                                    }
+                                    val resolvedAreaHa = offlineRes.areaHa
+                                        ?: polygon.takeIf { it.size >= 3 }
+                                            ?.let { GeoUtils.calculateMeasurements(it).areaHa.takeIf { a -> a > 0 } }
+                                    docScanState = DocScanUiState(
+                                        isScanning = false,
+                                        summary = offlineRes.summary,
+                                        detectedAreaHa = resolvedAreaHa,
+                                        error = null,
+                                        coordTarget = offlineRes.coordTarget,
+                                        utmZone = offlineRes.utmZone,
+                                        utmLinesText = offlineRes.utmLinesText,
+                                        latLonLinesText = offlineRes.latLonLinesText,
+                                        pointCount = polygon.size,
+                                        scanId = System.currentTimeMillis(),
+                                    )
+                                    onResult(resolvedAreaHa)
+                                } else {
+                                    val noCoordsMsg = when (lang) {
+                                        AppLanguage.AZ -> StringsAz.docScanNoCoordsMsg
+                                        AppLanguage.EN -> StringsEn.docScanNoCoordsMsg
+                                        AppLanguage.RU -> StringsRu.docScanNoCoordsMsg
+                                    }
+                                    docScanState = DocScanUiState(
+                                        isScanning = false,
+                                        summary = noCoordsMsg,
+                                    )
+                                }
+                            }
+                        },
+                        onSaveField = { name, crop, sizeHa, wM, lM, loc, coords ->
+                            localRecordsStore.addField(name, crop, sizeHa, wM, lM, loc, coords)
+                        },
+                        onFocusFieldOnMap = { field ->
+                            val decoded = field.coords.mapNotNull { GeoUtils.decodeCoord(it) }
+                            if (decoded.isNotEmpty()) {
+                                mapPoints = decoded
+                                val (fitCenter, fitZoom) = GeoUtils.computeBoundsCenterAndZoom(decoded)
+                                mapCenter = fitCenter
+                                mapZoom = fitZoom
+                            }
+                        },
+                        onDeleteField = { id -> localRecordsStore.deleteField(id) },
+                        onBack = { navController.popBackStack() },
                     )
                 }
 
@@ -445,7 +603,7 @@ fun LocalToolsApp(
                         weatherState = weatherState,
                         onRefreshWeather = { lat, lon -> fetchWeather(lat, lon) },
                         onBack = { navController.popBackStack() },
-                        fields = emptyList(),
+                        fields = localFields,
                         climateState = climateState,
                         onLoadClimateHistory = ::fetchClimateHistory,
                     )
@@ -494,7 +652,7 @@ fun LocalToolsApp(
                 composable(NavRoutes.FINANCE) {
                     FinanceScreen(
                         language = language,
-                        fields = emptyList(),
+                        fields = localFields,
                         entries = localFinance,
                         onAddFinance = { type, date, field, amt, cat ->
                             localRecordsStore.addFinance(type, date, field, amt, cat)
@@ -581,6 +739,8 @@ private data class LocalToolTile(
 
 @Composable
 private fun LocalToolsHomeScreen(
+    fieldsCount: Int,
+    totalAreaHa: Double,
     hiddenModules: Set<String>,
     onToggleModuleVisible: (String, Boolean) -> Unit,
     onResetModules: () -> Unit,
@@ -596,6 +756,7 @@ private fun LocalToolsHomeScreen(
         LocalToolTile(NavRoutes.NPK, strings.tileNpkTitle, strings.tileNpkSub, Icons.Filled.Grass, EmeraldPrimary, "local_tile_npk"),
         LocalToolTile(NavRoutes.WEATHER, strings.tileWeatherTitle, strings.tileWeatherSub, Icons.Filled.WbSunny, Color(0xFF2F80ED), "local_tile_weather"),
         LocalToolTile(NavRoutes.PESTICIDE, strings.tilePestTitle, strings.tilePestSub, Icons.Filled.Science, WarningAmber, "local_tile_pesticide"),
+        LocalToolTile(NavRoutes.FIELDS, strings.tileFieldsTitle, strings.tileFieldsSub, Icons.Filled.Map, Color(0xFF059669), "local_tile_fields"),
         LocalToolTile(NavRoutes.AGRO_CALENDAR, strings.tileCalendarTitle, strings.tileCalendarSub, Icons.Filled.CalendarMonth, Color(0xFF7E22CE), "local_tile_calendar"),
         LocalToolTile(NavRoutes.INSURANCE, strings.tileInsuranceTitle, strings.tileInsuranceSub, Icons.Filled.VerifiedUser, Color(0xFF0369A1), "local_tile_insurance"),
         LocalToolTile(NavRoutes.STATIONS, strings.tileStationsTitle, strings.tileStationsSub, Icons.Filled.Storefront, Color(0xFF0D9488), "local_tile_stations"),
@@ -631,11 +792,11 @@ private fun LocalToolsHomeScreen(
                     greeting = "${strings.greetingPrefix}, ${strings.defaultFarmerName}!",
                     subtitle = strings.heroSubtitle,
                     fieldsLabel = strings.myFieldsStat,
-                    fieldsCount = "0",
+                    fieldsCount = fieldsCount.toString(),
                     areaLabel = strings.totalAreaStat,
-                    areaValue = "0.00 ha",
-                    onFieldsClick = onOpenFirebaseSetup,
-                    showStats = false,
+                    areaValue = "${formatNumber(totalAreaHa, 2)} ha",
+                    onFieldsClick = { onNavigate(NavRoutes.FIELDS) },
+                    showStats = true,
                 )
             }
 
@@ -881,6 +1042,7 @@ private fun LocalBottomBar(
                 selected = currentRoute == NavRoutes.NPK ||
                     currentRoute == NavRoutes.WEATHER ||
                     currentRoute == NavRoutes.PESTICIDE ||
+                    currentRoute == NavRoutes.FIELDS ||
                     currentRoute == NavRoutes.SUBSIDY ||
                     currentRoute == NavRoutes.EQUIPMENT ||
                     currentRoute == NavRoutes.FINANCE ||
