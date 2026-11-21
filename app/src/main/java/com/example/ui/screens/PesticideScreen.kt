@@ -45,7 +45,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -94,13 +93,8 @@ fun PesticideScreen(
     val strings = LocalStrings.current
     val extra = LocalAqroColors.current
     val scope = rememberCoroutineScope()
-    val listState = rememberLazyListState()
-
     var activeTab by remember { mutableIntStateOf(0) }
-
-    LaunchedEffect(activeTab) {
-        listState.scrollToItem(0)
-    }
+    val resolvedTab = if (isLocalOnly && activeTab == 2) 3 else activeTab
 
     // Tab 0: Crop -> Disease/Pest -> Active Ingredient Guide (NO commercial trade names)
     var selectedCropId by remember { mutableStateOf(CropProtectionCatalog.crops.first().id) }
@@ -201,28 +195,30 @@ fun PesticideScreen(
         )
     }
 
-    LazyColumn(
-        state = listState,
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.fillMaxSize().testTag("pesticide_screen"),
-    ) {
-        item {
-            ScreenTopBar(title = strings.pestTitle, onBack = onBack)
-            val tabs = if (isLocalOnly) {
-                listOf(strings.tabPestGuide, strings.tabPestSearch, strings.tabPestBanned)
-            } else {
-                listOf(strings.tabPestGuide, strings.tabPestSearch, strings.tabPestAdd, strings.tabPestBanned)
+    androidx.compose.runtime.key(resolvedTab) {
+        LazyColumn(
+            state = rememberLazyListState(),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.fillMaxSize().testTag("pesticide_screen"),
+        ) {
+            item {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    ScreenTopBar(title = strings.pestTitle, onBack = onBack)
+                    val tabs = if (isLocalOnly) {
+                        listOf(strings.tabPestGuide, strings.tabPestSearch, strings.tabPestBanned)
+                    } else {
+                        listOf(strings.tabPestGuide, strings.tabPestSearch, strings.tabPestAdd, strings.tabPestBanned)
+                    }
+                    TabPillsRow(
+                        tabs = tabs,
+                        selectedIndex = activeTab.coerceIn(0, tabs.lastIndex),
+                        onSelect = { activeTab = it },
+                    )
+                }
             }
-            TabPillsRow(
-                tabs = tabs,
-                selectedIndex = activeTab.coerceIn(0, tabs.lastIndex),
-                onSelect = { activeTab = it },
-            )
-        }
 
-        val resolvedTab = if (isLocalOnly && activeTab == 2) 3 else activeTab
-        when (resolvedTab) {
+            when (resolvedTab) {
             // 0: Crop -> Disease / Pest -> Active Ingredient Only
             0 -> {
                 item {
@@ -366,7 +362,7 @@ fun PesticideScreen(
                             }
 
                             if (isSelected) {
-                                Spacer(modifier = Modifier.height(10.dp))
+                                Spacer(modifier = Modifier.height(6.dp))
                                 val visualProfile = DiseaseVisualCatalog.profileFor(threat.id)
                                 if (visualProfile != null) {
                                     Surface(
@@ -393,7 +389,7 @@ fun PesticideScreen(
                                             RealDiseasePhotoThumbnail(
                                                 imageUrl = DiseaseVisualCatalog.resizedUrl(visualProfile.referenceImageUrl, 360),
                                                 contentDescription = threat.name.get(language),
-                                                size = 76.dp,
+                                                size = 60.dp,
                                             )
                                             Column(modifier = Modifier.weight(1f)) {
                                                 Text(
@@ -401,6 +397,8 @@ fun PesticideScreen(
                                                     style = MaterialTheme.typography.labelSmall,
                                                     color = MaterialTheme.colorScheme.primary,
                                                     fontWeight = FontWeight.Bold,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
                                                 )
                                                 Spacer(modifier = Modifier.height(2.dp))
                                                 Text(
@@ -409,7 +407,7 @@ fun PesticideScreen(
                                                     maxLines = 2,
                                                     overflow = TextOverflow.Ellipsis,
                                                 )
-                                                Spacer(modifier = Modifier.height(3.dp))
+                                                Spacer(modifier = Modifier.height(2.dp))
                                                 Row(
                                                     verticalAlignment = Alignment.CenterVertically,
                                                     horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -431,7 +429,7 @@ fun PesticideScreen(
                                             }
                                         }
                                     }
-                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Spacer(modifier = Modifier.height(6.dp))
                                 }
 
                                 Text(
@@ -446,7 +444,7 @@ fun PesticideScreen(
                                     color = MaterialTheme.colorScheme.onSurface,
                                 )
 
-                                Spacer(modifier = Modifier.height(10.dp))
+                                Spacer(modifier = Modifier.height(6.dp))
                                 Surface(
                                     shape = RoundedCornerShape(14.dp),
                                     color = MaterialTheme.colorScheme.surface,
@@ -455,7 +453,7 @@ fun PesticideScreen(
                                         .fillMaxWidth()
                                         .testTag("pest_active_ingredient_box_${threat.id}"),
                                 ) {
-                                    Column(modifier = Modifier.padding(12.dp)) {
+                                    Column(modifier = Modifier.padding(10.dp)) {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -484,20 +482,7 @@ fun PesticideScreen(
                                     }
                                 }
 
-                                Spacer(modifier = Modifier.height(10.dp))
-                                Text(
-                                    text = strings.pestGuidanceLabel,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = extra.muted,
-                                )
-                                Text(
-                                    text = threat.guidance.get(language),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                )
-
-                                Spacer(modifier = Modifier.height(10.dp))
+                                Spacer(modifier = Modifier.height(6.dp))
                                 OutlinedButton(
                                     onClick = {
                                         prepQuery = threat.searchIngredientKey
@@ -517,6 +502,19 @@ fun PesticideScreen(
                                     Spacer(modifier = Modifier.size(4.dp))
                                     Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp))
                                 }
+
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = strings.pestGuidanceLabel,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = extra.muted,
+                                )
+                                Text(
+                                    text = threat.guidance.get(language),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
                             }
                         }
                     }
@@ -1042,4 +1040,5 @@ fun PesticideScreen(
             }
         }
     }
+}
 }

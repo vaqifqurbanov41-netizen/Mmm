@@ -587,7 +587,7 @@ class FarmViewModel(
                 )
                 withTimeoutOrNull(4500L) {
                     ReferenceImageMatcher.fetchAndCompareRealPhotos(
-                        queryBitmap = bmp,
+                        bitmap = bmp,
                         candidates = preMatches.map { it.threat },
                         maxCandidates = 10,
                     )

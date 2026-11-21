@@ -975,5 +975,100 @@ class ExampleRobolectricTest {
         assertEquals("Xüsusi Sahə Adı", store.photos.value.first().caption)
         store.deletePhoto(file.name)
     }
+
+    @Test
+    fun `notificationBellTurnsActiveAndDialogDisplaysWeatherAndCompactInspectionAlerts`() {
+        val sampleHazards = listOf(
+            com.example.domain.WeatherHazardAlert(
+                id = "field_f1_FROST_2026-11-24",
+                locationLabel = "Bərdə sahəsi",
+                sourceKind = com.example.domain.LocationSourceKind.FIELD,
+                kind = com.example.domain.WeatherHazardKind.FROST,
+                date = "2026-11-24",
+                metricText = "-1.5°C",
+                cropNames = "Buğda",
+            )
+        )
+        val sampleEquipmentAlerts = listOf(
+            EquipmentAlert("Belarus MTZ-82", EquipmentStatus.SOON)
+        )
+        composeTestRule.setContent {
+            var showDialog by remember { mutableStateOf(false) }
+            CompositionLocalProvider(LocalStrings provides StringsAz) {
+                AqroMeslehetTheme {
+                    androidx.compose.foundation.layout.Column {
+                        AqroTopHeader(
+                            farmerFirstName = "Vaqif",
+                            language = AppLanguage.AZ,
+                            weatherTempText = "11°C",
+                            hasAlertDot = true,
+                            isDark = false,
+                            onWeatherClick = {},
+                            onThemeToggle = {},
+                            onNotificationsClick = { showDialog = true },
+                            alertCount = sampleHazards.size + sampleEquipmentAlerts.size,
+                        )
+                        com.example.ui.components.NotificationsDialog(
+                            visible = showDialog,
+                            weatherHazards = sampleHazards,
+                            equipmentAlerts = sampleEquipmentAlerts,
+                            onOpenWeather = {},
+                            onOpenEquipment = {},
+                            onDismiss = { showDialog = false },
+                        )
+                    }
+                }
+            }
+        }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("notifications_active_indicator").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("notifications_button").performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("notifications_dialog").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("notif_weather_item_field_f1_FROST_2026-11-24").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("notifications_dialog_list")
+            .performScrollToNode(hasTestTag("notif_equipment_item_Belarus MTZ-82"))
+        composeTestRule.onNodeWithTag("notif_equipment_item_Belarus MTZ-82").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("notif_open_equipment_btn").assertIsDisplayed()
+    }
+
+    @Test
+    fun `scannerScreenShowsNoMatchForHealthyGreenAndOpensRealPhotoComparisonDialog`() {
+        val healthyGreenBmp = android.graphics.Bitmap.createBitmap(24, 24, android.graphics.Bitmap.Config.ARGB_8888).apply {
+            eraseColor(android.graphics.Color.rgb(45, 165, 55))
+        }
+        composeTestRule.setContent {
+            CompositionLocalProvider(LocalStrings provides StringsAz) {
+                AqroMeslehetTheme {
+                    ScannerScreen(
+                        language = AppLanguage.AZ,
+                        selectedBitmap = healthyGreenBmp,
+                        diagnosisResult = "",
+                        isLoading = false,
+                        errorMessage = null,
+                        onSelectBitmap = {},
+                        onStartDiagnosis = { _, _ -> },
+                        onBack = {},
+                    )
+                }
+            }
+        }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("scanner_screen").performScrollToNode(hasTestTag("scanner_no_match_banner"))
+        composeTestRule.onNodeWithTag("scanner_no_match_banner").assertIsDisplayed()
+
+        composeTestRule.onNodeWithTag("scanner_crop_chip_wheat").performScrollTo().performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("scanner_screen").performScrollToNode(hasTestTag("scanner_browse_diseases_btn"))
+        composeTestRule.onNodeWithTag("scanner_browse_diseases_btn").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("scanner_screen").performScrollToNode(hasTestTag("scanner_visual_match_wheat_yellow_rust_stem"))
+        composeTestRule.onNodeWithTag("scanner_visual_match_wheat_yellow_rust_stem").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("disease_photo_comparison_dialog").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("close_disease_compare_dialog_btn").performClick()
+    }
 }
+
 

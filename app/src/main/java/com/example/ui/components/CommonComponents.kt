@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.DarkMode
@@ -952,52 +953,132 @@ fun NotificationsDialog(
 
                 if (equipmentAlerts.isNotEmpty()) {
                     item {
-                        Text(
-                            text = strings.notifSectionEquipmentTitle,
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
-                    items(equipmentAlerts, key = { "dlg_eq_${it.itemName}_${it.status.name}" }) { eqAlert ->
-                        val isOverdue = eqAlert.status == EquipmentStatus.OVERDUE
+                        val hasOverdue = equipmentAlerts.any { it.status == EquipmentStatus.OVERDUE }
+                        val headerAccent = if (hasOverdue) DangerRed else WarningAmber
                         Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = if (isOverdue) extra.dangerContainer else extra.warningContainer,
-                            border = BorderStroke(1.dp, if (isOverdue) DangerBorder else WarningAmber.copy(alpha = 0.55f)),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("notif_equipment_item_${eqAlert.itemName}"),
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                            border = BorderStroke(1.dp, if (hasOverdue) DangerBorder.copy(alpha = 0.6f) else extra.line),
+                            modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween,
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
                                 modifier = Modifier.padding(10.dp),
                             ) {
-                                Text(
-                                    text = eqAlert.itemName,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                Text(
-                                    text = if (isOverdue) strings.eqStatusOverdue else strings.eqStatusSoon,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (isOverdue) DangerRed else WarningAmber,
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Box(
+                                        contentAlignment = Alignment.Center,
+                                        modifier = Modifier
+                                            .size(28.dp)
+                                            .clip(CircleShape)
+                                            .background(headerAccent.copy(alpha = 0.14f)),
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Build,
+                                            contentDescription = null,
+                                            tint = headerAccent,
+                                            modifier = Modifier.size(15.dp),
+                                        )
+                                    }
+                                    Text(
+                                        text = strings.notifSectionEquipmentTitle,
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    Surface(
+                                        shape = RoundedCornerShape(50),
+                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(50))
+                                            .clickable {
+                                                onDismiss()
+                                                onOpenEquipment()
+                                            }
+                                            .testTag("notif_open_equipment_btn"),
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+                                        ) {
+                                            Text(
+                                                text = strings.open,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.primary,
+                                            )
+                                            Icon(
+                                                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                                contentDescription = strings.notifViewEquipmentBtn,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(14.dp),
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                    equipmentAlerts.forEach { eqAlert ->
+                                        val isOverdue = eqAlert.status == EquipmentStatus.OVERDUE
+                                        val statusColor = if (isOverdue) DangerRed else WarningAmber
+                                        Surface(
+                                            shape = RoundedCornerShape(10.dp),
+                                            color = MaterialTheme.colorScheme.surface,
+                                            border = BorderStroke(1.dp, statusColor.copy(alpha = 0.25f)),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .clickable {
+                                                    onDismiss()
+                                                    onOpenEquipment()
+                                                }
+                                                .testTag("notif_equipment_item_${eqAlert.itemName}"),
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(8.dp)
+                                                        .clip(CircleShape)
+                                                        .background(statusColor),
+                                                )
+                                                Text(
+                                                    text = eqAlert.itemName,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.weight(1f),
+                                                )
+                                                Surface(
+                                                    shape = RoundedCornerShape(50),
+                                                    color = statusColor.copy(alpha = 0.13f),
+                                                ) {
+                                                    Text(
+                                                        text = if (isOverdue) strings.eqStatusOverdue else strings.eqStatusSoon,
+                                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = statusColor,
+                                                        maxLines = 1,
+                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             }
-                        }
-                    }
-                    item {
-                        OutlinedButton(
-                            onClick = {
-                                onDismiss()
-                                onOpenEquipment()
-                            },
-                            modifier = Modifier.fillMaxWidth().testTag("notif_open_equipment_btn"),
-                        ) {
-                            Text(strings.notifViewEquipmentBtn)
                         }
                     }
                 }

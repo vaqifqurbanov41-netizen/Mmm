@@ -395,11 +395,16 @@ fun LocalToolsApp(
                                 try {
                                     val bmp = offlineScannerBitmap
                                     val realSims = if (bmp != null) {
+                                        val preMatches = OfflineAgronomistAdvisor.matchThreatsWithVisualComparison(
+                                            bitmap = bmp,
+                                            note = note,
+                                            limit = 10,
+                                        )
                                         withTimeoutOrNull(3500L) {
                                             ReferenceImageMatcher.fetchAndCompareRealPhotos(
-                                                context = context,
-                                                queryBitmap = bmp,
-                                                note = note,
+                                                bitmap = bmp,
+                                                candidates = preMatches.map { it.threat },
+                                                maxCandidates = 10,
                                             )
                                         }.orEmpty()
                                     } else {

@@ -479,7 +479,7 @@ fun ScannerScreen(
             )
             realPhotoSimilarities = withTimeoutOrNull(5000L) {
                 ReferenceImageMatcher.fetchAndCompareRealPhotos(
-                    queryBitmap = selectedBitmap,
+                    bitmap = selectedBitmap,
                     candidates = preMatches.map { it.threat },
                     maxCandidates = 10,
                 )

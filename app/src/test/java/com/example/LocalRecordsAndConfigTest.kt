@@ -520,6 +520,96 @@ class LocalRecordsAndConfigTest {
 
         scanTemp.delete()
     }
+
+    @Test
+    fun realDiseaseUrlsHealthyNonPlantGatingAndSevenDayWeatherHazardsWork() {
+        val threats = com.example.data.model.CropProtectionCatalog.threats
+        threats.forEach { threat ->
+            val profile = com.example.data.model.DiseaseVisualCatalog.profileFor(threat.id)!!
+            assertTrue(
+                "Expected Wikimedia URL for ${threat.id}",
+                profile.referenceImageUrl.startsWith("https://commons.wikimedia.org/"),
+            )
+            val thumb = com.example.data.model.DiseaseVisualCatalog.resizedUrl(profile.referenceImageUrl, 360)
+            assertTrue(thumb.contains("width=360"))
+        }
+
+        // Uniform healthy green foliage should NOT trigger a false disease match
+        val healthyGreenBmp = android.graphics.Bitmap.createBitmap(24, 24, android.graphics.Bitmap.Config.ARGB_8888).apply {
+            eraseColor(android.graphics.Color.rgb(45, 165, 55))
+        }
+        val healthyAssessment = com.example.data.ai.OfflineAgronomistAdvisor.assessPlantPhoto(
+            bitmap = healthyGreenBmp,
+            note = "",
+        )
+        assertTrue(healthyAssessment.looksLikePlantMaterial)
+        assertTrue(healthyAssessment.appearsHealthyGreen)
+        assertFalse(healthyAssessment.hasMatch)
+
+        // Blue sky / non-plant object should NOT trigger a false disease match
+        val skyBmp = android.graphics.Bitmap.createBitmap(24, 24, android.graphics.Bitmap.Config.ARGB_8888).apply {
+            eraseColor(android.graphics.Color.rgb(70, 145, 225))
+        }
+        val skyAssessment = com.example.data.ai.OfflineAgronomistAdvisor.assessPlantPhoto(
+            bitmap = skyBmp,
+            note = "",
+        )
+        assertFalse(skyAssessment.looksLikePlantMaterial)
+        assertFalse(skyAssessment.hasMatch)
+
+        // Rust-colored spotted plant sample SHOULD produce a visual match
+        val rustBmp = android.graphics.Bitmap.createBitmap(24, 24, android.graphics.Bitmap.Config.ARGB_8888).apply {
+            eraseColor(android.graphics.Color.rgb(215, 95, 25))
+        }
+        val rustAssessment = com.example.data.ai.OfflineAgronomistAdvisor.assessPlantPhoto(
+            bitmap = rustBmp,
+            note = "",
+            cropIdFilter = "wheat",
+        )
+        assertTrue(rustAssessment.hasMatch)
+        assertTrue(rustAssessment.matches.isNotEmpty())
+
+        // 7-day WeatherHazardMonitor across Field + User GPS + Registered Region ("Bərdə")
+        val locations = com.example.domain.WeatherHazardMonitor.collectMonitoredLocations(
+            fields = listOf(
+                com.example.data.model.FarmField(
+                    id = "f-gps",
+                    name = "Şəki Sahəsi",
+                    crop = "Buğda",
+                    coords = listOf("41.1919,47.1706"),
+                )
+            ),
+            userLat = 40.4093,
+            userLon = 49.8671,
+            profilePlace = "Bərdə",
+        )
+        assertEquals(3, locations.size)
+        assertTrue(locations.any { it.sourceKind == com.example.domain.LocationSourceKind.FIELD })
+        assertTrue(locations.any { it.sourceKind == com.example.domain.LocationSourceKind.USER_GPS })
+        assertTrue(locations.any { it.sourceKind == com.example.domain.LocationSourceKind.REGISTERED_REGION })
+
+        val sampleForecast = com.example.data.remote.OpenMeteoResponse(
+            current = com.example.data.remote.CurrentWeatherDto(
+                temperature2m = 14.0,
+                humidity2m = 70,
+                precipitation = 0.0,
+                windSpeed10m = 12.0,
+            ),
+            daily = com.example.data.remote.DailyWeatherDto(
+                time = listOf("2026-11-21", "2026-11-22", "2026-11-23", "2026-11-24", "2026-11-25", "2026-11-26", "2026-11-27"),
+                tempMax = listOf(18.0, 20.0, 22.0, 36.5, 24.0, 19.0, 17.0),
+                tempMin = listOf(7.0, 8.0, 9.0, 16.0, 1.0, 5.0, 4.0),
+                precipitationSum = listOf(0.0, 18.0, 0.0, 0.0, 0.0, 2.0, 0.0),
+                windMax = listOf(12.0, 15.0, 40.0, 14.0, 10.0, 11.0, 12.0),
+            ),
+        )
+        val hazards = com.example.domain.WeatherHazardMonitor.evaluateSevenDayHazards(locations.first(), sampleForecast)
+        assertTrue(hazards.any { it.kind == com.example.domain.WeatherHazardKind.FROST })
+        assertTrue(hazards.any { it.kind == com.example.domain.WeatherHazardKind.HEAT_STRESS })
+        assertTrue(hazards.any { it.kind == com.example.domain.WeatherHazardKind.HEAVY_RAIN_LEACHING })
+        assertTrue(hazards.any { it.kind == com.example.domain.WeatherHazardKind.HIGH_WIND_SPRAY })
+    }
 }
+
 
 
