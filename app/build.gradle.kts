@@ -22,7 +22,7 @@ android {
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-    val activePreviewApp = (project.findProperty("activeApp") as String?) ?: "texnonezaret"
+    val activePreviewApp = (project.findProperty("activeApp") as String?) ?: "aqromeslehet"
     buildConfigField("boolean", "PREVIEW_TEXNONEZARET", (activePreviewApp == "texnonezaret").toString())
   }
 

@@ -454,7 +454,7 @@ fun LocalToolsApp(
                             }
                         },
                         onCenterChanged = { mapCenter = it },
-                        onZoomChanged = { mapZoom = it.coerceIn(5, 19) },
+                        onZoomChanged = { mapZoom = it.coerceIn(4, 21) },
                         onToggleLayer = { isSatellite = !isSatellite },
                         onUpdateGpsFix = { lat, lon, acc ->
                             val loc = LatLon(lat, lon)

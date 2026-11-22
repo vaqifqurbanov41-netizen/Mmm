@@ -444,7 +444,7 @@ class FarmViewModel(
     }
 
     fun setMapZoom(zoom: Int) {
-        _mapZoom.value = zoom.coerceIn(5, 19)
+        _mapZoom.value = zoom.coerceIn(4, 21)
     }
 
     fun toggleMapLayer() {

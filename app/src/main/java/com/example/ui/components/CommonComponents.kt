@@ -67,6 +67,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -132,16 +133,16 @@ fun AqroTopHeader(
         Row(
             modifier = Modifier
                 .statusBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
+                .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.weight(1f).padding(end = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.weight(1f).padding(end = 4.dp),
             ) {
-                AqroLauncherIconEmblem(size = 40.dp)
+                AqroLauncherIconEmblem(size = 38.dp)
                 Column {
                     Text(
                         text = strings.appName,
@@ -153,7 +154,7 @@ fun AqroTopHeader(
                     )
                     Text(
                         text = strings.brandTagline,
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 12.sp),
                         color = extra.muted,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -177,9 +178,9 @@ fun AqroTopHeader(
                         .testTag("header_weather_pill"),
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp),
+                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
                     ) {
                         Icon(
                             imageVector = Icons.Filled.WbSunny,
@@ -575,14 +576,18 @@ fun TabPillsRow(
                 ) {
                     Box(
                         contentAlignment = Alignment.Center,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 10.dp),
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp),
                     ) {
                         Text(
                             text = title,
-                            style = MaterialTheme.typography.labelMedium,
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                fontSize = 11.5.sp,
+                                lineHeight = 14.sp,
+                            ),
                             color = if (active) MaterialTheme.colorScheme.primary else extra.muted,
                             fontWeight = FontWeight.Bold,
-                            maxLines = 1,
+                            textAlign = TextAlign.Center,
+                            maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                         )
                     }

@@ -6,7 +6,9 @@ import com.example.domain.KmzPlacemark
 import com.example.domain.KmzUtils
 import com.example.domain.LatLon
 import com.example.domain.OcrToken
+import com.example.ui.components.MapTileMath
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -126,5 +128,41 @@ class ParserAndKmzUnitTest {
         assertEquals(1, nestedKmz.placemarks.size)
         assertEquals("İkinci KML", nestedKmz.placemarks.first().name)
         assertEquals(3, nestedKmz.placemarks.first().points.size)
+    }
+
+    @Test
+    fun mapTileMathComputesAncestorOverzoomCropAndDetectsPlaceholders() {
+        // Zoom 19 tile (40961, 24578) from Zoom 17 ancestor (40961 shr 2 = 10240, 24578 shr 2 = 6144)
+        val crop = MapTileMath.computeAncestorCrop(
+            targetZ = 19,
+            targetX = 40961,
+            targetY = 24578,
+            ancestorZ = 17,
+            tileWidth = 256,
+            tileHeight = 256,
+        )
+        assertEquals(17, crop.ancestorZ)
+        assertEquals(10240, crop.ancestorX)
+        assertEquals(6144, crop.ancestorY)
+        assertEquals(64, crop.srcOffsetX)
+        assertEquals(128, crop.srcOffsetY)
+        assertEquals(64, crop.srcWidth)
+        assertEquals(64, crop.srcHeight)
+
+        // Esri-style uniform light-grey "Map data not yet available" tile samples
+        val esriGrey = IntArray(64) { i ->
+            if (i in 24..31) 0xFFEFEFEF.toInt() else 0xFFCCCCCC.toInt()
+        }
+        assertTrue(MapTileMath.isLikelyPlaceholderTilePixels(esriGrey))
+
+        // Real aerial field tile with vegetation & soil chroma
+        val realSatellite = IntArray(64) { i ->
+            when {
+                i % 3 == 0 -> 0xFF3E6B2E.toInt() // green crop
+                i % 3 == 1 -> 0xFF7B5A3C.toInt() // brown soil
+                else -> 0xFFC5B091.toInt()       // road / roof
+            }
+        }
+        assertFalse(MapTileMath.isLikelyPlaceholderTilePixels(realSatellite))
     }
 }

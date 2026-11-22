@@ -15,6 +15,7 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,6 +35,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -84,6 +86,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
@@ -550,25 +553,27 @@ fun FieldsScreen(
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(8.dp),
+                        modifier = Modifier
+                            .horizontalScroll(rememberScrollState())
+                            .padding(8.dp),
                     ) {
                         Button(
                             onClick = { showCoordinatesDialog = true },
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                             modifier = Modifier.heightIn(min = 48.dp).testTag("fullscreen_coords_btn"),
                         ) {
                             Icon(Icons.Filled.PinDrop, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.size(4.dp))
-                            Text(strings.btnCoordinatesModal, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(strings.btnCoordinatesModal, maxLines = 1, softWrap = false)
                         }
                         OutlinedButton(
                             onClick = { kmzOpenLauncher.launch(arrayOf("*/*")) },
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                             modifier = Modifier.heightIn(min = 48.dp).testTag("fullscreen_kmz_btn"),
                         ) {
                             Icon(Icons.Filled.FolderOpen, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.size(4.dp))
-                            Text(strings.btnKmzOpen, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(strings.btnKmzOpen, maxLines = 1, softWrap = false)
                         }
                         IconButton(
                             onClick = onUndoPoint,
@@ -678,45 +683,99 @@ fun FieldsScreen(
                         color = extra.muted,
                     )
                     Spacer(modifier = Modifier.height(8.dp))
+                    val actionBtnPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp)
+                    val actionTextStyle = MaterialTheme.typography.labelLarge.copy(
+                        fontSize = 13.sp,
+                        lineHeight = 16.sp,
+                    )
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
                     ) {
                         Button(
                             onClick = { showCoordinatesDialog = true },
+                            contentPadding = actionBtnPadding,
                             modifier = Modifier
-                                .weight(1.15f)
+                                .weight(1f)
                                 .fillMaxHeight()
                                 .heightIn(min = 48.dp)
                                 .testTag("open_coordinates_dialog_btn"),
                         ) {
-                            Icon(Icons.Filled.PinDrop, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.size(4.dp))
-                            Text(strings.btnCoordinatesModal, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Icon(Icons.Filled.PinDrop, contentDescription = null, modifier = Modifier.size(17.dp))
+                            Spacer(modifier = Modifier.size(6.dp))
+                            Text(
+                                text = strings.btnCoordinatesModal,
+                                style = actionTextStyle,
+                                textAlign = TextAlign.Center,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
                         }
                         OutlinedButton(
                             onClick = onUndoPoint,
+                            contentPadding = actionBtnPadding,
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight()
                                 .heightIn(min = 48.dp)
                                 .testTag("map_undo_btn"),
                         ) {
-                            Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.size(4.dp))
-                            Text(strings.undo, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = null, modifier = Modifier.size(17.dp))
+                            Spacer(modifier = Modifier.size(6.dp))
+                            Text(
+                                text = strings.undo,
+                                style = actionTextStyle,
+                                textAlign = TextAlign.Center,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
                         }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                    ) {
                         OutlinedButton(
                             onClick = onClearPoints,
+                            contentPadding = actionBtnPadding,
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight()
                                 .heightIn(min = 48.dp)
                                 .testTag("map_clear_btn"),
                         ) {
-                            Icon(Icons.Filled.Clear, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.size(4.dp))
-                            Text(strings.clear, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Icon(Icons.Filled.Clear, contentDescription = null, modifier = Modifier.size(17.dp))
+                            Spacer(modifier = Modifier.size(6.dp))
+                            Text(
+                                text = strings.clear,
+                                style = actionTextStyle,
+                                textAlign = TextAlign.Center,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                kmzOpenLauncher.launch(arrayOf("*/*"))
+                            },
+                            contentPadding = actionBtnPadding,
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .heightIn(min = 48.dp)
+                                .testTag("open_kmz_file_btn"),
+                        ) {
+                            Icon(Icons.Filled.FolderOpen, contentDescription = null, modifier = Modifier.size(17.dp))
+                            Spacer(modifier = Modifier.size(6.dp))
+                            Text(
+                                text = strings.btnKmzOpen,
+                                style = actionTextStyle,
+                                textAlign = TextAlign.Center,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
                         }
                     }
 
@@ -727,20 +786,6 @@ fun FieldsScreen(
                     ) {
                         OutlinedButton(
                             onClick = {
-                                kmzOpenLauncher.launch(arrayOf("*/*"))
-                            },
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight()
-                                .heightIn(min = 48.dp)
-                                .testTag("open_kmz_file_btn"),
-                        ) {
-                            Icon(Icons.Filled.FolderOpen, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.size(4.dp))
-                            Text(strings.btnKmzOpen, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                        OutlinedButton(
-                            onClick = {
                                 val payload = buildActiveKmzPlacemarks()
                                 if (payload == null) {
                                     kmzStatusMessage = strings.kmzNeedPointsError
@@ -749,15 +794,22 @@ fun FieldsScreen(
                                     shareKmzPlacemarks(payload.first, payload.second)
                                 }
                             },
+                            contentPadding = actionBtnPadding,
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight()
                                 .heightIn(min = 48.dp)
                                 .testTag("share_kmz_btn"),
                         ) {
-                            Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.size(4.dp))
-                            Text(strings.btnKmzShare, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(17.dp))
+                            Spacer(modifier = Modifier.size(6.dp))
+                            Text(
+                                text = strings.btnKmzShare,
+                                style = actionTextStyle,
+                                textAlign = TextAlign.Center,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
                         }
                         OutlinedButton(
                             onClick = {
@@ -770,15 +822,22 @@ fun FieldsScreen(
                                     kmzSaveLauncher.launch("${payload.first}.kmz")
                                 }
                             },
+                            contentPadding = actionBtnPadding,
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight()
                                 .heightIn(min = 48.dp)
                                 .testTag("save_kmz_btn"),
                         ) {
-                            Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.size(4.dp))
-                            Text(strings.btnKmzSave, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(17.dp))
+                            Spacer(modifier = Modifier.size(6.dp))
+                            Text(
+                                text = strings.btnKmzSave,
+                                style = actionTextStyle,
+                                textAlign = TextAlign.Center,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
                         }
                     }
 
@@ -809,6 +868,7 @@ fun FieldsScreen(
                         ) {
                             Button(
                                 onClick = { showCoordinatesDialog = true },
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
                                 modifier = Modifier
                                     .weight(1f)
                                     .fillMaxHeight()
@@ -817,10 +877,11 @@ fun FieldsScreen(
                             ) {
                                 Icon(Icons.Filled.AddLocationAlt, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.size(6.dp))
-                                Text(strings.btnCoordinatesModal, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(strings.btnCoordinatesModal, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             }
                             OutlinedButton(
                                 onClick = { triggerLocate(true) },
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
                                 modifier = Modifier
                                     .weight(1f)
                                     .fillMaxHeight()
@@ -829,7 +890,7 @@ fun FieldsScreen(
                             ) {
                                 Icon(Icons.Filled.MyLocation, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.size(6.dp))
-                                Text(strings.coordFillGpsBtn, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(strings.coordFillGpsBtn, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             }
                         }
 
@@ -1010,6 +1071,7 @@ fun FieldsScreen(
                                         docCameraPermissionLauncher.launch(Manifest.permission.CAMERA)
                                     }
                                 },
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
                                 modifier = Modifier
                                     .weight(1f)
                                     .fillMaxHeight()
@@ -1018,7 +1080,7 @@ fun FieldsScreen(
                             ) {
                                 Icon(Icons.Filled.PhotoCamera, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.size(6.dp))
-                                Text(strings.btnCaptureDocumentCamera, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(strings.btnCaptureDocumentCamera, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             }
                             OutlinedButton(
                                 onClick = {
@@ -1026,6 +1088,7 @@ fun FieldsScreen(
                                         PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                                     )
                                 },
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
                                 modifier = Modifier
                                     .weight(1f)
                                     .fillMaxHeight()
@@ -1034,7 +1097,7 @@ fun FieldsScreen(
                             ) {
                                 Icon(Icons.Filled.DocumentScanner, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.size(6.dp))
-                                Text(strings.btnPickDocumentImage, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(strings.btnPickDocumentImage, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             }
                         }
 

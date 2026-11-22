@@ -52,12 +52,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -72,6 +74,7 @@ import com.example.domain.LatLon
 import com.example.i18n.LocalStrings
 import com.example.ui.components.AqroCard
 import com.example.ui.components.MapTileLoader
+import com.example.ui.components.MapTileMath
 import com.example.ui.components.TabPillsRow
 import com.example.ui.components.formatNumber
 import com.example.ui.theme.LocalAqroColors
@@ -116,9 +119,14 @@ fun ClimateTimeMapCard(
     useYearly: Boolean,
     onToggleYearly: (Boolean) -> Unit,
 ) {
+    val context = LocalContext.current
     val strings = LocalStrings.current
     val extra = LocalAqroColors.current
     val scope = rememberCoroutineScope()
+
+    LaunchedEffect(context) {
+        MapTileLoader.initCache(context)
+    }
 
     val frames = remember(summary, useYearly) {
         if (useYearly && summary.yearlySummaries.size >= 2) {
@@ -215,10 +223,11 @@ fun ClimateTimeMapCard(
         for (tx in minTx..maxTx) {
             val wx = ((tx % maxTile) + maxTile) % maxTile
             for (ty in minTy..maxTy) {
-                val key = "${if (isSatellite) "sat" else "osm"}_${mapZoom}_${wx}_${ty}"
-                if (MapTileLoader.getCached(key) == null) {
+                val best = MapTileLoader.resolveBestTile(mapZoom, wx, ty, isSatellite)
+                val exactCached = best != null && best.srcSize.width == best.bitmap.width
+                if (!exactCached) {
                     scope.launch {
-                        if (MapTileLoader.fetchTile(mapZoom, wx, ty, isSatellite) != null) {
+                        MapTileLoader.fetchTileWithAncestors(mapZoom, wx, ty, isSatellite) {
                             tileTick++
                         }
                     }
@@ -320,11 +329,11 @@ fun ClimateTimeMapCard(
                                             nextZoom,
                                         )
                                     }
-                                    while (nextScale >= 1.65f && nextZoom < 18) {
+                                    while (nextScale >= 1.65f && nextZoom < MapTileMath.MAX_ZOOM) {
                                         nextZoom += 1
                                         nextScale /= 2f
                                     }
-                                    while (nextScale <= 0.62f && nextZoom > 5) {
+                                    while (nextScale <= 0.62f && nextZoom > MapTileMath.MIN_ZOOM) {
                                         nextZoom -= 1
                                         nextScale *= 2f
                                     }
@@ -368,13 +377,15 @@ fun ClimateTimeMapCard(
                         val top = ((ty * 256.0 - worldCy) * scale + hh).roundToInt()
                         val right = (((tx + 1) * 256.0 - worldCx) * scale + hw).roundToInt()
                         val bottom = (((ty + 1) * 256.0 - worldCy) * scale + hh).roundToInt()
-                        val key = "${if (isSatellite) "sat" else "osm"}_${mapZoom}_${wx}_${ty}"
-                        val bmp = MapTileLoader.getCached(key)
-                        if (bmp != null) {
+                        val resolved = MapTileLoader.resolveBestTile(mapZoom, wx, ty, isSatellite)
+                        if (resolved != null) {
                             drawImage(
-                                image = bmp,
+                                image = resolved.bitmap,
+                                srcOffset = resolved.srcOffset,
+                                srcSize = resolved.srcSize,
                                 dstOffset = IntOffset(left, top),
                                 dstSize = IntSize((right - left + 1).coerceAtLeast(1), (bottom - top + 1).coerceAtLeast(1)),
+                                filterQuality = FilterQuality.Medium,
                             )
                         } else {
                             drawRect(

@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -48,8 +49,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.domain.GeoUtils
@@ -561,16 +564,24 @@ fun KmzViewerDialog(
                     ) {
                         OutlinedButton(
                             onClick = { onLoadToMap(selected) },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight()
                                 .heightIn(min = 48.dp)
                                 .testTag("kmz_load_to_map_btn"),
                         ) {
-                            Text(strings.kmzLoadToEditorBtn, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                text = strings.kmzLoadToEditorBtn,
+                                fontSize = 12.5.sp,
+                                textAlign = TextAlign.Center,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
                         }
                         Button(
                             onClick = { onSavePlacemarkAsField(selected) },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight()
@@ -579,7 +590,13 @@ fun KmzViewerDialog(
                         ) {
                             Icon(Icons.Filled.Save, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.size(4.dp))
-                            Text(strings.kmzSaveFieldBtn, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                text = strings.kmzSaveFieldBtn,
+                                fontSize = 12.5.sp,
+                                textAlign = TextAlign.Center,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
                         }
                     }
                 }

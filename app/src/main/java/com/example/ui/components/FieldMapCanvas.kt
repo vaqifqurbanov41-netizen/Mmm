@@ -1,5 +1,7 @@
 package com.example.ui.components
 
+import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.LruCache
 import androidx.compose.foundation.BorderStroke
@@ -50,6 +52,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
@@ -57,6 +60,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
@@ -75,23 +79,221 @@ import com.example.ui.theme.EmeraldPrimary
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.Cache
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 
+internal object MapTileMath {
+    const val MIN_ZOOM = 4
+    const val MAX_ZOOM = 21
+    const val MAX_SATELLITE_NATIVE_ZOOM = 20
+    const val MAX_ESRI_FALLBACK_ZOOM = 17
+    const val MAX_OSM_NATIVE_ZOOM = 19
+
+    data class AncestorCrop(
+        val ancestorZ: Int,
+        val ancestorX: Int,
+        val ancestorY: Int,
+        val srcOffsetX: Int,
+        val srcOffsetY: Int,
+        val srcWidth: Int,
+        val srcHeight: Int,
+    )
+
+    fun computeAncestorCrop(
+        targetZ: Int,
+        targetX: Int,
+        targetY: Int,
+        ancestorZ: Int,
+        tileWidth: Int = 256,
+        tileHeight: Int = 256,
+    ): AncestorCrop {
+        val shift = (targetZ - ancestorZ).coerceAtLeast(0)
+        val subCount = 1 shl shift
+        val ancestorX = targetX shr shift
+        val ancestorY = targetY shr shift
+        val localX = targetX and (subCount - 1)
+        val localY = targetY and (subCount - 1)
+        val left = (localX * tileWidth) / subCount
+        val right = ((localX + 1) * tileWidth) / subCount
+        val top = (localY * tileHeight) / subCount
+        val bottom = ((localY + 1) * tileHeight) / subCount
+        return AncestorCrop(
+            ancestorZ = ancestorZ,
+            ancestorX = ancestorX,
+            ancestorY = ancestorY,
+            srcOffsetX = left,
+            srcOffsetY = top,
+            srcWidth = (right - left).coerceAtLeast(1),
+            srcHeight = (bottom - top).coerceAtLeast(1),
+        )
+    }
+
+    /**
+     * Detects uniform grey "Map data not yet available" placeholder tiles (such as Esri's HTTP 200
+     * blank error graphic) by sampling a grid of pixels and rejecting near-monochrome grey plates.
+     */
+    fun isLikelyPlaceholderTilePixels(argbSamples: IntArray): Boolean {
+        if (argbSamples.isEmpty()) return true
+        var greyPlateSamples = 0
+        var chromaticSamples = 0
+        var minLum = 255
+        var maxLum = 0
+        for (px in argbSamples) {
+            val r = (px shr 16) and 0xFF
+            val g = (px shr 8) and 0xFF
+            val b = px and 0xFF
+            val maxChannel = maxOf(r, g, b)
+            val minChannel = minOf(r, g, b)
+            val chroma = maxChannel - minChannel
+            val lum = (r + g + b) / 3
+            if (lum < minLum) minLum = lum
+            if (lum > maxLum) maxLum = lum
+            if (chroma > 14) {
+                chromaticSamples++
+            }
+            if (chroma <= 6 && lum in 188..236) {
+                greyPlateSamples++
+            }
+        }
+        val ratioGreyPlate = greyPlateSamples.toDouble() / argbSamples.size.toDouble()
+        // Real satellite imagery almost always has earth color chroma and wide luminance variance.
+        return chromaticSamples == 0 && (ratioGreyPlate >= 0.72 || (maxLum - minLum) <= 10)
+    }
+}
+
+internal data class ResolvedMapTile(
+    val bitmap: ImageBitmap,
+    val srcOffset: IntOffset,
+    val srcSize: IntSize,
+)
+
 internal object MapTileLoader {
-    private val client = OkHttpClient.Builder()
+    private const val NEGATIVE_TTL_MS = 45_000L
+
+    @Volatile
+    private var client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(12, TimeUnit.SECONDS)
         .build()
 
-    private val cache = object : LruCache<String, ImageBitmap>(140) {}
+    @Volatile
+    private var cacheInitialized = false
+
+    private val cache = object : LruCache<String, ImageBitmap>(260) {}
     private val inFlight = mutableSetOf<String>()
+    private val failedUntil = ConcurrentHashMap<String, Long>()
+
+    fun initCache(context: Context) {
+        if (cacheInitialized) return
+        synchronized(this) {
+            if (cacheInitialized) return
+            runCatching {
+                val cacheDir = File(context.applicationContext.cacheDir, "map_tile_cache_v2")
+                client = OkHttpClient.Builder()
+                    .cache(Cache(cacheDir, 24L * 1024L * 1024L))
+                    .connectTimeout(10, TimeUnit.SECONDS)
+                    .readTimeout(12, TimeUnit.SECONDS)
+                    .build()
+                cacheInitialized = true
+            }
+        }
+    }
+
+    private fun tileKey(z: Int, x: Int, y: Int, satellite: Boolean): String =
+        "${if (satellite) "gsat" else "osm"}_${z}_${x}_${y}"
 
     fun getCached(key: String): ImageBitmap? = cache.get(key)
+
+    fun resolveBestTile(
+        z: Int,
+        x: Int,
+        y: Int,
+        satellite: Boolean,
+    ): ResolvedMapTile? {
+        cache.get(tileKey(z, x, y, satellite))?.let { exact ->
+            return ResolvedMapTile(
+                bitmap = exact,
+                srcOffset = IntOffset.Zero,
+                srcSize = IntSize(exact.width, exact.height),
+            )
+        }
+        val minAncestor = (z - 6).coerceAtLeast(MapTileMath.MIN_ZOOM)
+        for (pz in (z - 1) downTo minAncestor) {
+            val shift = z - pz
+            val px = x shr shift
+            val py = y shr shift
+            cache.get(tileKey(pz, px, py, satellite))?.let { ancestorBmp ->
+                val crop = MapTileMath.computeAncestorCrop(
+                    targetZ = z,
+                    targetX = x,
+                    targetY = y,
+                    ancestorZ = pz,
+                    tileWidth = ancestorBmp.width,
+                    tileHeight = ancestorBmp.height,
+                )
+                return ResolvedMapTile(
+                    bitmap = ancestorBmp,
+                    srcOffset = IntOffset(crop.srcOffsetX, crop.srcOffsetY),
+                    srcSize = IntSize(crop.srcWidth, crop.srcHeight),
+                )
+            }
+        }
+        return null
+    }
+
+    private fun isPlaceholderBitmap(bmp: Bitmap): Boolean {
+        val w = bmp.width
+        val h = bmp.height
+        if (w < 16 || h < 16) return true
+        val samples = IntArray(64)
+        var idx = 0
+        for (gy in 0 until 8) {
+            val py = ((gy + 0.5) * h / 8.0).toInt().coerceIn(0, h - 1)
+            for (gx in 0 until 8) {
+                val px = ((gx + 0.5) * w / 8.0).toInt().coerceIn(0, w - 1)
+                samples[idx++] = bmp.getPixel(px, py)
+            }
+        }
+        return MapTileMath.isLikelyPlaceholderTilePixels(samples)
+    }
+
+    private fun downloadTileBitmap(
+        url: String,
+        referer: String?,
+        userAgent: String,
+        rejectPlaceholder: Boolean,
+    ): ImageBitmap? {
+        val reqBuilder = Request.Builder()
+            .url(url)
+            .header("User-Agent", userAgent)
+            .header("Accept", "image/webp,image/png,image/jpeg,image/*;q=0.8")
+        if (referer != null) {
+            reqBuilder.header("Referer", referer)
+        }
+        return client.newCall(reqBuilder.build()).execute().use { resp ->
+            if (!resp.isSuccessful) return@use null
+            val contentType = resp.header("Content-Type").orEmpty()
+            if (contentType.isNotEmpty() && !contentType.startsWith("image/", ignoreCase = true)) {
+                return@use null
+            }
+            val bytes = resp.body?.bytes() ?: return@use null
+            if (bytes.size < 128) return@use null
+            val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return@use null
+            if (rejectPlaceholder && isPlaceholderBitmap(bmp)) {
+                bmp.recycle()
+                return@use null
+            }
+            bmp.asImageBitmap()
+        }
+    }
 
     suspend fun fetchTile(
         z: Int,
@@ -99,37 +301,98 @@ internal object MapTileLoader {
         y: Int,
         satellite: Boolean,
     ): ImageBitmap? {
-        val key = "${if (satellite) "sat" else "osm"}_${z}_${x}_${y}"
+        val nativeCap = if (satellite) MapTileMath.MAX_SATELLITE_NATIVE_ZOOM else MapTileMath.MAX_OSM_NATIVE_ZOOM
+        if (z > nativeCap || z < MapTileMath.MIN_ZOOM) return null
+        val key = tileKey(z, x, y, satellite)
         cache.get(key)?.let { return it }
+
+        val now = System.currentTimeMillis()
+        val blockedUntil = failedUntil[key]
+        if (blockedUntil != null && now < blockedUntil) return null
+
         synchronized(inFlight) {
             if (inFlight.contains(key)) return null
             inFlight.add(key)
         }
         return try {
             withContext(Dispatchers.IO) {
-                val url = if (satellite) {
-                    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/$z/$y/$x"
+                var decoded: ImageBitmap? = null
+                if (satellite) {
+                    val shard = (abs(x) + abs(y)) and 3
+                    val googleSatUrl = "https://mt$shard.google.com/vt/lyrs=s&hl=az&x=$x&y=$y&z=$z"
+                    decoded = downloadTileBitmap(
+                        url = googleSatUrl,
+                        referer = "https://maps.google.com/",
+                        userAgent = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
+                        rejectPlaceholder = true,
+                    )
+                    if (decoded == null && z <= MapTileMath.MAX_ESRI_FALLBACK_ZOOM) {
+                        val esriUrl = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/$z/$y/$x"
+                        decoded = downloadTileBitmap(
+                            url = esriUrl,
+                            referer = null,
+                            userAgent = "AqroMeslehetAndroid/1.0",
+                            rejectPlaceholder = true,
+                        )
+                    }
                 } else {
-                    "https://tile.openstreetmap.org/$z/$x/$y.png"
+                    val osmUrl = "https://tile.openstreetmap.org/$z/$x/$y.png"
+                    decoded = downloadTileBitmap(
+                        url = osmUrl,
+                        referer = "https://www.openstreetmap.org/",
+                        userAgent = "AqroMeslehetAndroid/1.0 (https://aqromeslehet.az)",
+                        rejectPlaceholder = false,
+                    )
                 }
-                val request = Request.Builder()
-                    .url(url)
-                    .header("User-Agent", "AqroMeslehetAndroid/1.0")
-                    .build()
-                client.newCall(request).execute().use { resp ->
-                    if (!resp.isSuccessful) return@withContext null
-                    val bytes = resp.body?.bytes() ?: return@withContext null
-                    val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return@withContext null
-                    val img = bmp.asImageBitmap()
-                    cache.put(key, img)
-                    img
+
+                if (decoded != null) {
+                    failedUntil.remove(key)
+                    cache.put(key, decoded)
+                } else {
+                    failedUntil[key] = System.currentTimeMillis() + NEGATIVE_TTL_MS
                 }
+                decoded
             }
         } catch (_: Exception) {
+            failedUntil[key] = System.currentTimeMillis() + NEGATIVE_TTL_MS
             null
         } finally {
             synchronized(inFlight) {
                 inFlight.remove(key)
+            }
+        }
+    }
+
+    /**
+     * Fetches the requested tile and, if exact zoom is missing or deep (>16), seamlessly warms up
+     * parent zoom tiles so high-zoom overzooming always keeps crisp underlying imagery visible.
+     */
+    suspend fun fetchTileWithAncestors(
+        z: Int,
+        x: Int,
+        y: Int,
+        satellite: Boolean,
+        onTileLoaded: () -> Unit,
+    ) {
+        val exactLoaded = fetchTile(z, x, y, satellite)
+        if (exactLoaded != null) {
+            onTileLoaded()
+            return
+        }
+        val minAncestor = (z - 4).coerceAtLeast(MapTileMath.MIN_ZOOM)
+        for (pz in (z - 1) downTo minAncestor) {
+            val shift = z - pz
+            val px = x shr shift
+            val py = y shr shift
+            val parentKey = tileKey(pz, px, py, satellite)
+            if (cache.get(parentKey) != null) {
+                onTileLoaded()
+                return
+            }
+            val loadedParent = fetchTile(pz, px, py, satellite)
+            if (loadedParent != null) {
+                onTileLoaded()
+                return
             }
         }
     }
@@ -155,6 +418,7 @@ fun FieldMapCanvas(
     isFullscreen: Boolean = false,
     onToggleFullscreen: (() -> Unit)? = null,
 ) {
+    val context = LocalContext.current
     val strings = LocalStrings.current
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
     var tileTick by remember { mutableIntStateOf(0) }
@@ -163,7 +427,7 @@ fun FieldMapCanvas(
 
     var pinchScale by remember { mutableFloatStateOf(1f) }
     var localCenter by remember(center) { mutableStateOf(center) }
-    var localZoom by remember(zoom) { mutableIntStateOf(zoom.coerceIn(5, 19)) }
+    var localZoom by remember(zoom) { mutableIntStateOf(zoom.coerceIn(MapTileMath.MIN_ZOOM, MapTileMath.MAX_ZOOM)) }
 
     val latestPoints by rememberUpdatedState(points)
     val latestExtraPolygons by rememberUpdatedState(extraPolygons)
@@ -172,11 +436,15 @@ fun FieldMapCanvas(
     val latestOnAddPoint by rememberUpdatedState(onAddPoint)
     val latestOnMovePoint by rememberUpdatedState(onMovePoint)
 
+    LaunchedEffect(context) {
+        MapTileLoader.initCache(context)
+    }
+
     val (centerWorldX, centerWorldY) = remember(localCenter, localZoom) {
         GeoUtils.latLonToWorldPx(localCenter.lat, localCenter.lon, localZoom)
     }
 
-    // Trigger tile fetches around visible viewport
+    // Trigger tile fetches around visible viewport (including ancestor overzoom fallback)
     LaunchedEffect(localCenter, localZoom, isSatellite, canvasSize) {
         if (canvasSize.width == 0 || canvasSize.height == 0) return@LaunchedEffect
         val maxTile = (1 shl localZoom)
@@ -190,11 +458,11 @@ fun FieldMapCanvas(
         for (tx in minTx..maxTx) {
             val wrappedX = ((tx % maxTile) + maxTile) % maxTile
             for (ty in minTy..maxTy) {
-                val key = "${if (isSatellite) "sat" else "osm"}_${localZoom}_${wrappedX}_${ty}"
-                if (MapTileLoader.getCached(key) == null) {
+                val best = MapTileLoader.resolveBestTile(localZoom, wrappedX, ty, isSatellite)
+                val exactCached = best != null && best.srcSize.width == best.bitmap.width
+                if (!exactCached) {
                     scope.launch {
-                        val loaded = MapTileLoader.fetchTile(localZoom, wrappedX, ty, isSatellite)
-                        if (loaded != null) {
+                        MapTileLoader.fetchTileWithAncestors(localZoom, wrappedX, ty, isSatellite) {
                             tileTick++
                         }
                     }
@@ -281,11 +549,11 @@ fun FieldMapCanvas(
                                         )
                                     }
 
-                                    while (nextScale >= 1.65f && nextZoom < 19) {
+                                    while (nextScale >= 1.65f && nextZoom < MapTileMath.MAX_ZOOM) {
                                         nextZoom += 1
                                         nextScale /= 2f
                                     }
-                                    while (nextScale <= 0.62f && nextZoom > 5) {
+                                    while (nextScale <= 0.62f && nextZoom > MapTileMath.MIN_ZOOM) {
                                         nextZoom -= 1
                                         nextScale *= 2f
                                     }
@@ -327,10 +595,10 @@ fun FieldMapCanvas(
                         } while (true)
 
                         // Settle fractional pinch scale cleanly into integer tile zoom
-                        if (pinchScale >= 1.35f && localZoom < 19) {
+                        if (pinchScale >= 1.35f && localZoom < MapTileMath.MAX_ZOOM) {
                             localZoom += 1
                             latestOnZoomChanged(localZoom)
-                        } else if (pinchScale <= 0.72f && localZoom > 5) {
+                        } else if (pinchScale <= 0.72f && localZoom > MapTileMath.MIN_ZOOM) {
                             localZoom -= 1
                             latestOnZoomChanged(localZoom)
                         }
@@ -359,7 +627,7 @@ fun FieldMapCanvas(
             val minTy = floor((centerWorldY - halfH / scale) / 256.0).toInt().coerceIn(0, maxTile - 1)
             val maxTy = floor((centerWorldY + halfH / scale) / 256.0).toInt().coerceIn(0, maxTile - 1)
 
-            // Draw map tiles scaled smoothly during pinch
+            // Draw exact or cropped ancestor map tiles smoothly during pan/zoom/overzoom
             for (tx in minTx..maxTx) {
                 val wrappedX = ((tx % maxTile) + maxTile) % maxTile
                 for (ty in minTy..maxTy) {
@@ -370,13 +638,15 @@ fun FieldMapCanvas(
                     val dstW = (right - left + 1).coerceAtLeast(1)
                     val dstH = (bottom - top + 1).coerceAtLeast(1)
 
-                    val key = "${if (isSatellite) "sat" else "osm"}_${localZoom}_${wrappedX}_${ty}"
-                    val tileBitmap = MapTileLoader.getCached(key)
-                    if (tileBitmap != null) {
+                    val resolved = MapTileLoader.resolveBestTile(localZoom, wrappedX, ty, isSatellite)
+                    if (resolved != null) {
                         drawImage(
-                            image = tileBitmap,
+                            image = resolved.bitmap,
+                            srcOffset = resolved.srcOffset,
+                            srcSize = resolved.srcSize,
                             dstOffset = IntOffset(left, top),
                             dstSize = IntSize(dstW, dstH),
+                            filterQuality = FilterQuality.Medium,
                         )
                     } else {
                         drawRect(
@@ -385,7 +655,7 @@ fun FieldMapCanvas(
                             size = androidx.compose.ui.geometry.Size(tileSizePx.toFloat() + 1f, tileSizePx.toFloat() + 1f),
                         )
                         drawRect(
-                            color = Color.White.copy(alpha = 0.08f),
+                            color = Color.White.copy(alpha = 0.06f),
                             topLeft = Offset(left.toFloat(), top.toFloat()),
                             size = androidx.compose.ui.geometry.Size(tileSizePx.toFloat() + 1f, tileSizePx.toFloat() + 1f),
                             style = Stroke(width = 1f),
@@ -639,7 +909,7 @@ fun FieldMapCanvas(
             ) {
                 IconButton(
                     onClick = {
-                        val next = (localZoom + 1).coerceAtMost(19)
+                        val next = (localZoom + 1).coerceAtMost(MapTileMath.MAX_ZOOM)
                         pinchScale = 1f
                         localZoom = next
                         onZoomChanged(next)
@@ -656,7 +926,7 @@ fun FieldMapCanvas(
             ) {
                 IconButton(
                     onClick = {
-                        val next = (localZoom - 1).coerceAtLeast(5)
+                        val next = (localZoom - 1).coerceAtLeast(MapTileMath.MIN_ZOOM)
                         pinchScale = 1f
                         localZoom = next
                         onZoomChanged(next)
