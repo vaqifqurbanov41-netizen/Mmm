@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="az" data-app-id="inst_1795338023422_eh60q"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Texnazorət – texniki baxış axtarışı</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" crossorigin="anonymous"></script>
+<script>
+window.addEventListener("error",function(e){
+  if(e&&e.target&&e.target.tagName==="SCRIPT"){
+    var info=document.getElementById("info");
+    if(info&&!window.XLSX)info.textContent="XLSX kitabxanası yüklənmədi (CSV fayllar işləyir)";
+  }
+},true);
+</script>
+<style>
+:root{--bg:#eef0e6;--surface:#fbfbf6;--ink:#1d2a1c;--muted:#5b6a56;--line:#c9cfba;--brand:#2f5d34;--brand-ink:#fff;--plate:#fff;--plate-line:#1f3b8a;--ok:#1d6b34;--ok-bg:#dcefd9;--warn:#7a5200;--warn-bg:#fbe9b4;--bad:#a3201a;--bad-bg:#f8d9d5;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#151b14;--surface:#1e271d;--ink:#e8eddf;--muted:#9fae98;--line:#364233;--brand:#7fc287;--brand-ink:#10200f;--plate:#f4f4ee;--plate-line:#7d9cf0;--ok:#8fd69b;--ok-bg:#1f3a24;--warn:#f1ca6a;--warn-bg:#40320f;--bad:#f2a49e;--bad-bg:#46201d}}
+:root[data-theme="dark"]{--bg:#151b14;--surface:#1e271d;--ink:#e8eddf;--muted:#9fae98;--line:#364233;--brand:#7fc287;--brand-ink:#10200f;--plate:#f4f4ee;--plate-line:#7d9cf0;--ok:#8fd69b;--ok-bg:#1f3a24;--warn:#f1ca6a;--warn-bg:#40320f;--bad:#f2a49e;--bad-bg:#46201d}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 "Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
+main{max-width:640px;margin:0 auto;padding:20px 16px 48px}
+.top-bar{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+h1{font-size:1.5rem;margin:4px 0 2px;letter-spacing:-.01em}
+.sub{color:var(--muted);margin:0 0 18px}
+.sec-actions{display:flex;gap:6px;flex-shrink:0;margin-top:4px;flex-wrap:wrap}
+.btn-sec{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font:inherit;font-size:.82rem;font-weight:600;cursor:pointer}
+.btn-sec:active{opacity:.8}
+.file{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--surface);border:1px dashed var(--line);border-radius:10px;padding:12px}
+.file button,.file label{background:var(--brand);color:var(--brand-ink);border:0;border-radius:8px;padding:10px 14px;font:inherit;font-weight:600;cursor:pointer}
+.file input{display:none}
+.file .info{color:var(--muted);font-size:.9rem;flex:1;min-width:160px}
+.file .clear{background:transparent;color:var(--muted);border:1px solid var(--line);font-weight:500}
+.search{margin:22px 0 14px}
+.plate{display:flex;align-items:stretch;background:var(--plate);border:3px solid var(--plate-line);border-radius:8px;overflow:hidden}
+.plate .flag{background:var(--plate-line);color:#fff;font-weight:700;font-size:.8rem;padding:0 10px;display:flex;align-items:center;letter-spacing:.04em}
+.plate input{flex:1;min-width:0;border:0;outline:0;background:transparent;color:#111;font:700 1.7rem/1.2 "Courier New",monospace;letter-spacing:.08em;text-transform:uppercase;padding:12px 12px}
+.plate:focus-within{box-shadow:0 0 0 3px var(--brand)}
+details{margin:10px 2px 0;color:var(--muted);font-size:.9rem}summary{cursor:pointer}#maps{display:grid;gap:8px;margin-top:8px}#maps label{display:grid;gap:3px}select{font:inherit;padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink)}
+.nsearch{width:100%;margin:0 0 14px;font:inherit;font-size:1.05rem;padding:12px 14px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink)}.nsearch:focus{outline:3px solid var(--brand)}
+.hint{color:var(--muted);font-size:.85rem;margin:8px 2px 0}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:12px}
+.card .num{font:700 1.3rem "Courier New",monospace;letter-spacing:.08em}
+.status{display:inline-block;margin:8px 0 12px;padding:6px 12px;border-radius:999px;font-weight:700;font-size:.95rem}
+.ok{background:var(--ok-bg);color:var(--ok)}.warn{background:var(--warn-bg);color:var(--warn)}.bad{background:var(--bad-bg);color:var(--bad)}
+dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:6px 14px}
+dt{color:var(--muted)}dd{margin:0;font-weight:600;overflow-wrap:anywhere}
+dd a{color:var(--brand);text-decoration:none}
+.msg{color:var(--muted);text-align:center;padding:24px 8px}
+.msg.err{color:var(--bad)}
+
+/* Təhlükəsizlik (PIN ekranı) */
+#pin-screen{position:fixed;inset:0;z-index:9999;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:20px}
+#pin-screen[hidden]{display:none}
+.pin-box{width:100%;max-width:340px;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:24px 20px;text-align:center;box-shadow:0 8px 24px rgba(0,0,0,.08)}
+.pin-icon{width:48px;height:48px;margin:0 auto 12px;border-radius:50%;background:var(--ok-bg);color:var(--brand);display:flex;align-items:center;justify-content:center}
+.pin-title{font-size:1.2rem;font-weight:700;margin:0 0 4px}
+.pin-desc{font-size:.88rem;color:var(--muted);margin:0 0 18px}
+.pin-dots{display:flex;justify-content:center;gap:14px;margin-bottom:14px}
+.pin-dots span{width:14px;height:14px;border-radius:50%;border:2px solid var(--brand);background:transparent;transition:background .15s,transform .15s}
+.pin-dots span.filled{background:var(--brand);transform:scale(1.1)}
+.pin-dots.shake{animation:shake .35s ease}
+@keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-8px)}50%{transform:translateX(8px)}75%{transform:translateX(-6px)}}
+.pin-msg{min-height:20px;font-size:.85rem;color:var(--bad);margin-bottom:14px;font-weight:600}
+.pin-pad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;max-width:260px;margin:0 auto}
+.pin-pad button{height:54px;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font:700 1.3rem inherit;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+.pin-pad button:active{background:var(--brand);color:var(--brand-ink)}
+.pin-pad button.fn{font-size:.9rem;font-weight:600;color:var(--muted)}
+.pin-footer{margin-top:16px;display:flex;justify-content:center;gap:12px}
+.pin-link{background:none;border:0;color:var(--muted);font:inherit;font-size:.82rem;text-decoration:underline;cursor:pointer;padding:4px}
+</style>
+</head>
+<body>
+
+<div id="pin-screen">
+  <div class="pin-box">
+    <div class="pin-icon" aria-hidden="true">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+    </div>
+    <h2 class="pin-title" id="pin-title">Təhlükəsizlik PIN-i</h2>
+    <p class="pin-desc" id="pin-desc">Davam etmək üçün 4 rəqəmli şifrəni daxil edin</p>
+    <div class="pin-dots" id="pin-dots"><span class=""></span><span class=""></span><span class=""></span><span class=""></span></div>
+    <div class="pin-msg" id="pin-msg"></div>
+    <div class="pin-pad" id="pin-pad">
+      <button type="button" data-k="1">1</button>
+      <button type="button" data-k="2">2</button>
+      <button type="button" data-k="3">3</button>
+      <button type="button" data-k="4">4</button>
+      <button type="button" data-k="5">5</button>
+      <button type="button" data-k="6">6</button>
+      <button type="button" data-k="7">7</button>
+      <button type="button" data-k="8">8</button>
+      <button type="button" data-k="9">9</button>
+      <button type="button" class="fn" data-k="clr">Sil</button>
+      <button type="button" data-k="0">0</button>
+      <button type="button" class="fn" data-k="del">⌫</button>
+    </div>
+    <div class="pin-footer" id="pin-footer"><button type="button" class="pin-link" id="pin-reset">PIN-i unutmusunuz? (Məlumatları sıfırla)</button></div>
+  </div>
+</div>
+
+<main id="app" hidden="">
+<div class="top-bar">
+  <div>
+    <h1>Texniki baxış axtarışı</h1>
+    <p class="sub">Excel faylını yükləyin, DQN və ya DQŞ-i yazın – baxışın bitmə tarixi və sahibin məlumatı çıxsın.</p>
+  </div>
+  <div class="sec-actions">
+    <button type="button" class="btn-sec" id="btn-download-app" title="Proqramı yeni PIN üçün hazır fayl kimi yüklə">Proqramı yüklə</button>
+    <button type="button" class="btn-sec" id="btn-change-pin" title="PIN kodu dəyiş">PIN dəyiş</button>
+    <button type="button" class="btn-sec" id="btn-lock" title="Ekranı kilidlə">Kilidlə</button>
+  </div>
+</div>
+
+<div class="file">
+  <label for="f">Excel yüklə</label>
+  <input id="f" type="file" accept=".xlsx,.xls,.csv">
+  <span class="info" id="info">Fayl yüklənməyib</span>
+  <button class="clear" id="clr" type="button" hidden="">Təmizlə</button>
+</div>
+<details id="mapbox" hidden=""><summary>Sütunlar düzgün seçilib?</summary><div id="maps"></div></details>
+
+<div class="search">
+  <div class="plate"><span class="flag">AZ</span><input id="q" type="search" placeholder="04BA-172" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="DQN və ya DQŞ" value=""></div>
+</div>
+<input id="qn" class="nsearch" type="search" placeholder="Ad, soyad və ya təşkilat üzrə axtar" autocomplete="off" spellcheck="false" aria-label="Ad, soyad və ya təşkilat" value="">
+<div id="out"><p class="msg">Əvvəlcə Excel faylını yükləyin.</p></div>
+</main>
+
+<script>
+(function(){
+  var APP_ID=document.documentElement.getAttribute("data-app-id")||"default";
+  var raw=[],hdr=0,map={},rows=[],KEY="texnazoret_data_v2_"+APP_ID;
+  var PIN_KEY="texnazoret_pin_hash_"+APP_ID,LOCK_KEY="texnazoret_lock_until_"+APP_ID,FAIL_KEY="texnazoret_pin_fails_"+APP_ID;
+  var $=function(id){return document.getElementById(id)};
+  var q=$("q"),qn=$("qn"),mode="p",out=$("out"),info=$("info"),clr=$("clr"),mb=$("mapbox"),ms=$("maps");
+  var FIELDS=[["dqn","DQN"],["dqs","DQŞ"],["date","Texniki baxış tarixi"],["name","Mülkiyyətçi"],["phone","Telefon"]];
+
+  /* --- Təhlükəsizlik / PIN Modulu --- */
+  var memStore={};
+  function storeGet(k){
+    try{var v=localStorage.getItem(k);if(v!=null)return v}catch(e){}
+    return Object.prototype.hasOwnProperty.call(memStore,k)?memStore[k]:null;
+  }
+  function storeSet(k,v){
+    memStore[k]=String(v);
+    try{localStorage.setItem(k,String(v));return true}catch(e){return true}
+  }
+  function storeDel(k){
+    delete memStore[k];
+    try{localStorage.removeItem(k)}catch(e){}
+  }
+
+  var pinScreen=$("pin-screen"),app=$("app"),pinTitle=$("pin-title"),pinDesc=$("pin-desc"),pinMsg=$("pin-msg"),pinFooter=$("pin-footer");
+  var dots=$("pin-dots").querySelectorAll("span");
+  var pinBuf="",pinState="enter",tempPin="",lockTimer=null,idleTimer=null;
+  var IDLE_MS=5*60*1000;
+
+  function hashPin(p){
+    var h=2166136261,s="TXN_SALT_2026_"+p;
+    for(var i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)}
+    return (h>>>0).toString(16);
+  }
+  function getSavedPin(){return storeGet(PIN_KEY)}
+  function setSavedPin(h){return storeSet(PIN_KEY,h)}
+  function getLockUntil(){return +(storeGet(LOCK_KEY)||0)}
+  function setLockUntil(t){storeSet(LOCK_KEY,String(t))}
+  function getFails(){return +(storeGet(FAIL_KEY)||0)}
+  function setFails(n){storeSet(FAIL_KEY,String(n))}
+
+  function updateDots(){
+    for(var i=0;i<4;i++){
+      if(i<pinBuf.length)dots[i].classList.add("filled");
+      else dots[i].classList.remove("filled");
+    }
+  }
+  function shakeDots(){
+    var el=$("pin-dots");
+    el.classList.remove("shake");
+    void el.offsetWidth;
+    el.classList.add("shake");
+  }
+
+  function checkCooldown(){
+    var until=getLockUntil(),now=Date.now();
+    if(until>now){
+      var sec=Math.ceil((until-now)/1000);
+      pinMsg.textContent="Çox sayda səhv cəhd. "+sec+" san. gözləyin.";
+      return true;
+    }
+    if(lockTimer){clearInterval(lockTimer);lockTimer=null}
+    return false;
+  }
+
+  function startCooldown(seconds){
+    setLockUntil(Date.now()+seconds*1000);
+    checkCooldown();
+    if(lockTimer)clearInterval(lockTimer);
+    lockTimer=setInterval(function(){
+      if(!checkCooldown()){pinMsg.textContent=""}
+    },500);
+  }
+
+  function openPinScreen(modeName){
+    pinState=modeName;
+    pinBuf="";
+    if(modeName==="setup")tempPin="";
+    pinMsg.textContent="";
+    updateDots();
+    app.hidden=true;
+    pinScreen.hidden=false;
+
+    if(modeName==="setup"){
+      pinTitle.textContent="Yeni PIN təyin edin";
+      pinDesc.textContent="Məlumatları qorumaq üçün 4 rəqəmli PIN yaradın";
+      pinFooter.innerHTML="";
+    }else if(modeName==="confirm"){
+      pinTitle.textContent="PIN-i təsdiqləyin";
+      pinDesc.textContent="Təyin etdiyiniz 4 rəqəmli PIN-i təkrar daxil edin";
+      pinFooter.innerHTML='<button type="button" class="pin-link" id="pin-back">Geri qayıt</button>';
+      $("pin-back").onclick=function(){openPinScreen("setup")};
+    }else if(modeName==="change_old"){
+      pinTitle.textContent="Cari PIN-i daxil edin";
+      pinDesc.textContent="PIN-i dəyişmək üçün əvvəlcə köhnə şifrəni yazın";
+      pinFooter.innerHTML='<button type="button" class="pin-link" id="pin-cancel">Ləğv et</button>';
+      $("pin-cancel").onclick=unlockApp;
+    }else{
+      pinTitle.textContent="Təhlükəsizlik PIN-i";
+      pinDesc.textContent="Davam etmək üçün 4 rəqəmli şifrəni daxil edin";
+      pinFooter.innerHTML='<button type="button" class="pin-link" id="pin-reset">PIN-i unutmusunuz? (Məlumatları sıfırla)</button>';
+      $("pin-reset").onclick=function(){
+        if(confirm("DİQQƏT: PIN sıfırlanarsa, yaddaşda olan bütün yüklənmiş Excel məlumatları təhlükəsizlik məqsədilə silinəcək. Davam edilsin?")){
+          try{
+            storeDel(KEY);
+            storeDel(PIN_KEY);
+            storeDel(FAIL_KEY);
+            storeDel(LOCK_KEY);
+          }catch(e){}
+          raw=[];rows=[];build();render();
+          openPinScreen("setup");
+        }
+      };
+      if(getLockUntil()>Date.now())startCooldown(Math.ceil((getLockUntil()-Date.now())/1000));
+    }
+  }
+
+  function unlockApp(){
+    pinBuf="";
+    tempPin="";
+    updateDots();
+    pinScreen.hidden=true;
+    app.hidden=false;
+    resetIdleTimer();
+  }
+
+  function resetIdleTimer(){
+    if(idleTimer)clearTimeout(idleTimer);
+    if(!app.hidden&&getSavedPin()){
+      idleTimer=setTimeout(function(){
+        openPinScreen("enter");
+      },IDLE_MS);
+    }
+  }
+  ["click","keydown","touchstart","input"].forEach(function(ev){
+    document.addEventListener(ev,resetIdleTimer,{passive:true});
+  });
+
+  function handlePinComplete(){
+    var entered=pinBuf;
+    pinBuf="";
+    setTimeout(updateDots,120);
+
+    if(pinState==="setup"){
+      tempPin=entered;
+      openPinScreen("confirm");
+      return;
+    }
+    if(pinState==="confirm"){
+      if(entered===tempPin){
+        var h=hashPin(entered);
+        setSavedPin(h);
+        setFails(0);
+        unlockApp();
+      }else{
+        shakeDots();
+        pinMsg.textContent="PIN-lər uyğun gəlmədi. Yenidən cəhd edin.";
+        setTimeout(function(){openPinScreen("setup")},900);
+      }
+      return;
+    }
+    if(pinState==="change_old"){
+      if(hashPin(entered)===getSavedPin()){
+        openPinScreen("setup");
+      }else{
+        shakeDots();
+        pinMsg.textContent="Cari PIN yanlışdır!";
+      }
+      return;
+    }
+    if(pinState==="enter"){
+      if(checkCooldown())return;
+      if(hashPin(entered)===getSavedPin()){
+        setFails(0);
+        unlockApp();
+      }else{
+        shakeDots();
+        var f=getFails()+1;
+        setFails(f);
+        if(f>=5){
+          startCooldown(30);
+        }else{
+          pinMsg.textContent="Yanlış PIN! ("+(5-f)+" cəhd qalıb)";
+        }
+      }
+    }
+  }
+
+  function pressKey(k){
+    if(pinScreen.hidden)return;
+    if(pinState==="enter"&&checkCooldown())return;
+    if(k==="clr"){pinBuf="";pinMsg.textContent="";updateDots();return}
+    if(k==="del"){pinBuf=pinBuf.slice(0,-1);updateDots();return}
+    if(/^\d$/.test(k)&&pinBuf.length<4){
+      pinMsg.textContent="";
+      pinBuf+=k;
+      updateDots();
+      if(pinBuf.length===4)handlePinComplete();
+    }
+  }
+
+  $("pin-pad").addEventListener("click",function(e){
+    var btn=e.target&&e.target.closest?e.target.closest("button"):null;
+    if(btn)pressKey(btn.getAttribute("data-k"));
+  });
+  document.addEventListener("keydown",function(e){
+    if(pinScreen.hidden)return;
+    if(e.key>="0"&&e.key<="9")pressKey(e.key);
+    else if(e.key==="Backspace")pressKey("del");
+    else if(e.key==="Escape")pressKey("clr");
+  });
+
+  $("btn-lock").addEventListener("click",function(){openPinScreen("enter")});
+  $("btn-change-pin").addEventListener("click",function(){openPinScreen("change_old")});
+
+  $("btn-download-app").addEventListener("click",function(){
+    var clone=document.documentElement.cloneNode(true);
+    var newId="inst_"+Date.now()+"_"+Math.random().toString(36).slice(2,7);
+    clone.setAttribute("data-app-id",newId);
+    var cApp=clone.querySelector("#app");if(cApp)cApp.hidden=true;
+    var cPin=clone.querySelector("#pin-screen");if(cPin)cPin.hidden=false;
+    var cMsg=clone.querySelector("#pin-msg");if(cMsg)cMsg.textContent="";
+    var cDots=clone.querySelectorAll("#pin-dots span");for(var i=0;i<cDots.length;i++)cDots[i].classList.remove("filled");
+    var cOut=clone.querySelector("#out");if(cOut)cOut.innerHTML='<p class="msg">Əvvəlcə Excel faylını yükləyin.</p>';
+    var cInfo=clone.querySelector("#info");if(cInfo)cInfo.textContent="Fayl yüklənməyib";
+    var cClr=clone.querySelector("#clr");if(cClr)cClr.hidden=true;
+    var cMb=clone.querySelector("#mapbox");if(cMb){cMb.hidden=true;cMb.open=false}
+    var cMaps=clone.querySelector("#maps");if(cMaps)cMaps.innerHTML="";
+    var cQ=clone.querySelector("#q");if(cQ)cQ.setAttribute("value","");
+    var cQn=clone.querySelector("#qn");if(cQn)cQn.setAttribute("value","");
+    var htmlStr="<!DOCTYPE html>\n"+clone.outerHTML;
+    var blob=new Blob([htmlStr],{type:"text/html;charset=utf-8"});
+    var url=URL.createObjectURL(blob);
+    var a=document.createElement("a");
+    a.href=url;
+    a.download="Texnonəzarət.html";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function(){URL.revokeObjectURL(url)},1500);
+  });
+
+  /* --- Əsas Axtarış Məntiqi --- */
+  function norm(s){return String(s==null?"":s).toLocaleUpperCase("az").replace(/[^0-9A-ZƏÖÜÇŞĞİI]/g,"").replace(/İ/g,"I")}
+  function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
+  function pad(n){return n<10?"0"+n:""+n}
+  function fold(s){return String(s==null?"":s).toLocaleLowerCase("az").replace(/\u0307/g,"").replace(/ə/g,"e").replace(/ı/g,"i").replace(/ö/g,"o").replace(/ü/g,"u").replace(/ç/g,"c").replace(/ş/g,"s").replace(/ğ/g,"g").replace(/[^a-z0-9\s]/g,"").replace(/\s+/g," ").trim()}
+  function colName(i){var s="";i++;while(i>0){var m=(i-1)%26;s=String.fromCharCode(65+m)+s;i=Math.floor((i-1)/26)}return s}
+  function parseDate(v){
+    if(v==null||v==="")return null;
+    if(v instanceof Date&&!isNaN(v))return new Date(Date.UTC(v.getFullYear(),v.getMonth(),v.getDate()));
+    if(typeof v==="number"&&v>20000&&v<80000)return new Date(Math.round((v-25569)*864e5));
+    var s=String(v).trim(),m;
+    if(m=s.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})/))return new Date(Date.UTC(+m[3],+m[2]-1,+m[1]));
+    if(m=s.match(/^(\d{4})[.\/-](\d{1,2})[.\/-](\d{1,2})/))return new Date(Date.UTC(+m[1],+m[2]-1,+m[3]));
+    return null;
+  }
+  function fmt(d){return pad(d.getUTCDate())+"."+pad(d.getUTCMonth()+1)+"."+d.getUTCFullYear()}
+  function cell(r,i){return i>=0&&r[i]!=null?String(r[i]).trim():""}
+
+  function detect(){
+    hdr=0;
+    for(var i=0;i<Math.min(10,raw.length);i++){
+      if(raw[i].some(function(c){return norm(c).indexOf("DQN")>-1})){hdr=i;break}
+    }
+    var H=(raw[hdr]||[]).map(function(c){return String(c==null?"":c).toLocaleLowerCase("az")});
+    var find=function(fn){for(var i=0;i<H.length;i++)if(H[i]&&fn(H[i]))return i;return -1};
+    var m={};
+    m.dqn=find(function(h){return h.indexOf("dqn")>-1});
+    m.dqs=find(function(h){return h.indexOf("dqş")>-1||h.indexOf("dqs")>-1});
+    m.date=find(function(h){return h.indexOf("baxış")>-1||h.indexOf("tarix")>-1});
+    m.name=find(function(h){return h.indexOf("mülkiyyət")>-1});
+    if(m.name<0)m.name=find(function(h){return /soyad|sahib|f\.?a\.?ə|fiziki|ad\b/.test(h)});
+    m.phone=find(function(h){return /telefon|mobil|əlaqə|tel\b/.test(h)});
+    var sample=raw.slice(hdr+1,hdr+60),n=H.length;
+    function score(i,fn){var c=0;sample.forEach(function(r){if(fn(r[i]))c++});return c}
+    function best(fn,skip){var b=-1,bs=2;for(var i=0;i<n;i++){if(skip.indexOf(i)>-1)continue;var s=score(i,fn);if(s>bs){bs=s;b=i}}return b}
+    var used=function(){return Object.keys(m).map(function(k){return m[k]})};
+    if(m.date<0)m.date=best(function(v){return parseDate(v)!=null},used());
+    if(m.phone<0)m.phone=best(function(v){var d=String(v==null?"":v).replace(/\D/g,"");return d.length>=7&&d.length<=13},used());
+    if(m.name<0)m.name=best(function(v){return /^[^\d]{8,}$/.test(String(v==null?"":v).trim())&&String(v).indexOf(" ")>0},used());
+    map=m;
+  }
+
+  function buildMapUI(){
+    var h=raw[hdr]||[],n=0;raw.slice(0,50).forEach(function(r){n=Math.max(n,r.length)});
+    ms.innerHTML=FIELDS.map(function(f){
+      var o='<option value="-1">— yoxdur —</option>';
+      for(var i=0;i<n;i++){var t=String(h[i]==null?"":h[i]).trim();o+='<option value="'+i+'"'+(map[f[0]]===i?" selected":"")+'>'+colName(i)+(t?" – "+esc(t):"")+'</option>'}
+      return '<label>'+f[1]+'<select data-f="'+f[0]+'">'+o+'</select></label>';
+    }).join("");
+    mb.open=(map.dqn<0&&map.dqs<0)||map.date<0||map.name<0;
+  }
+  ms.addEventListener("change",function(e){
+    var f=e.target.getAttribute("data-f");if(!f)return;
+    map[f]=+e.target.value;build();save();render();
+  });
+
+  function build(){
+    rows=[];
+    for(var i=hdr+1;i<raw.length;i++){
+      var r=raw[i],p=cell(r,map.dqn),c=cell(r,map.dqs);
+      if(!p&&!c)continue;
+      var d=map.date>=0?parseDate(r[map.date]):null;
+      rows.push({p:p,c:c,k:norm(p),kc:norm(c),d:d?d.getTime():null,n:cell(r,map.name),f:fold(cell(r,map.name)),t:cell(r,map.phone)});
+    }
+    info.textContent=rows.length?("Yüklənib: "+rows.length+" nəqliyyat vasitəsi"):"Fayl yüklənməyib";
+    clr.hidden=!raw.length;
+    mb.hidden=!raw.length;
+  }
+  function save(){storeSet(KEY,JSON.stringify({raw:raw,hdr:hdr,map:map}))}
+
+  $("f").addEventListener("change",function(e){
+    var file=e.target.files[0];if(!file)return;
+    var rd=new FileReader();
+    rd.onload=function(){
+      try{
+        var wb=XLSX.read(new Uint8Array(rd.result),{type:"array"});
+        var a=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,raw:true,defval:""});
+        if(!a.length)throw 0;
+        raw=a;detect();buildMapUI();build();save();render();q.focus();
+      }catch(err){out.innerHTML='<p class="msg err">Faylı oxumaq alınmadı. .xlsx, .xls və ya .csv seçin.</p>'}
+    };
+    rd.readAsArrayBuffer(file);e.target.value="";
+  });
+  clr.addEventListener("click",function(){
+    storeDel(KEY);
+    raw=[];rows=[];build();render();
+  });
+
+  function card(r){
+    var today=new Date();today=Date.UTC(today.getFullYear(),today.getMonth(),today.getDate());
+    var st,cls,date="—",exp="—";
+    if(r.d==null){st="Texniki baxışa təqdim edilməyib";cls="bad"}
+    else{
+      var e=new Date(r.d);e.setUTCFullYear(e.getUTCFullYear()+1);
+      var diff=Math.round((e.getTime()-today)/864e5);date=fmt(new Date(r.d));exp=fmt(e);
+      if(diff<0){st="Müddəti bitib ("+(-diff)+" gün əvvəl)";cls="bad"}
+      else if(diff===0){st="Baxış bu gün bitir";cls="warn"}
+      else if(diff<=30){st="Baxışa "+diff+" gün qalıb";cls="warn"}
+      else{st="Baxış qüvvədədir ("+diff+" gün qalıb)";cls="ok"}
+    }
+    var tel=r.t?'<a href="tel:'+esc(r.t.replace(/[^\d+]/g,""))+'">'+esc(r.t)+'</a>':"—";
+    return '<div class="card"><div class="num">'+(esc(r.p)||"DQN yoxdur")+'</div><span class="status '+cls+'">'+st+'</span>'+
+      '<dl><dt>Baxış tarixi</dt><dd>'+date+'</dd><dt>Bitmə tarixi</dt><dd>'+exp+'</dd><dt>Mülkiyyətçi</dt><dd>'+(esc(r.n)||"—")+'</dd><dt>Telefon</dt><dd>'+tel+'</dd><dt>DQŞ</dt><dd>'+(esc(r.c)||"—")+'</dd></dl></div>';
+  }
+  function render(){
+    if(!rows.length){out.innerHTML='<p class="msg">Əvvəlcə Excel faylını yükləyin.</p>';return}
+    var qt,exact,part;
+    if(mode==="n"){
+      qt=qn.value.trim();var tk=fold(qt).split(" ").filter(Boolean);
+      if(!tk.length){out.innerHTML='<p class="msg">Ad, soyad və ya təşkilat adını yazın.</p>';return}
+      exact=rows.filter(function(r){return tk.every(function(t){return r.f.indexOf(t)>-1})});part=[];
+    }else{
+      qt=q.value.trim();var k=norm(q.value);
+      if(!k){out.innerHTML='<p class="msg">DQN və ya DQŞ-in hamısını və ya bir hissəsini yazın.</p>';return}
+      exact=rows.filter(function(r){return r.k===k||r.kc===k});
+      part=rows.filter(function(r){return r.k!==k&&r.kc!==k&&(r.k.indexOf(k)>-1||r.kc.indexOf(k)>-1)});
+    }
+    var list=exact.concat(part).slice(0,20);
+    if(!list.length){out.innerHTML='<p class="msg">“'+esc(qt)+'” üzrə nəticə tapılmadı.</p>';return}
+    var more=exact.length+part.length-list.length;
+    out.innerHTML=list.map(card).join("")+(more>0?'<p class="msg">Daha '+more+' nəticə var – nömrəni dəqiqləşdirin.</p>':"");
+  }
+  q.addEventListener("input",function(){mode="p";qn.value="";render()});
+  qn.addEventListener("input",function(){mode="n";q.value="";render()});
+
+  mb.hidden=true;
+  try{
+    var s=storeGet(KEY);
+    if(s){var o=JSON.parse(s);if(o&&o.raw&&o.raw.length){raw=o.raw;hdr=o.hdr;map=o.map;buildMapUI();build();render()}}
+  }catch(e){}
+
+  if(getSavedPin()){
+    openPinScreen("enter");
+  }else{
+    openPinScreen("setup");
+  }
+})();
+</script>
+
+</body></html>
