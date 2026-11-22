@@ -17,11 +17,16 @@ import com.aistudio.texnonezaret.domain.SearchOutcome
 import com.aistudio.texnonezaret.domain.StatusFilter
 import com.aistudio.texnonezaret.domain.TexnonezaretEngine
 import com.aistudio.texnonezaret.domain.VehicleRow
+import com.aistudio.texnonezaret.security.SecurityGuard
+import com.aistudio.texnonezaret.security.SecurityIntegrityReport
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -71,6 +76,33 @@ data class SearchUiState(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
 )
 
+sealed interface PendingInterventionAction {
+    data object UnlockModeOnly : PendingInterventionAction
+    data object ImportExcel : PendingInterventionAction
+    data object ClearData : PendingInterventionAction
+    data class UpdateColumn(val field: ColumnField, val colIdx: Int) : PendingInterventionAction
+    data object ExportBackup : PendingInterventionAction
+    data object ImportBackup : PendingInterventionAction
+    data object ChangePin : PendingInterventionAction
+}
+
+sealed interface InterventionUiEffect {
+    data object LaunchExcelPicker : InterventionUiEffect
+    data object LaunchBackupExport : InterventionUiEffect
+    data object LaunchBackupImport : InterventionUiEffect
+}
+
+data class SecurityUiState(
+    val isInterventionUnlocked: Boolean = false,
+    val showInterventionDialog: Boolean = false,
+    val showSecurityCenterDialog: Boolean = false,
+    val pendingActionLabel: String? = null,
+    val masterPasswordError: String? = null,
+    val masterCooldownSecondsLeft: Int = 0,
+    val integrityReport: SecurityIntegrityReport? = null,
+    val tamperAlertActive: Boolean = false,
+)
+
 class TexnonezaretViewModel(application: Application) : AndroidViewModel(application) {
 
     private val storage = TexnonezaretStorage(application)
@@ -81,13 +113,22 @@ class TexnonezaretViewModel(application: Application) : AndroidViewModel(applica
     private val _searchState = MutableStateFlow(SearchUiState(themeMode = storage.getThemeMode()))
     val searchState: StateFlow<SearchUiState> = _searchState.asStateFlow()
 
+    private val _securityState = MutableStateFlow(SecurityUiState())
+    val securityState: StateFlow<SecurityUiState> = _securityState.asStateFlow()
+
+    private val _effects = MutableSharedFlow<InterventionUiEffect>(extraBufferCapacity = 4)
+    val effects: SharedFlow<InterventionUiEffect> = _effects.asSharedFlow()
+
     private var pinBuffer: String = ""
     private var tempNewPin: String = ""
     private var cooldownJob: Job? = null
+    private var masterCooldownJob: Job? = null
+    private var pendingAction: PendingInterventionAction? = null
     private var lastActivityElapsedMs: Long = System.currentTimeMillis()
     private val idleTimeoutMs: Long = 5 * 60 * 1000L
 
     init {
+        runSecurityAudit()
         val savedHash = storage.getSavedPinHash()
         if (savedHash == null) {
             openPinScreen(PinFlowMode.SETUP)
@@ -95,6 +136,23 @@ class TexnonezaretViewModel(application: Application) : AndroidViewModel(applica
             openPinScreen(PinFlowMode.ENTER)
         }
         loadPersistedSheet()
+    }
+
+    fun runSecurityAudit() {
+        val prefsOk = storage.verifySecurityPrefsIntegrity()
+        val sheetTampered = storage.isSheetFileTampered()
+        val report = SecurityGuard.inspectApkIntegrity(
+            context = getApplication(),
+            sealedSignerSha256 = storage.getSealedSignerSha256(),
+            onSealFirstSigner = { sig -> storage.saveSealedSignerSha256(sig) },
+            storageIntegrityOk = prefsOk && !sheetTampered,
+        )
+        _securityState.update { cur ->
+            cur.copy(
+                integrityReport = report,
+                tamperAlertActive = report.hasCriticalTamper && !cur.isInterventionUnlocked,
+            )
+        }
     }
 
     private fun loadPersistedSheet() {
@@ -111,10 +169,11 @@ class TexnonezaretViewModel(application: Application) : AndroidViewModel(applica
     }
 
     fun checkIdleLockOnForeground() {
+        runSecurityAudit()
         val hasPin = storage.getSavedPinHash() != null
         if (hasPin && !_pinState.value.isLocked) {
             if (System.currentTimeMillis() - lastActivityElapsedMs >= idleTimeoutMs) {
-                openPinScreen(PinFlowMode.ENTER)
+                lockNow()
             }
         }
     }
@@ -141,6 +200,14 @@ class TexnonezaretViewModel(application: Application) : AndroidViewModel(applica
     }
 
     fun lockNow() {
+        _securityState.update {
+            it.copy(
+                isInterventionUnlocked = false,
+                showInterventionDialog = false,
+                showSecurityCenterDialog = false,
+            )
+        }
+        pendingAction = null
         if (storage.getSavedPinHash() != null) {
             openPinScreen(PinFlowMode.ENTER)
         } else {
@@ -154,17 +221,269 @@ class TexnonezaretViewModel(application: Application) : AndroidViewModel(applica
         }
     }
 
-    fun resetPinAndWipeData() {
-        storage.clearSheetData()
+    // -------------------------------------------------------------------------
+    // Intervention Password (Master Override) & Tamper Defense
+    // -------------------------------------------------------------------------
+
+    fun openSecurityCenter() {
+        recordUserActivity()
+        runSecurityAudit()
+        _securityState.update { it.copy(showSecurityCenterDialog = true) }
+    }
+
+    fun dismissSecurityCenter() {
+        _securityState.update { it.copy(showSecurityCenterDialog = false) }
+    }
+
+    fun lockInterventionMode() {
+        recordUserActivity()
+        pendingAction = null
+        _securityState.update {
+            it.copy(
+                isInterventionUnlocked = false,
+                showInterventionDialog = false,
+                pendingActionLabel = null,
+                masterPasswordError = null,
+            )
+        }
+        _searchState.update {
+            it.copy(statusBanner = "Müdaxilə kilidi bağlandı. Məlumatlar yalnız oxumaq üçündür.")
+        }
+    }
+
+    fun requestProtectedAction(action: PendingInterventionAction) {
+        recordUserActivity()
+        val sec = _securityState.value
+        if (sec.tamperAlertActive && !sec.isInterventionUnlocked) {
+            pendingAction = action
+            openMasterPasswordDialog("Təhlükəsizlik kilidi aktivdir")
+            return
+        }
+        if (sec.isInterventionUnlocked) {
+            executeInterventionAction(action)
+        } else {
+            pendingAction = action
+            openMasterPasswordDialog(actionLabel(action))
+        }
+    }
+
+    fun dismissInterventionDialog() {
+        pendingAction = null
+        _securityState.update {
+            it.copy(
+                showInterventionDialog = false,
+                pendingActionLabel = null,
+                masterPasswordError = null,
+            )
+        }
+    }
+
+    fun submitInterventionPassword(password: String) {
+        recordUserActivity()
+        if (isMasterUnderCooldown()) {
+            syncMasterCooldownFromStorage()
+            return
+        }
+        if (SecurityGuard.verifyInterventionPassword(password)) {
+            storage.setMasterFailCount(0)
+            storage.setMasterLockUntilMillis(0L)
+            masterCooldownJob?.cancel()
+            storage.refreshSecurityIntegritySeal()
+            val actionToRun = pendingAction
+            pendingAction = null
+            _securityState.update {
+                it.copy(
+                    isInterventionUnlocked = true,
+                    showInterventionDialog = false,
+                    pendingActionLabel = null,
+                    masterPasswordError = null,
+                    masterCooldownSecondsLeft = 0,
+                    tamperAlertActive = false,
+                )
+            }
+            if (actionToRun != null && actionToRun != PendingInterventionAction.UnlockModeOnly) {
+                executeInterventionAction(actionToRun)
+            } else {
+                _searchState.update {
+                    it.copy(statusBanner = "Müdaxilə icazəsi aktivləşdirildi.")
+                }
+            }
+        } else {
+            val fails = storage.getMasterFailCount() + 1
+            storage.setMasterFailCount(fails)
+            if (fails >= 5) {
+                storage.setMasterLockUntilMillis(System.currentTimeMillis() + 30_000L)
+                syncMasterCooldownFromStorage()
+            } else {
+                _securityState.update {
+                    it.copy(
+                        masterPasswordError = "Müdaxilə parolu yanlışdır! (${5 - fails} cəhd qalıb)",
+                    )
+                }
+            }
+        }
+    }
+
+    fun resetPinWithInterventionPassword(masterPassword: String, wipeData: Boolean): Boolean {
+        recordUserActivity()
+        if (isMasterUnderCooldown()) {
+            syncMasterCooldownFromStorage()
+            return false
+        }
+        if (!SecurityGuard.verifyInterventionPassword(masterPassword)) {
+            val fails = storage.getMasterFailCount() + 1
+            storage.setMasterFailCount(fails)
+            if (fails >= 5) {
+                storage.setMasterLockUntilMillis(System.currentTimeMillis() + 30_000L)
+                syncMasterCooldownFromStorage()
+            } else {
+                _securityState.update {
+                    it.copy(
+                        masterPasswordError = "Müdaxilə parolu yanlışdır! (${5 - fails} cəhd qalıb)",
+                    )
+                }
+            }
+            return false
+        }
+
+        storage.setMasterFailCount(0)
+        storage.setMasterLockUntilMillis(0L)
+        masterCooldownJob?.cancel()
+        if (wipeData) {
+            storage.clearSheetData()
+            _searchState.update { SearchUiState(themeMode = it.themeMode) }
+        }
         storage.clearPinAndSecurity()
         tempNewPin = ""
         pinBuffer = ""
         cooldownJob?.cancel()
-        _searchState.update {
-            SearchUiState(themeMode = it.themeMode)
+        _securityState.update {
+            it.copy(
+                isInterventionUnlocked = true,
+                masterPasswordError = null,
+                masterCooldownSecondsLeft = 0,
+                tamperAlertActive = false,
+            )
         }
         openPinScreen(PinFlowMode.SETUP)
+        return true
     }
+
+    fun clearTamperLockWithPassword(masterPassword: String): Boolean {
+        if (!SecurityGuard.verifyInterventionPassword(masterPassword)) {
+            val fails = storage.getMasterFailCount() + 1
+            storage.setMasterFailCount(fails)
+            if (fails >= 5) {
+                storage.setMasterLockUntilMillis(System.currentTimeMillis() + 30_000L)
+                syncMasterCooldownFromStorage()
+            } else {
+                _securityState.update {
+                    it.copy(
+                        masterPasswordError = "Müdaxilə parolu yanlışdır! (${5 - fails} cəhd qalıb)",
+                    )
+                }
+            }
+            return false
+        }
+        storage.setMasterFailCount(0)
+        storage.setMasterLockUntilMillis(0L)
+        storage.refreshSecurityIntegritySeal()
+        _securityState.update {
+            it.copy(
+                isInterventionUnlocked = true,
+                tamperAlertActive = false,
+                masterPasswordError = null,
+                masterCooldownSecondsLeft = 0,
+            )
+        }
+        return true
+    }
+
+    private fun openMasterPasswordDialog(label: String) {
+        _securityState.update {
+            it.copy(
+                showInterventionDialog = true,
+                pendingActionLabel = label,
+                masterPasswordError = null,
+            )
+        }
+        syncMasterCooldownFromStorage()
+    }
+
+    private fun actionLabel(action: PendingInterventionAction): String = when (action) {
+        PendingInterventionAction.UnlockModeOnly -> "Müdaxilə rejimini açmaq"
+        PendingInterventionAction.ImportExcel -> "Yeni Excel/CSV faylı yükləmək"
+        PendingInterventionAction.ClearData -> "Yaddaşdakı məlumatları təmizləmək"
+        is PendingInterventionAction.UpdateColumn -> "Sütun uyğunluğunu dəyişdirmək"
+        PendingInterventionAction.ExportBackup -> "Ehtiyat nüsxə ixrac etmək"
+        PendingInterventionAction.ImportBackup -> "Ehtiyat nüsxədən məlumat yükləmək"
+        PendingInterventionAction.ChangePin -> "Tətbiq PIN şifrəsini dəyişmək"
+    }
+
+    private fun executeInterventionAction(action: PendingInterventionAction) {
+        when (action) {
+            PendingInterventionAction.UnlockModeOnly -> Unit
+            PendingInterventionAction.ImportExcel -> {
+                _effects.tryEmit(InterventionUiEffect.LaunchExcelPicker)
+            }
+            PendingInterventionAction.ClearData -> {
+                clearLoadedSpreadsheet()
+            }
+            is PendingInterventionAction.UpdateColumn -> {
+                updateColumnMapping(action.field, action.colIdx)
+            }
+            PendingInterventionAction.ExportBackup -> {
+                if (_searchState.value.rows.isEmpty()) {
+                    _searchState.update { it.copy(fileError = "Saxlamaq üçün əvvəlcə Excel yükləyin.") }
+                } else {
+                    _effects.tryEmit(InterventionUiEffect.LaunchBackupExport)
+                }
+            }
+            PendingInterventionAction.ImportBackup -> {
+                _effects.tryEmit(InterventionUiEffect.LaunchBackupImport)
+            }
+            PendingInterventionAction.ChangePin -> {
+                openPinScreen(PinFlowMode.CHANGE_OLD)
+            }
+        }
+    }
+
+    private fun isMasterUnderCooldown(): Boolean = storage.getMasterLockUntilMillis() > System.currentTimeMillis()
+
+    private fun syncMasterCooldownFromStorage() {
+        masterCooldownJob?.cancel()
+        val until = storage.getMasterLockUntilMillis()
+        val now = System.currentTimeMillis()
+        if (until <= now) {
+            _securityState.update { it.copy(masterCooldownSecondsLeft = 0) }
+            return
+        }
+        masterCooldownJob = viewModelScope.launch {
+            while (true) {
+                val remMs = storage.getMasterLockUntilMillis() - System.currentTimeMillis()
+                if (remMs <= 0L) {
+                    storage.setMasterFailCount(0)
+                    storage.setMasterLockUntilMillis(0L)
+                    _securityState.update {
+                        it.copy(masterCooldownSecondsLeft = 0, masterPasswordError = null)
+                    }
+                    break
+                }
+                val sec = ((remMs + 999L) / 1000L).toInt()
+                _securityState.update {
+                    it.copy(
+                        masterCooldownSecondsLeft = sec,
+                        masterPasswordError = "Çox sayda səhv cəhd. $sec san. gözləyin.",
+                    )
+                }
+                delay(500L)
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // 4-Digit User PIN Entry
+    // -------------------------------------------------------------------------
 
     fun pressPinDigit(digit: Char) {
         recordUserActivity()
@@ -327,11 +646,15 @@ class TexnonezaretViewModel(application: Application) : AndroidViewModel(applica
     }
 
     // -------------------------------------------------------------------------
-    // Spreadsheet Import, Column Mapping, Search, Theme & Offline Backup
+    // Spreadsheet Import, Column Mapping, Search, Theme & Signed Backup
     // -------------------------------------------------------------------------
 
     fun importSpreadsheetUri(uri: Uri) {
         recordUserActivity()
+        if (!_securityState.value.isInterventionUnlocked) {
+            requestProtectedAction(PendingInterventionAction.ImportExcel)
+            return
+        }
         viewModelScope.launch {
             _searchState.update { it.copy(isLoadingFile = true, fileError = null, statusBanner = null) }
             val result = withContext(Dispatchers.IO) {
@@ -360,7 +683,7 @@ class TexnonezaretViewModel(application: Application) : AndroidViewModel(applica
         }
     }
 
-    fun clearLoadedSpreadsheet() {
+    private fun clearLoadedSpreadsheet() {
         recordUserActivity()
         storage.clearSheetData()
         _searchState.update { cur ->
@@ -371,7 +694,7 @@ class TexnonezaretViewModel(application: Application) : AndroidViewModel(applica
         }
     }
 
-    fun updateColumnMapping(field: ColumnField, columnIndex: Int) {
+    private fun updateColumnMapping(field: ColumnField, columnIndex: Int) {
         recordUserActivity()
         val cur = _searchState.value
         val updatedMap = cur.map.withField(field, columnIndex)
@@ -436,9 +759,10 @@ class TexnonezaretViewModel(application: Application) : AndroidViewModel(applica
 
     fun buildBackupJson(): String? {
         recordUserActivity()
+        if (!_securityState.value.isInterventionUnlocked) return null
         val cur = _searchState.value
         if (cur.raw.isEmpty()) return null
-        return storage.serializeSheetData(
+        return storage.serializeBackupEnvelope(
             PersistedSheetData(
                 raw = cur.raw,
                 hdr = cur.hdr,
@@ -450,6 +774,10 @@ class TexnonezaretViewModel(application: Application) : AndroidViewModel(applica
 
     fun importBackupUri(uri: Uri) {
         recordUserActivity()
+        if (!_securityState.value.isInterventionUnlocked) {
+            requestProtectedAction(PendingInterventionAction.ImportBackup)
+            return
+        }
         viewModelScope.launch {
             _searchState.update { it.copy(isLoadingFile = true, fileError = null, statusBanner = null) }
             val loaded = withContext(Dispatchers.IO) {
@@ -458,7 +786,7 @@ class TexnonezaretViewModel(application: Application) : AndroidViewModel(applica
                         .openInputStream(uri)?.use { it.bufferedReader(Charsets.UTF_8).readText() }
                         ?: throw IllegalStateException("Fayl oxunmadı")
                     storage.deserializeSheetData(jsonText)
-                        ?: throw IllegalStateException("Yanlış ehtiyat nüsxə faylı")
+                        ?: throw IllegalStateException("Yanlış və ya zədələnmiş ehtiyat nüsxə faylı")
                 }
             }
             loaded.onSuccess { sheetData ->
@@ -469,7 +797,7 @@ class TexnonezaretViewModel(application: Application) : AndroidViewModel(applica
                 _searchState.update {
                     it.copy(
                         isLoadingFile = false,
-                        fileError = "Ehtiyat nüsxə faylı oxuna bilmədi.",
+                        fileError = "Ehtiyat nüsxə faylı oxuna bilmədi və ya bütövlüyü pozulub.",
                     )
                 }
             }

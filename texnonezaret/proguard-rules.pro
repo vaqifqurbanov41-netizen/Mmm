@@ -1,1 +1,12 @@
--keep class com.aistudio.texnonezaret.** { *; }
+-repackageclasses 'tnt.p'
+-allowaccessmodification
+-keep public class com.aistudio.texnonezaret.MainActivity
+
+-assumenosideeffects class android.util.Log {
+    public static boolean isLoggable(java.lang.String, int);
+    public static int v(...);
+    public static int d(...);
+    public static int i(...);
+    public static int w(...);
+    public static int e(...);
+}

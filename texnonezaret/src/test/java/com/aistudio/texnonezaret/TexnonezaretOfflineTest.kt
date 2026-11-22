@@ -5,9 +5,12 @@ import com.aistudio.texnonezaret.domain.InspectionStatusKind
 import com.aistudio.texnonezaret.domain.SearchMode
 import com.aistudio.texnonezaret.domain.StatusFilter
 import com.aistudio.texnonezaret.domain.TexnonezaretEngine
+import com.aistudio.texnonezaret.security.SecurityGuard
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.ByteArrayOutputStream
@@ -15,6 +18,32 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
 class TexnonezaretOfflineTest {
+
+    @Test
+    fun securityVerificationAndTamperDetectionWorkAccurately() {
+        val exactPassword = "WVaqif\u018F\u042D41%@${'$'}Q"
+        assertTrue(SecurityGuard.verifyInterventionPassword(exactPassword))
+        assertFalse(SecurityGuard.verifyInterventionPassword(""))
+        assertFalse(SecurityGuard.verifyInterventionPassword("WVaqif\u018F\u042D41%@${'$'}q"))
+        assertFalse(SecurityGuard.verifyInterventionPassword("wvaqif\u018F\u042D41%@${'$'}Q"))
+        assertFalse(SecurityGuard.verifyInterventionPassword("WVaqifEE41%@${'$'}Q"))
+
+        val sampleJson = """{"hdr":0,"raw":[["04BA-172","Vaqif"]]}"""
+        val encrypted = SecurityGuard.encryptText(sampleJson)
+        assertTrue(encrypted.startsWith("TNTENC1:"))
+        assertFalse(encrypted.contains("04BA-172"))
+        assertEquals(sampleJson, SecurityGuard.decryptText(encrypted))
+
+        // Corrupt the last hex character -> GCM auth tag check must fail (null)
+        val corruptedChar = if (encrypted.last() == 'a') 'b' else 'a'
+        val tampered = encrypted.dropLast(1) + corruptedChar
+        assertNull(SecurityGuard.decryptText(tampered))
+
+        val payload = "hash123|0|0|0|0|sig"
+        val hmac = SecurityGuard.computeIntegrityHmac(payload)
+        assertTrue(SecurityGuard.verifyIntegrityHmac(payload, hmac))
+        assertFalse(SecurityGuard.verifyIntegrityHmac("hash123|0|0|0|0|tampered", hmac))
+    }
 
     @Test
     fun parsesCsvWithAzerbaijaniCharsAutoDetectsColumnsAndSearchesCorrectly() {

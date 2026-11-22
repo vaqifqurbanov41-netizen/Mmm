@@ -157,10 +157,11 @@ jobs:
         with:
           gradle-version: '9.3.1'
 
-      - name: Build AqroMeslehet & Texnonəzarət APKs
+      - name: Build AqroMeslehet & TNT APKs
         run: |
           set -o pipefail
           if ! gradle :app:assembleDebug :texnonezaret:assembleDebug \
+            -PactiveApp=aqromeslehet \
             --no-daemon \
             --no-build-cache \
             --no-configuration-cache \
@@ -187,9 +188,9 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
-      - name: Upload Texnonəzarət Offline APK Artifact
+      - name: Upload TNT Offline APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Texnonezaret-APK
+          name: TNT-APK
           path: texnonezaret/build/outputs/apk/debug/texnonezaret-debug.apk
           if-no-files-found: error

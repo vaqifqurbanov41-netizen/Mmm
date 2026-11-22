@@ -21,6 +21,9 @@ android {
     versionName = "1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+    val activePreviewApp = (project.findProperty("activeApp") as String?) ?: "texnonezaret"
+    buildConfigField("boolean", "PREVIEW_TEXNONEZARET", (activePreviewApp == "texnonezaret").toString())
   }
 
   // Do not remove or modify these signingConfigs. They are necessary for building, installing,
@@ -84,6 +87,7 @@ googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.W
 // Some unused dependencies are commented out below instead of being removed.
 // This makes it easy to add them back in the future if needed.
 dependencies {
+  implementation(project(":texnonezaret_core"))
   implementation(platform(libs.androidx.compose.bom))
   implementation(platform(libs.firebase.bom))
   // implementation(libs.accompanist.permissions)

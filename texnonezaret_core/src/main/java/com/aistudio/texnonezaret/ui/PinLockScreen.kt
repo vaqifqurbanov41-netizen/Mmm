@@ -5,6 +5,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,14 +21,20 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Backspace
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -44,6 +51,9 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.IntOffset
@@ -55,12 +65,14 @@ import kotlin.math.roundToInt
 @Composable
 fun PinLockScreen(
     state: PinUiState,
+    masterErrorMessage: String?,
+    masterCooldownSecondsLeft: Int,
     onDigitPress: (Char) -> Unit,
     onBackspacePress: () -> Unit,
     onClearPress: () -> Unit,
     onBackToSetup: () -> Unit,
     onCancelChange: () -> Unit,
-    onConfirmResetData: () -> Unit,
+    onConfirmResetWithPassword: (String, Boolean) -> Boolean,
 ) {
     val extra = LocalTexnoColors.current
     var showResetDialog by remember { mutableStateOf(false) }
@@ -76,24 +88,81 @@ fun PinLockScreen(
     }
 
     if (showResetDialog) {
+        var masterPassword by remember { mutableStateOf("") }
+        var showPassword by remember { mutableStateOf(false) }
+        var wipeData by remember { mutableStateOf(false) }
+
         AlertDialog(
             onDismissRequest = { showResetDialog = false },
-            title = { Text("Məlumatları sıfırla?") },
+            title = { Text("PIN-i sıfırla") },
             text = {
-                Text(
-                    "DİQQƏT: PIN sıfırlanarsa, yaddaşda olan bütün yüklənmiş Excel məlumatları təhlükəsizlik məqsədilə silinəcək. Davam edilsin?"
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "PIN-i sıfırlamaq üçün müdaxilə parolunu daxil edin.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = extra.muted,
+                    )
+                    OutlinedTextField(
+                        value = masterPassword,
+                        onValueChange = { masterPassword = it },
+                        singleLine = true,
+                        enabled = masterCooldownSecondsLeft == 0,
+                        label = { Text("Müdaxilə parolu") },
+                        visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        trailingIcon = {
+                            IconButton(onClick = { showPassword = !showPassword }) {
+                                Icon(
+                                    imageVector = if (showPassword) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                    contentDescription = if (showPassword) "Parolu gizlət" else "Parolu göstər",
+                                )
+                            }
+                        },
+                        isError = !masterErrorMessage.isNullOrBlank(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("reset_pin_master_input"),
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { wipeData = !wipeData },
+                    ) {
+                        Checkbox(
+                            checked = wipeData,
+                            onCheckedChange = { wipeData = it },
+                        )
+                        Text(
+                            text = "Yaddaşdakı Excel məlumatlarını da sil",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = extra.ink,
+                        )
+                    }
+                    if (!masterErrorMessage.isNullOrBlank()) {
+                        Text(
+                            text = masterErrorMessage,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = extra.badText,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.testTag("reset_pin_master_error"),
+                        )
+                    }
+                }
             },
             confirmButton = {
                 Button(
                     onClick = {
-                        showResetDialog = false
-                        onConfirmResetData()
+                        val ok = onConfirmResetWithPassword(masterPassword, wipeData)
+                        if (ok) {
+                            showResetDialog = false
+                        }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = extra.badText),
+                    enabled = masterCooldownSecondsLeft == 0 && masterPassword.isNotEmpty(),
+                    colors = ButtonDefaults.buttonColors(containerColor = extra.brand),
                     modifier = Modifier.testTag("confirm_pin_reset_btn"),
                 ) {
-                    Text("Sıfırla")
+                    Text(if (masterCooldownSecondsLeft > 0) "Gözləyin (${masterCooldownSecondsLeft}s)" else "Təsdiqlə və sıfırla")
                 }
             },
             dismissButton = {
@@ -133,10 +202,25 @@ fun PinLockScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp),
             ) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = extra.brand,
+                ) {
+                    Text(
+                        text = "TNT",
+                        color = extra.brandInk,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 13.sp,
+                        letterSpacing = 1.5.sp,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .size(52.dp)
+                        .size(50.dp)
                         .clip(CircleShape)
                         .background(extra.okBg),
                 ) {
@@ -144,11 +228,11 @@ fun PinLockScreen(
                         imageVector = Icons.Filled.Lock,
                         contentDescription = title,
                         tint = extra.brand,
-                        modifier = Modifier.size(26.dp),
+                        modifier = Modifier.size(24.dp),
                     )
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
                 Text(
                     text = title,
                     style = MaterialTheme.typography.titleMedium,
@@ -163,7 +247,7 @@ fun PinLockScreen(
                     textAlign = TextAlign.Center,
                 )
 
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(18.dp))
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                     modifier = Modifier.offset { IntOffset(shakeOffset.value.roundToInt(), 0) },
@@ -197,7 +281,7 @@ fun PinLockScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
                 val keypadRows = listOf(
                     listOf("1", "2", "3"),
                     listOf("4", "5", "6"),
@@ -214,7 +298,6 @@ fun PinLockScreen(
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             for (key in row) {
-                                val isFn = key == "CLR" || key == "DEL"
                                 Surface(
                                     onClick = {
                                         when (key) {
@@ -298,7 +381,7 @@ fun PinLockScreen(
                             modifier = Modifier.testTag("pin_reset_btn"),
                         ) {
                             Text(
-                                text = "PIN-i unutmusunuz? (Məlumatları sıfırla)",
+                                text = "PIN-i unutmusunuz? (Müdaxilə parolu ilə sıfırla)",
                                 color = extra.muted,
                                 style = MaterialTheme.typography.bodySmall,
                                 textDecoration = TextDecoration.Underline,

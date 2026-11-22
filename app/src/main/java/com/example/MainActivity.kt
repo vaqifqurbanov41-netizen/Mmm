@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -87,6 +88,7 @@ import com.example.ui.screens.SubsidyScreen
 import com.example.ui.screens.WeatherScreen
 import com.example.ui.theme.AqroMeslehetTheme
 import com.example.ui.theme.LocalAqroColors
+import com.aistudio.texnonezaret.ui.TexnonezaretRoot
 import com.example.ui.theme.ThemePreference
 import com.example.ui.viewmodel.FarmViewModel
 import com.example.ui.viewmodel.SettingsViewModel
@@ -99,10 +101,19 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        configureAppCheck(this, intent)
-
-        setContent {
-            AqroRootApp()
+        if (BuildConfig.PREVIEW_TEXNONEZARET) {
+            window.setFlags(
+                WindowManager.LayoutParams.FLAG_SECURE,
+                WindowManager.LayoutParams.FLAG_SECURE,
+            )
+            setContent {
+                TexnonezaretRoot()
+            }
+        } else {
+            configureAppCheck(this, intent)
+            setContent {
+                AqroRootApp()
+            }
         }
     }
 }

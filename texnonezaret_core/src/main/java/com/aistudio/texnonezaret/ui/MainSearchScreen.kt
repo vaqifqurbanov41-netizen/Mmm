@@ -46,8 +46,10 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.Button
@@ -57,6 +59,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -67,6 +70,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -94,6 +98,7 @@ import com.aistudio.texnonezaret.domain.TexnonezaretEngine
 import com.aistudio.texnonezaret.domain.VehicleRow
 import com.aistudio.texnonezaret.ui.theme.LocalTexnoColors
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -101,15 +106,17 @@ import kotlinx.coroutines.withContext
 @Composable
 fun MainSearchScreen(
     state: SearchUiState,
+    securityState: SecurityUiState,
+    effects: SharedFlow<InterventionUiEffect>,
     onImportSpreadsheet: (Uri) -> Unit,
-    onClearSpreadsheet: () -> Unit,
-    onUpdateColumnMapping: (ColumnField, Int) -> Unit,
+    onRequestProtectedAction: (PendingInterventionAction) -> Unit,
+    onLockInterventionMode: () -> Unit,
+    onOpenSecurityCenter: () -> Unit,
     onToggleColumnMapExpanded: () -> Unit,
     onPlateQueryChange: (String) -> Unit,
     onNameQueryChange: (String) -> Unit,
     onSelectStatusFilter: (StatusFilter) -> Unit,
     onCycleThemeMode: () -> Unit,
-    onRequestChangePin: () -> Unit,
     onLockApp: () -> Unit,
     onBuildBackupJson: () -> String?,
     onImportBackupUri: (Uri) -> Unit,
@@ -151,25 +158,35 @@ fun MainSearchScreen(
                         true
                     }.getOrDefault(false)
                 }
-                localMessage = if (ok) "Ehtiyat nüsxə saxlanıldı." else "Ehtiyat nüsxə saxlanıla bilmədi."
+                localMessage = if (ok) "İmzalı ehtiyat nüsxə saxlanıldı." else "Ehtiyat nüsxə saxlanıla bilmədi."
             }
         }
     }
 
-    Box(
-        contentAlignment = Alignment.TopCenter,
+    LaunchedEffect(effects) {
+        effects.collect { effect ->
+            when (effect) {
+                InterventionUiEffect.LaunchExcelPicker -> spreadsheetPicker.launch(arrayOf("*/*"))
+                InterventionUiEffect.LaunchBackupExport -> backupExportLauncher.launch("tnt_backup.json")
+                InterventionUiEffect.LaunchBackupImport -> backupImportPicker.launch(arrayOf("*/*"))
+            }
+        }
+    }
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
             .fillMaxSize()
             .background(extra.bg)
             .statusBarsPadding(),
     ) {
         LazyColumn(
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 28.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier
+                .weight(1f)
                 .widthIn(max = 680.dp)
-                .fillMaxSize()
-                .navigationBarsPadding()
+                .fillMaxWidth()
                 .testTag("main_search_list"),
         ) {
             // Top bar & security/theme actions
@@ -181,11 +198,29 @@ fun MainSearchScreen(
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Texniki baxış axtarışı",
-                                style = MaterialTheme.typography.headlineSmall,
-                                color = extra.ink,
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(7.dp),
+                                    color = extra.brand,
+                                ) {
+                                    Text(
+                                        text = "TNT",
+                                        color = extra.brandInk,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 13.sp,
+                                        letterSpacing = 1.2.sp,
+                                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp),
+                                    )
+                                }
+                                Text(
+                                    text = "Texniki baxış axtarışı",
+                                    style = MaterialTheme.typography.headlineSmall,
+                                    color = extra.ink,
+                                )
+                            }
                             Spacer(modifier = Modifier.height(3.dp))
                             Text(
                                 text = "Excel faylını yükləyin, DQN və ya DQŞ-i yazın – baxışın bitmə tarixi və sahibin məlumatı çıxsın.",
@@ -194,30 +229,54 @@ fun MainSearchScreen(
                             )
                         }
                         Spacer(modifier = Modifier.width(8.dp))
-                        val themeIcon = when (state.themeMode) {
-                            ThemeMode.LIGHT -> Icons.Filled.LightMode
-                            ThemeMode.DARK -> Icons.Filled.DarkMode
-                            ThemeMode.SYSTEM -> Icons.Filled.Brightness6
-                        }
-                        Surface(
-                            onClick = onCycleThemeMode,
-                            shape = RoundedCornerShape(10.dp),
-                            color = extra.surface,
-                            border = BorderStroke(1.dp, extra.line),
-                            modifier = Modifier
-                                .minimumInteractiveComponentSize()
-                                .testTag("btn_theme_toggle"),
-                        ) {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier.size(48.dp),
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Surface(
+                                onClick = onOpenSecurityCenter,
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (securityState.isInterventionUnlocked) extra.warnBg else extra.okBg,
+                                border = BorderStroke(1.dp, extra.line),
+                                modifier = Modifier
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("btn_security_center"),
                             ) {
-                                Icon(
-                                    imageVector = themeIcon,
-                                    contentDescription = "Temanı dəyiş",
-                                    tint = extra.ink,
-                                    modifier = Modifier.size(20.dp),
-                                )
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier.size(48.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Shield,
+                                        contentDescription = "Təhlükəsizlik qalxanı",
+                                        tint = if (securityState.isInterventionUnlocked) extra.warnText else extra.okText,
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                }
+                            }
+
+                            val themeIcon = when (state.themeMode) {
+                                ThemeMode.LIGHT -> Icons.Filled.LightMode
+                                ThemeMode.DARK -> Icons.Filled.DarkMode
+                                ThemeMode.SYSTEM -> Icons.Filled.Brightness6
+                            }
+                            Surface(
+                                onClick = onCycleThemeMode,
+                                shape = RoundedCornerShape(10.dp),
+                                color = extra.surface,
+                                border = BorderStroke(1.dp, extra.line),
+                                modifier = Modifier
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("btn_theme_toggle"),
+                            ) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier.size(48.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = themeIcon,
+                                        contentDescription = "Temanı dəyiş",
+                                        tint = extra.ink,
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                }
                             }
                         }
                     }
@@ -229,27 +288,45 @@ fun MainSearchScreen(
                             .horizontalScroll(rememberScrollState()),
                     ) {
                         SmallActionChip(
+                            label = if (securityState.isInterventionUnlocked) {
+                                "Müdaxilə açıqdır"
+                            } else {
+                                "Müdaxilə kilidi"
+                            },
+                            icon = if (securityState.isInterventionUnlocked) Icons.Filled.LockOpen else Icons.Filled.Shield,
+                            tintOverride = if (securityState.isInterventionUnlocked) extra.warnText else extra.okText,
+                            bgOverride = if (securityState.isInterventionUnlocked) extra.warnBg else extra.okBg,
+                            onClick = {
+                                if (securityState.isInterventionUnlocked) {
+                                    onLockInterventionMode()
+                                } else {
+                                    onRequestProtectedAction(PendingInterventionAction.UnlockModeOnly)
+                                }
+                            },
+                            testTag = "btn_intervention_mode",
+                        )
+                        SmallActionChip(
                             label = "Ehtiyat nüsxə",
                             icon = Icons.Filled.Download,
                             onClick = {
-                                if (state.rows.isEmpty()) {
-                                    localMessage = "Saxlamaq üçün əvvəlcə Excel yükləyin."
-                                } else {
-                                    backupExportLauncher.launch("texnonezaret_backup.json")
-                                }
+                                onRequestProtectedAction(PendingInterventionAction.ExportBackup)
                             },
                             testTag = "btn_export_backup",
                         )
                         SmallActionChip(
                             label = "Nüsxədən yüklə",
                             icon = Icons.Filled.UploadFile,
-                            onClick = { backupImportPicker.launch(arrayOf("*/*")) },
+                            onClick = {
+                                onRequestProtectedAction(PendingInterventionAction.ImportBackup)
+                            },
                             testTag = "btn_import_backup",
                         )
                         SmallActionChip(
                             label = "PIN dəyiş",
                             icon = Icons.Filled.Key,
-                            onClick = onRequestChangePin,
+                            onClick = {
+                                onRequestProtectedAction(PendingInterventionAction.ChangePin)
+                            },
                             testTag = "btn_change_pin",
                         )
                         SmallActionChip(
@@ -280,7 +357,9 @@ fun MainSearchScreen(
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             Button(
-                                onClick = { spreadsheetPicker.launch(arrayOf("*/*")) },
+                                onClick = {
+                                    onRequestProtectedAction(PendingInterventionAction.ImportExcel)
+                                },
                                 shape = RoundedCornerShape(10.dp),
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = extra.brand,
@@ -337,7 +416,9 @@ fun MainSearchScreen(
 
                             if (state.raw.isNotEmpty()) {
                                 OutlinedButton(
-                                    onClick = onClearSpreadsheet,
+                                    onClick = {
+                                        onRequestProtectedAction(PendingInterventionAction.ClearData)
+                                    },
                                     shape = RoundedCornerShape(10.dp),
                                     border = BorderStroke(1.dp, extra.line),
                                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
@@ -414,7 +495,9 @@ fun MainSearchScreen(
                                                 headers = headers,
                                                 columnCount = state.columnCount,
                                                 onSelectCol = { colIdx ->
-                                                    onUpdateColumnMapping(field, colIdx)
+                                                    onRequestProtectedAction(
+                                                        PendingInterventionAction.UpdateColumn(field, colIdx)
+                                                    )
                                                 },
                                             )
                                         }
@@ -429,7 +512,6 @@ fun MainSearchScreen(
             // AZ License Plate Search Bar & Owner Name Search Bar
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    // AZ License Plate Frame (#1F3B8A border + blue AZ badge + bold monospace input)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
@@ -623,6 +705,40 @@ fun MainSearchScreen(
                 }
             }
         }
+
+        // Fixed bottom author footer on main page
+        Surface(
+            color = extra.surface,
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding(),
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                HorizontalDivider(color = extra.line, thickness = 1.dp)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Shield,
+                        contentDescription = null,
+                        tint = extra.brand,
+                        modifier = Modifier.size(15.dp),
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Müəllif: Vaqif Qurbanov Əvəz",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = extra.ink,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.testTag("author_footer_text"),
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -632,12 +748,16 @@ private fun SmallActionChip(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     onClick: () -> Unit,
     testTag: String,
+    tintOverride: Color? = null,
+    bgOverride: Color? = null,
 ) {
     val extra = LocalTexnoColors.current
+    val fg = tintOverride ?: extra.ink
+    val bg = bgOverride ?: extra.surface
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(10.dp),
-        color = extra.surface,
+        color = bg,
         border = BorderStroke(1.dp, extra.line),
         modifier = Modifier
             .heightIn(min = 48.dp)
@@ -651,13 +771,13 @@ private fun SmallActionChip(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = extra.ink,
+                tint = fg,
                 modifier = Modifier.size(16.dp),
             )
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelMedium,
-                color = extra.ink,
+                color = fg,
                 maxLines = 1,
             )
         }
