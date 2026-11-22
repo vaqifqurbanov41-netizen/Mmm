@@ -651,10 +651,6 @@ class TexnonezaretViewModel(application: Application) : AndroidViewModel(applica
 
     fun importSpreadsheetUri(uri: Uri) {
         recordUserActivity()
-        if (!_securityState.value.isInterventionUnlocked) {
-            requestProtectedAction(PendingInterventionAction.ImportExcel)
-            return
-        }
         viewModelScope.launch {
             _searchState.update { it.copy(isLoadingFile = true, fileError = null, statusBanner = null) }
             val result = withContext(Dispatchers.IO) {

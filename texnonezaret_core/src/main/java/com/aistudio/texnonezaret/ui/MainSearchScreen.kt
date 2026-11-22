@@ -358,7 +358,8 @@ fun MainSearchScreen(
                         ) {
                             Button(
                                 onClick = {
-                                    onRequestProtectedAction(PendingInterventionAction.ImportExcel)
+                                    localMessage = null
+                                    spreadsheetPicker.launch(arrayOf("*/*"))
                                 },
                                 shape = RoundedCornerShape(10.dp),
                                 colors = ButtonDefaults.buttonColors(
