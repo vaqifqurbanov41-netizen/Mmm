@@ -1071,7 +1071,17 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun `fieldsScreenRoutesScannedUtm38TAndLatLonInOrderAndShowsCameraButton`() {
+    fun `fieldsScreenRoutesScannedUtm38TAndLatLonInOrderAndSupportsRowAddAndFullscreenMap`() {
+        val utmPairs = listOf(
+            "703195.81" to "4437081.26",
+            "703095.5" to "4437076.25",
+            "703194.12" to "4437101.43",
+        )
+        val latLonPairs = listOf(
+            "40.678210" to "46.360610",
+            "40.679520" to "46.360640",
+            "40.679520" to "46.362510",
+        )
         val utmState = DocScanUiState(
             isScanning = false,
             summary = "8 döngə nöqtəsi sıra ilə çıxarıldı və xəritədə quruldu.",
@@ -1079,6 +1089,7 @@ class ExampleRobolectricTest {
             coordTarget = com.example.domain.DocCoordTarget.UTM_38T,
             utmZone = 38,
             utmLinesText = "703195.81, 4437081.26\n703095.5, 4437076.25\n703194.12, 4437101.43",
+            scannedPairs = utmPairs,
             pointCount = 8,
             scanId = 101L,
         )
@@ -1088,6 +1099,7 @@ class ExampleRobolectricTest {
             detectedAreaHa = 2.5,
             coordTarget = com.example.domain.DocCoordTarget.LAT_LON,
             latLonLinesText = "40.678210, 46.360610\n40.679520, 46.360640\n40.679520, 46.362510",
+            scannedPairs = latLonPairs,
             pointCount = 3,
             scanId = 202L,
         )
@@ -1127,6 +1139,14 @@ class ExampleRobolectricTest {
         }
         composeTestRule.waitForIdle()
 
+        // Fullscreen map toggle opens fullscreen dialog and exits cleanly
+        composeTestRule.onNodeWithTag("map_fullscreen_toggle").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("fullscreen_map_dialog").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("fullscreen_exit_btn").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("fullscreen_map_dialog").assertDoesNotExist()
+
         // Switch to Sənəd Skan tab (tab_pill_2) and verify Camera + Gallery buttons + routing card
         composeTestRule.onNodeWithTag("tab_pill_2").performClick()
         composeTestRule.waitForIdle()
@@ -1136,17 +1156,35 @@ class ExampleRobolectricTest {
         composeTestRule.onNodeWithTag("doc_scan_result_card").assertIsDisplayed()
         composeTestRule.onNodeWithTag("doc_scan_routing_badge").assertIsDisplayed()
 
-        // Jump to Coords/UTM tab via doc_open_coords_btn and confirm UTM 38T points in sequential order
+        // Jump to Coords/UTM tab via doc_open_coords_btn and confirm separated X / Y columns
         composeTestRule.onNodeWithTag("doc_open_coords_btn").performClick()
         composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("fields_screen_list").performScrollToNode(hasTestTag("utm_points_input"))
-        composeTestRule.onNodeWithTag("utm_points_input").assertTextContains("703195.81, 4437081.26", substring = true)
+        composeTestRule.onNodeWithTag("fields_screen_list").performScrollToNode(hasTestTag("utm_x_input_0"))
+        composeTestRule.onNodeWithTag("utm_x_input_0").assertTextContains("703195.81", substring = true)
+        composeTestRule.onNodeWithTag("utm_y_input_0").assertTextContains("4437081.26", substring = true)
+        composeTestRule.onNodeWithTag("utm_x_input_2").assertTextContains("703194.12", substring = true)
+        composeTestRule.onNodeWithTag("utm_y_input_2").assertTextContains("4437101.43", substring = true)
 
-        // Now trigger X starting with 4 -> Lat/Lon routing
+        // Verify adding 9th+ UTM row works
+        composeTestRule.onNodeWithTag("utm_x_input_8").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("fields_screen_list").performScrollToNode(hasTestTag("add_utm_row_btn"))
+        composeTestRule.onNodeWithTag("add_utm_row_btn").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("fields_screen_list").performScrollToNode(hasTestTag("utm_x_input_8"))
+        composeTestRule.onNodeWithTag("utm_x_input_8").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("utm_y_input_8").assertIsDisplayed()
+
+        // Now trigger X starting with 4 -> Lat/Lon separated columns + 9th row support
         currentState = latLonState
         composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("fields_screen_list").performScrollToNode(hasTestTag("lat_lon_input"))
-        composeTestRule.onNodeWithTag("lat_lon_input").assertTextContains("40.678210, 46.360610", substring = true)
+        composeTestRule.onNodeWithTag("fields_screen_list").performScrollToNode(hasTestTag("lat_lon_x_input_0"))
+        composeTestRule.onNodeWithTag("lat_lon_x_input_0").assertTextContains("40.678210", substring = true)
+        composeTestRule.onNodeWithTag("lat_lon_y_input_0").assertTextContains("46.360610", substring = true)
+        composeTestRule.onNodeWithTag("fields_screen_list").performScrollToNode(hasTestTag("add_lat_lon_row_btn"))
+        composeTestRule.onNodeWithTag("add_lat_lon_row_btn").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("fields_screen_list").performScrollToNode(hasTestTag("lat_lon_x_input_8"))
+        composeTestRule.onNodeWithTag("lat_lon_x_input_8").assertIsDisplayed()
     }
 
     @Test

@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.first
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -357,6 +358,52 @@ class LocalRecordsAndConfigTest {
         assertTrue(kmzFile.exists())
         assertNotNull(shareUri)
 
+        // KML with UTF-8 BOM, unescaped '&', and <gx:Track>/<gx:coord>
+        val trickyKml = "\uFEFF<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
+            "<kml xmlns=\"http://www.opengis.net/kml/2.2\" xmlns:gx=\"http://www.google.com/kml/ext/2.2\">" +
+            "<Document><name>Sabirabad & Samux</name>" +
+            "<Placemark><name>Track 1 & 2</name><description>Taxıl & Yonca sahəsi</description>" +
+            "<gx:Track>" +
+            "<gx:coord>46.3600 40.6780 0</gx:coord>" +
+            "<gx:coord>46.3620 40.6780 0</gx:coord>" +
+            "<gx:coord>46.3620 40.6795 0</gx:coord>" +
+            "</gx:Track></Placemark></Document></kml>"
+        val parsedTricky = com.example.domain.KmzUtils.parseKmzOrKml(trickyKml.toByteArray(Charsets.UTF_8))
+        assertEquals("Sabirabad & Samux", parsedTricky.documentName)
+        assertEquals(1, parsedTricky.placemarks.size)
+        assertEquals(3, parsedTricky.placemarks.first().points.size)
+        assertEquals(40.6780, parsedTricky.placemarks.first().points.first().lat, 1e-4)
+
+        // Multi-entry KMZ where wrapper doc.kml has no geometry and actual Polygon lives in secondary .kml
+        val zipBaos = java.io.ByteArrayOutputStream()
+        java.util.zip.ZipOutputStream(zipBaos).use { zos ->
+            zos.putNextEntry(java.util.zip.ZipEntry("doc.kml"))
+            zos.write("<kml><Document><name>Wrapper</name></Document></kml>".toByteArray(Charsets.UTF_8))
+            zos.closeEntry()
+            zos.putNextEntry(java.util.zip.ZipEntry("layers/field_polygon.kml"))
+            zos.write(
+                ("<kml><Document><Placemark><name>İkinci KML</name>" +
+                    "<Polygon><outerBoundaryIs><LinearRing><coordinates>" +
+                    "46.3600,40.6780,0 46.3620,40.6780,0 46.3620,40.6795,0 46.3600,40.6780,0" +
+                    "</coordinates></LinearRing></outerBoundaryIs></Polygon>" +
+                    "</Placemark></Document></kml>").toByteArray(Charsets.UTF_8)
+            )
+            zos.closeEntry()
+        }
+        val nestedKmz = com.example.domain.KmzUtils.parseKmzOrKml(zipBaos.toByteArray())
+        assertEquals(1, nestedKmz.placemarks.size)
+        assertEquals("İkinci KML", nestedKmz.placemarks.first().name)
+        assertEquals(3, nestedKmz.placemarks.first().points.size)
+
+        // UTM meter coordinates inside KML fallback
+        val utmKml = "<kml><Document><Placemark><name>UTM KML</name><Polygon><outerBoundaryIs><LinearRing><coordinates>" +
+            "703195.81,4437081.26,0 703095.5,4437076.25,0 702729.11,4437042.58,0" +
+            "</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark></Document></kml>"
+        val parsedUtmKml = com.example.domain.KmzUtils.parseKmzOrKml(utmKml.toByteArray(Charsets.UTF_8))
+        assertEquals(1, parsedUtmKml.placemarks.size)
+        assertEquals(3, parsedUtmKml.placemarks.first().points.size)
+        assertTrue(parsedUtmKml.placemarks.first().points.all { it.lat in 38.0..42.5 && it.lon in 44.0..51.5 })
+
         // UTM Zone string parsing (Azerbaijan 38T / 38S / Europe 34U / South 38K)
         assertEquals(38 to false, com.example.domain.GeoUtils.parseUtmZone("38T"))
         assertEquals(38 to false, com.example.domain.GeoUtils.parseUtmZone("38S"))
@@ -680,6 +727,45 @@ class LocalRecordsAndConfigTest {
         assertEquals(com.example.domain.DocCoordTarget.LAT_LON, swappedParsed!!.target)
         assertEquals(8, swappedParsed.polygon.size)
         assertTrue(swappedParsed.polygon.all { it.lat in 38.0..42.5 && it.lon in 44.0..51.5 })
+
+        // Corrupted sideways mixed-column pairs from Screenshot_20261122_000026 must be strictly rejected
+        val corruptedSidewaysPairs = listOf(
+            "703194." to "702729.",
+            "702700.8" to "703094.45",
+            "702701.49" to "703195.81",
+            "702701.95" to "703095.5",
+            "4437101.43" to "4437042.58",
+            "4437076.49" to "4437076.25",
+            "4437056.28" to "4437061.04",
+            "4437042.62" to "4437081.26",
+        )
+        assertNull(com.example.domain.CadastralDocumentParser.classifyPairs(corruptedSidewaysPairs, areaHaHint = 1.6069))
+
+        // Split decimal fragments inside X column ("703194." + "12" -> "703194.12") and 9+ rows support
+        val tenX = expectedX + listOf("703196.10", "703197.25")
+        val tenY = expectedY + listOf("4437105.00", "4437095.00")
+        val tenTokens = mutableListOf(
+            com.example.domain.OcrToken("Nömrəsi", 60f, 50f),
+            com.example.domain.OcrToken("X", 200f, 50f),
+            com.example.domain.OcrToken("Y", 360f, 50f),
+        )
+        for (i in tenX.indices) {
+            val rowY = 100f + i * 45f
+            tenTokens += com.example.domain.OcrToken("${i + 1}", 60f, rowY)
+            if (i == 7) {
+                tenTokens += com.example.domain.OcrToken("703194.", 185f, rowY)
+                tenTokens += com.example.domain.OcrToken("12", 225f, rowY)
+            } else {
+                tenTokens += com.example.domain.OcrToken(tenX[i], 200f, rowY)
+            }
+            tenTokens += com.example.domain.OcrToken(tenY[i], 360f, rowY)
+        }
+        val scoredTen = com.example.domain.CadastralDocumentParser.parseSpatialTokensScored(tenTokens, fullHint)
+        assertNotNull(scoredTen)
+        assertEquals(10, scoredTen!!.document.points.size)
+        assertEquals("703194.12", scoredTen.document.rawPairs[7].first)
+        assertEquals("4437101.43", scoredTen.document.rawPairs[7].second)
+        assertTrue(scoredTen.score > 1000.0)
 
         // Western-Azerbaijan 6-digit UTM Easting starting with 4 stays UTM 38T
         val westAzUtm = listOf(

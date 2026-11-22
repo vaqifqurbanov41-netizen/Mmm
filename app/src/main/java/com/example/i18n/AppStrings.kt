@@ -225,6 +225,15 @@ interface AppStrings {
     val kmzParseError: String
     val kmzNeedPointsError: String
     val kmzSavedSuccess: String
+    val coordUtmXLabel: String
+    val coordUtmYLabel: String
+    val coordLatXLabel: String
+    val coordLonYLabel: String
+    val coordFirstColHeader: String
+    val coordSecondColHeader: String
+    val btnAddCoordRow: String
+    val btnFullscreenMap: String
+    val btnExitFullscreenMap: String
 
     // NPK Calculator
     val npkTitle: String

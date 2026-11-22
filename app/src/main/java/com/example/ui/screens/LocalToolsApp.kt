@@ -490,6 +490,7 @@ fun LocalToolsApp(
                                         utmZone = offlineRes.utmZone,
                                         utmLinesText = offlineRes.utmLinesText,
                                         latLonLinesText = offlineRes.latLonLinesText,
+                                        scannedPairs = offlineRes.rawPairs,
                                         pointCount = polygon.size,
                                         scanId = System.currentTimeMillis(),
                                     )

@@ -24,6 +24,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CenterFocusStrong
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Remove
@@ -32,6 +34,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -149,6 +152,8 @@ fun FieldMapCanvas(
     isReadOnly: Boolean = false,
     extraPolygons: List<List<LatLon>> = emptyList(),
     mapHeightDp: Int = 310,
+    isFullscreen: Boolean = false,
+    onToggleFullscreen: (() -> Unit)? = null,
 ) {
     val strings = LocalStrings.current
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
@@ -202,11 +207,15 @@ fun FieldMapCanvas(
         if (extraPolygons.isEmpty()) points else points + extraPolygons.flatten()
     }
 
+    val containerShape = RoundedCornerShape(if (isFullscreen) 0.dp else 18.dp)
+    val baseSizeModifier = if (isFullscreen) {
+        modifier.fillMaxSize()
+    } else {
+        modifier.fillMaxWidth().height(mapHeightDp.dp)
+    }
     Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(mapHeightDp.dp)
-            .clip(RoundedCornerShape(18.dp))
+        modifier = baseSizeModifier
+            .clip(containerShape)
             .background(if (isSatellite) Color(0xFF162219) else Color(0xFFE6EEF4)),
     ) {
         Canvas(
@@ -488,6 +497,42 @@ fun FieldMapCanvas(
                         y = offset.y - layoutResult.size.height / 2f,
                     ),
                 )
+            }
+        }
+
+        // Top-left Fullscreen Expand/Collapse toggle
+        if (onToggleFullscreen != null) {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+                shadowElevation = 3.dp,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(10.dp)
+                    .minimumInteractiveComponentSize()
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable(onClick = onToggleFullscreen)
+                    .testTag("map_fullscreen_toggle"),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Icon(
+                        imageVector = if (isFullscreen) Icons.Filled.FullscreenExit else Icons.Filled.Fullscreen,
+                        contentDescription = if (isFullscreen) strings.btnExitFullscreenMap else strings.btnFullscreenMap,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Text(
+                        text = if (isFullscreen) strings.btnExitFullscreenMap else strings.btnFullscreenMap,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
             }
         }
 

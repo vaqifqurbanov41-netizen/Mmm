@@ -7,6 +7,8 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.media.ExifInterface
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -14,6 +16,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
@@ -24,20 +27,26 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddLocationAlt
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DocumentScanner
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MyLocation
@@ -72,8 +81,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import com.example.data.model.FarmField
@@ -100,8 +112,17 @@ import com.example.ui.theme.LocalAqroColors
 import com.example.ui.viewmodel.DocScanUiState
 import kotlinx.coroutines.launch
 import java.io.File
+import java.util.Locale
 import java.util.UUID
+import kotlin.math.abs
 import kotlin.math.roundToInt
+
+private const val DEFAULT_COORD_ROW_COUNT = 8
+
+private data class CoordRowInput(
+    val x: String = "",
+    val y: String = "",
+)
 
 @Composable
 fun FieldsScreen(
@@ -140,13 +161,14 @@ fun FieldsScreen(
     var isLocating by remember { mutableStateOf(false) }
 
     // Coords / UTM tab & dialogs state
-    var useUtm by remember { mutableStateOf(false) }
+    var useUtm by remember { mutableStateOf(true) }
     var utmZone by remember { mutableIntStateOf(38) }
-    var latLonText by remember { mutableStateOf("") }
-    var utmText by remember { mutableStateOf("") }
+    var latLonRows by remember { mutableStateOf(List(DEFAULT_COORD_ROW_COUNT) { CoordRowInput() }) }
+    var utmRows by remember { mutableStateOf(List(DEFAULT_COORD_ROW_COUNT) { CoordRowInput() }) }
     var coordsError by remember { mutableStateOf<String?>(null) }
     var showCoordinatesDialog by remember { mutableStateOf(false) }
-    var showBatchCoords by remember { mutableStateOf(false) }
+    var showBatchCoords by remember { mutableStateOf(true) }
+    var isMapFullscreen by remember { mutableStateOf(false) }
     var activeKmzDoc by remember { mutableStateOf<KmzDocument?>(null) }
     var pendingSaveKmzBytes by remember { mutableStateOf<ByteArray?>(null) }
     var kmzStatusMessage by remember { mutableStateOf<String?>(null) }
@@ -177,22 +199,37 @@ fun FieldsScreen(
         }
     }
 
-    // Route scanned X/Y coordinates in exact sequential order into UTM 38T or Lat/Lon
+    // Route scanned X/Y coordinates strictly into 1st col (X) and 2nd col (Y) in sequential order
     LaunchedEffect(docScanState.scanId) {
         if (docScanState.scanId > 0L) {
             when (docScanState.coordTarget) {
-                DocCoordTarget.UTM_38T -> if (docScanState.utmLinesText.isNotBlank()) {
-                    utmZone = if (docScanState.utmZone == 39) 39 else 38
-                    useUtm = true
-                    utmText = docScanState.utmLinesText
-                    showBatchCoords = true
-                    coordsError = null
+                DocCoordTarget.UTM_38T -> {
+                    val pairs = resolvePairsForUi(docScanState.scannedPairs, docScanState.utmLinesText)
+                    if (pairs.isNotEmpty()) {
+                        utmZone = if (docScanState.utmZone == 39) 39 else 38
+                        useUtm = true
+                        utmRows = padRowsToMinimum(pairs.map { CoordRowInput(it.first, it.second) })
+                        showBatchCoords = true
+                        coordsError = null
+                    }
                 }
-                DocCoordTarget.LAT_LON -> if (docScanState.latLonLinesText.isNotBlank()) {
-                    useUtm = false
-                    latLonText = docScanState.latLonLinesText
-                    showBatchCoords = true
-                    coordsError = null
+                DocCoordTarget.LAT_LON -> {
+                    val geoPairsFromRaw = docScanState.scannedPairs.takeIf { list ->
+                        list.isNotEmpty() && list.all { (x, y) ->
+                            val xv = x.replace(',', '.').toDoubleOrNull()
+                            val yv = y.replace(',', '.').toDoubleOrNull()
+                            xv != null && yv != null && abs(xv) <= 90.0 && abs(yv) <= 180.0
+                        }
+                    } ?: emptyList()
+                    val pairs = geoPairsFromRaw.ifEmpty {
+                        resolvePairsForUi(emptyList(), docScanState.latLonLinesText)
+                    }
+                    if (pairs.isNotEmpty()) {
+                        useUtm = false
+                        latLonRows = padRowsToMinimum(pairs.map { CoordRowInput(it.first, it.second) })
+                        showBatchCoords = true
+                        coordsError = null
+                    }
                 }
             }
             val areaHa = docScanState.detectedAreaHa
@@ -221,11 +258,17 @@ fun FieldsScreen(
                 if (showBatchCoords) {
                     if (useUtm) {
                         utmZone = if (utm.zone == 39) 39 else 38
-                        val line = "${utm.easting.roundToInt()}, ${utm.northing.roundToInt()}"
-                        utmText = if (utmText.isBlank()) line else "${utmText.trim()}\n$line"
+                        val entry = CoordRowInput(
+                            x = String.format(Locale.US, "%.2f", utm.easting),
+                            y = String.format(Locale.US, "%.2f", utm.northing),
+                        )
+                        utmRows = insertIntoFirstEmptyOrAppend(utmRows, entry)
                     } else {
-                        val line = "${formatNumber(lat, 6)}, ${formatNumber(lon, 6)}"
-                        latLonText = if (latLonText.isBlank()) line else "${latLonText.trim()}\n$line"
+                        val entry = CoordRowInput(
+                            x = String.format(Locale.US, "%.6f", lat),
+                            y = String.format(Locale.US, "%.6f", lon),
+                        )
+                        latLonRows = insertIntoFirstEmptyOrAppend(latLonRows, entry)
                     }
                 } else {
                     onAddPoint(LatLon(lat, lon))
@@ -391,21 +434,44 @@ fun FieldsScreen(
         onDismiss = { showCoordinatesDialog = false },
     )
 
+    fun syncRowsFromPolygon(pts: List<LatLon>) {
+        if (pts.isEmpty()) return
+        val llList = pts.map {
+            CoordRowInput(
+                x = String.format(Locale.US, "%.6f", it.lat),
+                y = String.format(Locale.US, "%.6f", it.lon),
+            )
+        }
+        val utmList = pts.map {
+            val u = GeoUtils.latLonToUtm(it.lat, it.lon)
+            CoordRowInput(
+                x = String.format(Locale.US, "%.2f", u.easting),
+                y = String.format(Locale.US, "%.2f", u.northing),
+            )
+        }
+        latLonRows = padRowsToMinimum(llList)
+        utmRows = padRowsToMinimum(utmList)
+    }
+
     KmzViewerDialog(
         document = activeKmzDoc,
         isSatellite = isSatellite,
         onToggleLayer = onToggleLayer,
         onLoadToMap = { placemark ->
             onSetPolygon(placemark.points)
-            val (_, fitZoom) = GeoUtils.computeBoundsCenterAndZoom(placemark.points)
+            val (fitCenter, fitZoom) = GeoUtils.computeBoundsCenterAndZoom(placemark.points)
+            onCenterChanged(fitCenter)
             onZoomChanged(fitZoom)
+            syncRowsFromPolygon(placemark.points)
             activeKmzDoc = null
             activeTab = 0
         },
         onSavePlacemarkAsField = { placemark ->
             onSetPolygon(placemark.points)
-            val (_, fitZoom) = GeoUtils.computeBoundsCenterAndZoom(placemark.points)
+            val (fitCenter, fitZoom) = GeoUtils.computeBoundsCenterAndZoom(placemark.points)
+            onCenterChanged(fitCenter)
             onZoomChanged(fitZoom)
+            syncRowsFromPolygon(placemark.points)
             fieldName = placemark.name
             val m = GeoUtils.calculateMeasurements(placemark.points)
             if (m.areaHa > 0) {
@@ -419,6 +485,114 @@ fun FieldsScreen(
         onShareKmz = { doc -> shareKmzPlacemarks(doc.documentName, doc.placemarks) },
         onDismiss = { activeKmzDoc = null },
     )
+
+    if (isMapFullscreen) {
+        Dialog(
+            onDismissRequest = { isMapFullscreen = false },
+            properties = DialogProperties(
+                usePlatformDefaultWidth = false,
+                decorFitsSystemWindows = false,
+            ),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .testTag("fullscreen_map_dialog"),
+            ) {
+                FieldMapCanvas(
+                    center = mapCenter,
+                    zoom = mapZoom,
+                    isSatellite = isSatellite,
+                    points = mapPoints,
+                    gpsLocation = gpsLocation,
+                    onCenterChanged = onCenterChanged,
+                    onZoomChanged = onZoomChanged,
+                    onAddPoint = onAddPoint,
+                    onMovePoint = onMovePoint,
+                    onToggleLayer = onToggleLayer,
+                    onLocateMe = { triggerLocate(false) },
+                    isFullscreen = true,
+                    onToggleFullscreen = { isMapFullscreen = false },
+                    modifier = Modifier.fillMaxSize(),
+                )
+
+                // Top-center live parcel measurement HUD
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                    shadowElevation = 3.dp,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .statusBarsPadding()
+                        .padding(top = 62.dp, start = 12.dp, end = 12.dp),
+                ) {
+                    Text(
+                        text = "${formatNumber(measurements.areaHa, 4)} ha • ${formatNumber(measurements.areaSot, 1)} sot • ${mapPoints.size} pts",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    )
+                }
+
+                // Bottom floating map controls
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+                    shadowElevation = 6.dp,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .navigationBarsPadding()
+                        .padding(horizontal = 12.dp, vertical = 12.dp),
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(8.dp),
+                    ) {
+                        Button(
+                            onClick = { showCoordinatesDialog = true },
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                            modifier = Modifier.heightIn(min = 48.dp).testTag("fullscreen_coords_btn"),
+                        ) {
+                            Icon(Icons.Filled.PinDrop, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.size(4.dp))
+                            Text(strings.btnCoordinatesModal, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        OutlinedButton(
+                            onClick = { kmzOpenLauncher.launch(arrayOf("*/*")) },
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                            modifier = Modifier.heightIn(min = 48.dp).testTag("fullscreen_kmz_btn"),
+                        ) {
+                            Icon(Icons.Filled.FolderOpen, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.size(4.dp))
+                            Text(strings.btnKmzOpen, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        IconButton(
+                            onClick = onUndoPoint,
+                            modifier = Modifier.size(48.dp).testTag("fullscreen_undo_btn"),
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = strings.undo)
+                        }
+                        IconButton(
+                            onClick = onClearPoints,
+                            modifier = Modifier.size(48.dp).testTag("fullscreen_clear_btn"),
+                        ) {
+                            Icon(Icons.Filled.Clear, contentDescription = strings.clear)
+                        }
+                        IconButton(
+                            onClick = { isMapFullscreen = false },
+                            modifier = Modifier.size(48.dp).testTag("fullscreen_exit_btn"),
+                        ) {
+                            Icon(Icons.Filled.FullscreenExit, contentDescription = strings.btnExitFullscreenMap)
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     ConfirmDeleteDialog(
         visible = fieldPendingDelete != null,
@@ -495,6 +669,7 @@ fun FieldsScreen(
                         onMovePoint = onMovePoint,
                         onToggleLayer = onToggleLayer,
                         onLocateMe = { triggerLocate(false) },
+                        onToggleFullscreen = { isMapFullscreen = true },
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
@@ -552,14 +727,7 @@ fun FieldsScreen(
                     ) {
                         OutlinedButton(
                             onClick = {
-                                kmzOpenLauncher.launch(
-                                    arrayOf(
-                                        "application/vnd.google-earth.kmz",
-                                        "application/vnd.google-earth.kml+xml",
-                                        "application/octet-stream",
-                                        "*/*",
-                                    )
-                                )
+                                kmzOpenLauncher.launch(arrayOf("*/*"))
                             },
                             modifier = Modifier
                                 .weight(1f)
@@ -725,13 +893,29 @@ fun FieldsScreen(
                             if (!useUtm) {
                                 Text(strings.latLonPointsLabel, style = MaterialTheme.typography.labelMedium, color = extra.muted)
                                 Spacer(modifier = Modifier.height(6.dp))
-                                OutlinedTextField(
-                                    value = latLonText,
-                                    onValueChange = { latLonText = it; coordsError = null },
-                                    placeholder = { Text(strings.latLonPlaceholder) },
-                                    minLines = 3,
-                                    modifier = Modifier.fillMaxWidth().testTag("lat_lon_input"),
+                                SeparatedCoordColumnTable(
+                                    rows = latLonRows,
+                                    firstColHeader = strings.coordFirstColHeader,
+                                    secondColHeader = strings.coordSecondColHeader,
+                                    firstFieldLabel = strings.coordLatXLabel,
+                                    secondFieldLabel = strings.coordLonYLabel,
+                                    firstPlaceholder = "40.6782",
+                                    secondPlaceholder = "46.3606",
+                                    rowTagPrefix = "lat_lon",
+                                    onRowsChanged = { latLonRows = it; coordsError = null },
                                 )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                OutlinedButton(
+                                    onClick = { latLonRows = latLonRows + CoordRowInput() },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 48.dp)
+                                        .testTag("add_lat_lon_row_btn"),
+                                ) {
+                                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.size(6.dp))
+                                    Text(strings.btnAddCoordRow)
+                                }
                             } else {
                                 Text(strings.utmZoneLabel, style = MaterialTheme.typography.labelMedium, color = extra.muted)
                                 Spacer(modifier = Modifier.height(6.dp))
@@ -743,13 +927,29 @@ fun FieldsScreen(
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Text(strings.utmPointsLabel, style = MaterialTheme.typography.labelMedium, color = extra.muted)
                                 Spacer(modifier = Modifier.height(6.dp))
-                                OutlinedTextField(
-                                    value = utmText,
-                                    onValueChange = { utmText = it; coordsError = null },
-                                    placeholder = { Text(strings.utmPlaceholder) },
-                                    minLines = 3,
-                                    modifier = Modifier.fillMaxWidth().testTag("utm_points_input"),
+                                SeparatedCoordColumnTable(
+                                    rows = utmRows,
+                                    firstColHeader = strings.coordFirstColHeader,
+                                    secondColHeader = strings.coordSecondColHeader,
+                                    firstFieldLabel = strings.coordUtmXLabel,
+                                    secondFieldLabel = strings.coordUtmYLabel,
+                                    firstPlaceholder = "703195.81",
+                                    secondPlaceholder = "4437081.26",
+                                    rowTagPrefix = "utm",
+                                    onRowsChanged = { utmRows = it; coordsError = null },
                                 )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                OutlinedButton(
+                                    onClick = { utmRows = utmRows + CoordRowInput() },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 48.dp)
+                                        .testTag("add_utm_row_btn"),
+                                ) {
+                                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.size(6.dp))
+                                    Text(strings.btnAddCoordRow)
+                                }
                             }
 
                             if (coordsError != null) {
@@ -761,20 +961,25 @@ fun FieldsScreen(
                             Button(
                                 onClick = {
                                     val parsed = if (!useUtm) {
-                                        parseLatLonLines(latLonText)
+                                        parseLatLonRows(latLonRows)
                                     } else {
-                                        parseUtmLines(utmText, utmZone)
+                                        parseUtmRows(utmRows, utmZone)
                                     }
                                     if (parsed.size < 3) {
                                         coordsError = strings.minThreePointsError
                                     } else {
                                         coordsError = null
                                         onSetPolygon(parsed)
-                                        onZoomChanged(16)
+                                        val (fitCenter, fitZoom) = GeoUtils.computeBoundsCenterAndZoom(parsed)
+                                        onCenterChanged(fitCenter)
+                                        onZoomChanged(fitZoom)
                                         activeTab = 0
                                     }
                                 },
-                                modifier = Modifier.fillMaxWidth().testTag("show_coords_on_map_btn"),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 48.dp)
+                                    .testTag("show_coords_on_map_btn"),
                             ) {
                                 Text(strings.btnShowOnMap)
                             }
@@ -1219,26 +1424,207 @@ private fun MetricBox(
     }
 }
 
-private fun parseLatLonLines(raw: String): List<LatLon> =
-    raw.lines().mapNotNull { line ->
-        val clean = line.trim().replace(";", ",")
-        if (clean.isBlank()) return@mapNotNull null
-        val parts = clean.split(Regex("[,\\s]+")).filter { it.isNotBlank() }
-        if (parts.size < 2) return@mapNotNull null
-        val lat = parts[0].toDoubleOrNull() ?: return@mapNotNull null
-        val lon = parts[1].toDoubleOrNull() ?: return@mapNotNull null
-        if (kotlin.math.abs(lat) > 90.0 || kotlin.math.abs(lon) > 180.0) return@mapNotNull null
-        LatLon(lat, lon)
+@Composable
+private fun SeparatedCoordColumnTable(
+    rows: List<CoordRowInput>,
+    firstColHeader: String,
+    secondColHeader: String,
+    firstFieldLabel: String,
+    secondFieldLabel: String,
+    firstPlaceholder: String,
+    secondPlaceholder: String,
+    rowTagPrefix: String,
+    onRowsChanged: (List<CoordRowInput>) -> Unit,
+) {
+    val extra = LocalAqroColors.current
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        // Separated X / Y column headers
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(
+                text = "#",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = extra.muted,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.width(24.dp),
+            )
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+                modifier = Modifier.weight(1f),
+            ) {
+                Text(
+                    text = firstColHeader,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                )
+            }
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.14f),
+                modifier = Modifier.weight(1f),
+            ) {
+                Text(
+                    text = secondColHeader,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                )
+            }
+        }
+
+        rows.forEachIndexed { idx, row ->
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = extra.pale,
+                    border = BorderStroke(1.dp, extra.line),
+                    modifier = Modifier.width(24.dp),
+                ) {
+                    Text(
+                        text = "${idx + 1}",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(vertical = 8.dp),
+                    )
+                }
+                OutlinedTextField(
+                    value = row.x,
+                    onValueChange = { incoming ->
+                        onRowsChanged(applyColumnPaste(rows, idx, incoming, isFirstColumn = true))
+                    },
+                    label = { Text(firstFieldLabel, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    placeholder = { Text(firstPlaceholder, maxLines = 1) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    singleLine = true,
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("${rowTagPrefix}_x_input_$idx"),
+                )
+                OutlinedTextField(
+                    value = row.y,
+                    onValueChange = { incoming ->
+                        onRowsChanged(applyColumnPaste(rows, idx, incoming, isFirstColumn = false))
+                    },
+                    label = { Text(secondFieldLabel, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    placeholder = { Text(secondPlaceholder, maxLines = 1) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    singleLine = true,
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("${rowTagPrefix}_y_input_$idx"),
+                )
+            }
+        }
+    }
+}
+
+private fun padRowsToMinimum(
+    source: List<CoordRowInput>,
+    minSize: Int = DEFAULT_COORD_ROW_COUNT,
+): List<CoordRowInput> {
+    if (source.size >= minSize) return source
+    return source + List(minSize - source.size) { CoordRowInput() }
+}
+
+private fun insertIntoFirstEmptyOrAppend(
+    rows: List<CoordRowInput>,
+    entry: CoordRowInput,
+): List<CoordRowInput> {
+    val emptyIdx = rows.indexOfFirst { it.x.isBlank() && it.y.isBlank() }
+    return if (emptyIdx >= 0) {
+        rows.mapIndexed { idx, cur -> if (idx == emptyIdx) entry else cur }
+    } else {
+        rows + entry
+    }
+}
+
+private fun resolvePairsForUi(
+    pairs: List<Pair<String, String>>,
+    fallbackLinesText: String,
+): List<Pair<String, String>> {
+    if (pairs.isNotEmpty()) return pairs
+    if (fallbackLinesText.isBlank()) return emptyList()
+    return fallbackLinesText.lines().mapNotNull { line ->
+        val parts = line.trim().replace(";", ",").split(Regex("[,\\s]+")).filter { it.isNotBlank() }
+        if (parts.size >= 2) parts[0] to parts[1] else null
+    }
+}
+
+private fun applyColumnPaste(
+    rows: List<CoordRowInput>,
+    startIdx: Int,
+    incoming: String,
+    isFirstColumn: Boolean,
+): List<CoordRowInput> {
+    val hasMultiLine = incoming.contains('\n') || incoming.contains('\r') || incoming.contains('\t') || incoming.contains(';')
+    if (!hasMultiLine) {
+        return rows.mapIndexed { idx, cur ->
+            if (idx != startIdx) cur
+            else if (isFirstColumn) cur.copy(x = incoming) else cur.copy(y = incoming)
+        }
+    }
+    val lines = incoming.lines().map { it.trim() }.filter { it.isNotBlank() }
+    if (lines.isEmpty()) return rows
+    val neededSize = maxOf(rows.size, startIdx + lines.size)
+    val mutable = MutableList(neededSize) { i -> rows.getOrElse(i) { CoordRowInput() } }
+    lines.forEachIndexed { offset, line ->
+        val parts = line.replace(";", "\t").split(Regex("[\\t]+")).map { it.trim() }.filter { it.isNotBlank() }
+        val rowIdx = startIdx + offset
+        val cur = mutable[rowIdx]
+        mutable[rowIdx] = if (parts.size >= 2) {
+            CoordRowInput(x = parts[0], y = parts[1])
+        } else {
+            val single = line.trim()
+            if (isFirstColumn) cur.copy(x = single) else cur.copy(y = single)
+        }
+    }
+    return mutable
+}
+
+private fun parseLatLonRows(rows: List<CoordRowInput>): List<LatLon> =
+    rows.mapNotNull { row ->
+        val sx = row.x.trim().replace(",", ".")
+        val sy = row.y.trim().replace(",", ".")
+        if (sx.isBlank() || sy.isBlank()) return@mapNotNull null
+        val xVal = sx.toDoubleOrNull() ?: return@mapNotNull null
+        val yVal = sy.toDoubleOrNull() ?: return@mapNotNull null
+        when {
+            abs(xVal) <= 90.0 && abs(yVal) <= 180.0 -> LatLon(xVal, yVal)
+            xVal in 1_000_000.0..9_999_999.9 && yVal in 100_000.0..999_999.9 ->
+                GeoUtils.utmToLatLon(easting = yVal, northing = xVal, zone = 38)
+            else -> null
+        }
     }
 
-private fun parseUtmLines(raw: String, zone: Int): List<LatLon> =
-    raw.lines().mapNotNull { line ->
-        val clean = line.trim().replace(";", ",")
-        if (clean.isBlank()) return@mapNotNull null
-        val parts = clean.split(Regex("[,\\s]+")).filter { it.isNotBlank() }
-        if (parts.size < 2) return@mapNotNull null
-        val easting = parts[0].toDoubleOrNull() ?: return@mapNotNull null
-        val northing = parts[1].toDoubleOrNull() ?: return@mapNotNull null
+private fun parseUtmRows(rows: List<CoordRowInput>, zone: Int): List<LatLon> =
+    rows.mapNotNull { row ->
+        val sx = row.x.trim().replace(",", ".")
+        val sy = row.y.trim().replace(",", ".")
+        if (sx.isBlank() || sy.isBlank()) return@mapNotNull null
+        val xVal = sx.toDoubleOrNull() ?: return@mapNotNull null
+        val yVal = sy.toDoubleOrNull() ?: return@mapNotNull null
+        val (easting, northing) = if (xVal >= 1_000_000.0 && yVal < 1_000_000.0) {
+            yVal to xVal
+        } else {
+            xVal to yVal
+        }
         GeoUtils.utmToLatLon(easting, northing, zone)
     }
 
@@ -1256,6 +1642,15 @@ fun fetchSingleGpsFix(
 }
 
 fun decodeUriToBitmap(context: Context, uri: Uri): Bitmap? = try {
+    val orientation = runCatching {
+        context.contentResolver.openInputStream(uri)?.use { stream ->
+            ExifInterface(stream).getAttributeInt(
+                ExifInterface.TAG_ORIENTATION,
+                ExifInterface.ORIENTATION_NORMAL,
+            )
+        }
+    }.getOrNull() ?: ExifInterface.ORIENTATION_NORMAL
+
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     context.contentResolver.openInputStream(uri)?.use { stream ->
         BitmapFactory.decodeStream(stream, null, bounds)
@@ -1270,9 +1665,33 @@ fun decodeUriToBitmap(context: Context, uri: Uri): Bitmap? = try {
         }
     }
     val opts = BitmapFactory.Options().apply { inSampleSize = sampleSize }
-    context.contentResolver.openInputStream(uri)?.use { stream ->
+    val rawBitmap = context.contentResolver.openInputStream(uri)?.use { stream ->
         BitmapFactory.decodeStream(stream, null, opts)
+    } ?: return null
+
+    val matrix = Matrix().apply {
+        when (orientation) {
+            ExifInterface.ORIENTATION_ROTATE_90 -> postRotate(90f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> postRotate(180f)
+            ExifInterface.ORIENTATION_ROTATE_270 -> postRotate(270f)
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> postScale(-1f, 1f)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> postScale(1f, -1f)
+            ExifInterface.ORIENTATION_TRANSPOSE -> {
+                postRotate(90f)
+                postScale(-1f, 1f)
+            }
+            ExifInterface.ORIENTATION_TRANSVERSE -> {
+                postRotate(270f)
+                postScale(-1f, 1f)
+            }
+            else -> return rawBitmap
+        }
     }
+    val rotated = Bitmap.createBitmap(rawBitmap, 0, 0, rawBitmap.width, rawBitmap.height, matrix, true)
+    if (rotated !== rawBitmap && !rawBitmap.isRecycled) {
+        rawBitmap.recycle()
+    }
+    rotated
 } catch (_: Exception) {
     null
 }

@@ -118,6 +118,7 @@ data class DocScanUiState(
     val utmZone: Int = 38,
     val utmLinesText: String = "",
     val latLonLinesText: String = "",
+    val scannedPairs: List<Pair<String, String>> = emptyList(),
     val pointCount: Int = 0,
     val scanId: Long = 0L,
 )
@@ -493,6 +494,7 @@ class FarmViewModel(
                     utmZone = res.utmZone,
                     utmLinesText = res.utmLinesText,
                     latLonLinesText = res.latLonLinesText,
+                    scannedPairs = res.rawPairs,
                     pointCount = polygon.size,
                     scanId = System.currentTimeMillis(),
                 )

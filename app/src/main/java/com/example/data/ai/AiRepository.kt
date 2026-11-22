@@ -36,6 +36,7 @@ data class DocumentScanResult(
     val utmZone: Int = 38,
     val utmLinesText: String = "",
     val latLonLinesText: String = "",
+    val rawPairs: List<Pair<String, String>> = emptyList(),
 )
 
 interface AiRepository {
@@ -355,6 +356,9 @@ class FirebaseAiRepository : AiRepository {
             val latLonText = coordsList.joinToString("\n") { (lat, lon) ->
                 String.format(java.util.Locale.US, "%.6f, %.6f", lat, lon)
             }
+            val geoRawPairs = coordsList.map { (lat, lon) ->
+                String.format(java.util.Locale.US, "%.6f", lat) to String.format(java.util.Locale.US, "%.6f", lon)
+            }
             DocumentScanResult(
                 areaHa = areaHa,
                 summary = summary.ifBlank { strings.docScanNoCoordsMsg },
@@ -363,6 +367,7 @@ class FirebaseAiRepository : AiRepository {
                 utmZone = 38,
                 utmLinesText = "",
                 latLonLinesText = latLonText,
+                rawPairs = geoRawPairs,
             )
         } catch (e: TimeoutCancellationException) {
             Log.w(TAG, "Document scan timed out, returning offline result", e)

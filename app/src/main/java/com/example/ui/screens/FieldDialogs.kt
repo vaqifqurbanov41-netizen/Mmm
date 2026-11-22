@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -25,6 +27,7 @@ import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -463,11 +466,24 @@ fun KmzViewerDialog(
                     .testTag("kmz_viewer_dialog"),
             ) {
                 if (document.placemarks.size > 1) {
-                    TabPillsRow(
-                        tabs = document.placemarks.map { it.name },
-                        selectedIndex = selectedIdx.coerceIn(0, document.placemarks.lastIndex),
-                        onSelect = { selectedIdx = it },
-                    )
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        itemsIndexed(document.placemarks) { idx, pm ->
+                            FilterChip(
+                                selected = idx == selectedIdx.coerceIn(0, document.placemarks.lastIndex),
+                                onClick = { selectedIdx = idx },
+                                label = {
+                                    Text(
+                                        text = pm.name,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                },
+                            )
+                        }
+                    }
                 }
 
                 if (selected != null) {
