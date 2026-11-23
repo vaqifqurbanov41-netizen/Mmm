@@ -677,6 +677,13 @@ object StringsAz : AppStrings {
     override val btnAddCoordRow = "+ Sıra əlavə et"
     override val btnFullscreenMap = "Tam ekran"
     override val btnExitFullscreenMap = "Kiçilt"
+    override val mapCompassReset = "Şimala sıfırla"
+    override val mapDrawModeActive = "Çək"
+    override val mapDrawModeLocked = "Baxış"
+    override val mapAddGpsPoint = "+ GPS nöqtə"
+    override val mapQuickSaveBtn = "Saxla"
+    override val mapQuickCreateBtn = "Yeni yarat"
+    override val mapQuickSaveTitle = "Sahəni xəritədən yadda saxla"
 
     override val weatherTabForecast = "Cari Proqnoz"
     override val weatherTabClimateHistory = "İqlim Tarixi"

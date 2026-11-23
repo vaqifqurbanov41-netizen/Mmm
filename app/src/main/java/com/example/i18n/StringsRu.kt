@@ -677,6 +677,13 @@ object StringsRu : AppStrings {
     override val btnAddCoordRow = "+ Добавить строку"
     override val btnFullscreenMap = "На весь экран"
     override val btnExitFullscreenMap = "Свернуть"
+    override val mapCompassReset = "На север"
+    override val mapDrawModeActive = "Чертёж"
+    override val mapDrawModeLocked = "Обзор"
+    override val mapAddGpsPoint = "+ GPS точка"
+    override val mapQuickSaveBtn = "Сохранить"
+    override val mapQuickCreateBtn = "Создать"
+    override val mapQuickSaveTitle = "Сохранить участок с карты"
 
     override val weatherTabForecast = "Прогноз"
     override val weatherTabClimateHistory = "История климата"

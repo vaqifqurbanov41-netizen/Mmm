@@ -677,6 +677,13 @@ object StringsEn : AppStrings {
     override val btnAddCoordRow = "+ Add Row"
     override val btnFullscreenMap = "Fullscreen"
     override val btnExitFullscreenMap = "Exit"
+    override val mapCompassReset = "Reset North"
+    override val mapDrawModeActive = "Draw"
+    override val mapDrawModeLocked = "Pan Only"
+    override val mapAddGpsPoint = "+ GPS Pt"
+    override val mapQuickSaveBtn = "Save Field"
+    override val mapQuickCreateBtn = "Create New"
+    override val mapQuickSaveTitle = "Save Field from Map"
 
     override val weatherTabForecast = "Forecast"
     override val weatherTabClimateHistory = "Climate History"

@@ -165,4 +165,69 @@ class ParserAndKmzUnitTest {
         }
         assertFalse(MapTileMath.isLikelyPlaceholderTilePixels(realSatellite))
     }
+
+    @Test
+    fun mapTileMathSupportsRotationRoundTripsTileBoundsAndScaleBar() {
+        assertEquals(-90f, MapTileMath.normalizeBearingDeg(270f), 1e-4f)
+        assertEquals(45f, MapTileMath.normalizeBearingDeg(-315f), 1e-4f)
+        assertEquals(180f, MapTileMath.normalizeBearingDeg(-180f), 1e-4f)
+
+        val bearings = listOf(0f, 37.5f, 90f, -135f, 180f)
+        for (b in bearings) {
+            val (sx, sy) = MapTileMath.worldToScreen(
+                wx = 10420.5,
+                wy = 6180.25,
+                centerWorldX = 10300.0,
+                centerWorldY = 6200.0,
+                scale = 1.4,
+                bearingDeg = b,
+                halfW = 540.0,
+                halfH = 960.0,
+            )
+            val (rwX, rwY) = MapTileMath.screenToWorld(
+                sx = sx,
+                sy = sy,
+                centerWorldX = 10300.0,
+                centerWorldY = 6200.0,
+                scale = 1.4,
+                bearingDeg = b,
+                halfW = 540.0,
+                halfH = 960.0,
+            )
+            assertEquals(10420.5, rwX, 1e-3)
+            assertEquals(6180.25, rwY, 1e-3)
+        }
+
+        // At 90 degrees bearing, dragging finger down (+panY=100) shifts center in negative world X
+        val (dwx, dwy) = MapTileMath.panDeltaToWorldDelta(panX = 0f, panY = 100f, scale = 1.0, bearingDeg = 90f)
+        assertEquals(-100.0, dwx, 1e-3)
+        assertEquals(0.0, dwy, 1e-3)
+
+        // Rotated tile range expands to cover diagonal corners
+        val unrotated = MapTileMath.computeRotatedTileRange(
+            centerWorldX = 5000.0,
+            centerWorldY = 5000.0,
+            halfW = 300.0,
+            halfH = 600.0,
+            scale = 1.0,
+            maxTile = 1 shl 15,
+            bearingDeg = 0f,
+        )
+        val rotated45 = MapTileMath.computeRotatedTileRange(
+            centerWorldX = 5000.0,
+            centerWorldY = 5000.0,
+            halfW = 300.0,
+            halfH = 600.0,
+            scale = 1.0,
+            maxTile = 1 shl 15,
+            bearingDeg = 45f,
+        )
+        assertTrue(rotated45.minTx <= unrotated.minTx)
+        assertTrue(rotated45.maxTx >= unrotated.maxTx)
+
+        // Metric scale bar stays within maxBarPx and formats nicely
+        val bar = MapTileMath.computeScaleBar(latDeg = 40.678, zoom = 16, pinchScale = 1f, maxBarPx = 240f)
+        assertTrue(bar.widthPx in 28f..240f)
+        assertTrue(bar.label.endsWith(" m") || bar.label.endsWith(" km"))
+    }
 }

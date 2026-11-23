@@ -38,6 +38,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import android.view.WindowManager
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Add
@@ -47,16 +48,20 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DocumentScanner
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PinDrop
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -68,6 +73,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -77,9 +83,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -89,8 +97,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.core.view.WindowCompat
 import com.example.data.model.FarmField
 import com.example.domain.DocCoordTarget
 import com.example.domain.FieldMeasurements
@@ -106,11 +116,13 @@ import com.example.ui.components.ConfirmDeleteDialog
 import com.example.ui.components.DangerBannerBox
 import com.example.ui.components.EmptyStateMessage
 import com.example.ui.components.FieldMapCanvas
+import com.example.ui.components.SavedFieldOverlay
 import com.example.ui.components.ScreenTopBar
 import com.example.ui.components.TabPillsRow
 import com.example.ui.components.formatNumber
 import com.example.ui.components.rememberGpsLocateAction
 import com.example.ui.theme.DangerRed
+import com.example.ui.theme.EmeraldPrimary
 import com.example.ui.theme.LocalAqroColors
 import com.example.ui.viewmodel.DocScanUiState
 import kotlinx.coroutines.launch
@@ -172,9 +184,28 @@ fun FieldsScreen(
     var showCoordinatesDialog by remember { mutableStateOf(false) }
     var showBatchCoords by remember { mutableStateOf(true) }
     var isMapFullscreen by remember { mutableStateOf(false) }
+    var isMapDrawEnabled by remember { mutableStateOf(true) }
+    var showQuickSaveDialog by remember { mutableStateOf(false) }
     var activeKmzDoc by remember { mutableStateOf<KmzDocument?>(null) }
     var pendingSaveKmzBytes by remember { mutableStateOf<ByteArray?>(null) }
     var kmzStatusMessage by remember { mutableStateOf<String?>(null) }
+
+    val savedOverlays = remember(fields) {
+        fields.mapNotNull { field ->
+            val pts = field.coords.mapNotNull { GeoUtils.decodeCoord(it) }
+            if (pts.size < 3) {
+                null
+            } else {
+                SavedFieldOverlay(
+                    id = field.id,
+                    name = field.name,
+                    crop = field.crop,
+                    areaHa = field.sizeHa,
+                    points = pts,
+                )
+            }
+        }
+    }
 
     // Doc scan tab state
     var docBitmap by remember { mutableStateOf<Bitmap?>(null) }
@@ -243,6 +274,7 @@ fun FieldsScreen(
     }
 
     var pendingInsertGps by remember { mutableStateOf(false) }
+    var pendingAddGpsVertex by remember { mutableStateOf(false) }
     val gpsLocateAction = rememberGpsLocateAction(
         onFixSuccess = { lat, lon, acc ->
             onUpdateGpsFix(lat, lon, acc)
@@ -257,7 +289,10 @@ fun FieldsScreen(
                 utm.easting.roundToInt().toString(),
                 utm.northing.roundToInt().toString(),
             )
-            if (pendingInsertGps) {
+            if (pendingAddGpsVertex) {
+                pendingAddGpsVertex = false
+                onAddPoint(LatLon(lat, lon))
+            } else if (pendingInsertGps) {
                 if (showBatchCoords) {
                     if (useUtm) {
                         utmZone = if (utm.zone == 39) 39 else 38
@@ -288,7 +323,14 @@ fun FieldsScreen(
     )
 
     val triggerLocate: (Boolean) -> Unit = { insertToCoords ->
+        pendingAddGpsVertex = false
         pendingInsertGps = insertToCoords
+        gpsLocateAction()
+    }
+
+    val triggerAddGpsVertex: () -> Unit = {
+        pendingInsertGps = false
+        pendingAddGpsVertex = true
         gpsLocateAction()
     }
 
@@ -405,6 +447,225 @@ fun FieldsScreen(
         }
     }
 
+    fun syncRowsFromPolygon(pts: List<LatLon>) {
+        if (pts.isEmpty()) return
+        val llList = pts.map {
+            CoordRowInput(
+                x = String.format(Locale.US, "%.6f", it.lat),
+                y = String.format(Locale.US, "%.6f", it.lon),
+            )
+        }
+        val utmList = pts.map {
+            val u = GeoUtils.latLonToUtm(it.lat, it.lon)
+            CoordRowInput(
+                x = String.format(Locale.US, "%.2f", u.easting),
+                y = String.format(Locale.US, "%.2f", u.northing),
+            )
+        }
+        latLonRows = padRowsToMinimum(llList)
+        utmRows = padRowsToMinimum(utmList)
+    }
+
+    if (isMapFullscreen) {
+        Dialog(
+            onDismissRequest = { isMapFullscreen = false },
+            properties = DialogProperties(
+                usePlatformDefaultWidth = false,
+                decorFitsSystemWindows = true,
+            ),
+        ) {
+            val dialogView = LocalView.current
+            SideEffect {
+                val window = (dialogView.parent as? DialogWindowProvider)?.window
+                if (window != null) {
+                    WindowCompat.setDecorFitsSystemWindows(window, true)
+                    window.setLayout(
+                        WindowManager.LayoutParams.MATCH_PARENT,
+                        WindowManager.LayoutParams.MATCH_PARENT,
+                    )
+                }
+            }
+            Surface(
+                color = Color(0xFF0E1411),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .testTag("fullscreen_map_dialog"),
+            ) {
+                val hudSummary = if (mapPoints.size >= 2) {
+                    "${formatNumber(measurements.areaHa, 4)} ha • P: ${measurements.perimeterM.roundToInt()} m • ${mapPoints.size} pts"
+                } else {
+                    "${formatNumber(measurements.areaHa, 4)} ha • ${formatNumber(measurements.areaSot, 1)} sot • ${mapPoints.size} pts"
+                }
+                FieldMapCanvas(
+                    center = mapCenter,
+                    zoom = mapZoom,
+                    isSatellite = isSatellite,
+                    points = mapPoints,
+                    gpsLocation = gpsLocation,
+                    onCenterChanged = onCenterChanged,
+                    onZoomChanged = onZoomChanged,
+                    onAddPoint = onAddPoint,
+                    onMovePoint = onMovePoint,
+                    onToggleLayer = onToggleLayer,
+                    onLocateMe = { triggerLocate(false) },
+                    savedOverlays = savedOverlays,
+                    isFullscreen = true,
+                    isDrawEnabled = isMapDrawEnabled,
+                    measurementSummary = hudSummary,
+                    onToggleFullscreen = { isMapFullscreen = false },
+                    modifier = Modifier.fillMaxSize(),
+                    bottomOverlay = {
+                        Surface(
+                            shape = RoundedCornerShape(22.dp),
+                            color = Color(0xE6151B18),
+                            shadowElevation = 6.dp,
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.16f)),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .horizontalScroll(rememberScrollState())
+                                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                            ) {
+                                Button(
+                                    onClick = {
+                                        if (mapPoints.size >= 3) {
+                                            showQuickSaveDialog = true
+                                        } else {
+                                            isMapDrawEnabled = true
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = EmeraldPrimary,
+                                        contentColor = Color.White,
+                                    ),
+                                    shape = RoundedCornerShape(16.dp),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                                    modifier = Modifier
+                                        .heightIn(min = 48.dp)
+                                        .testTag("fullscreen_create_save_btn"),
+                                ) {
+                                    Icon(
+                                        imageVector = if (mapPoints.size >= 3) Icons.Filled.Save else Icons.Filled.Add,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(17.dp),
+                                    )
+                                    Spacer(modifier = Modifier.size(5.dp))
+                                    Text(
+                                        text = if (mapPoints.size >= 3) strings.mapQuickSaveBtn else strings.mapQuickCreateBtn,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                    )
+                                }
+
+                                OutlinedButton(
+                                    onClick = { isMapDrawEnabled = !isMapDrawEnabled },
+                                    border = BorderStroke(
+                                        1.dp,
+                                        if (isMapDrawEnabled) Color(0xFF4ADE80) else Color.White.copy(alpha = 0.25f),
+                                    ),
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        containerColor = if (isMapDrawEnabled) Color(0xFF1E3A2A) else Color.Transparent,
+                                        contentColor = Color.White,
+                                    ),
+                                    shape = RoundedCornerShape(16.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                                    modifier = Modifier
+                                        .heightIn(min = 48.dp)
+                                        .testTag("fullscreen_draw_mode_btn"),
+                                ) {
+                                    Icon(
+                                        imageVector = if (isMapDrawEnabled) Icons.Filled.Edit else Icons.Filled.Lock,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                    Spacer(modifier = Modifier.size(4.dp))
+                                    Text(
+                                        text = if (isMapDrawEnabled) strings.mapDrawModeActive else strings.mapDrawModeLocked,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                    )
+                                }
+
+                                OutlinedButton(
+                                    onClick = { triggerAddGpsVertex() },
+                                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                    shape = RoundedCornerShape(16.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                                    modifier = Modifier
+                                        .heightIn(min = 48.dp)
+                                        .testTag("fullscreen_add_gps_pt_btn"),
+                                ) {
+                                    Icon(Icons.Filled.MyLocation, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.size(4.dp))
+                                    Text(strings.mapAddGpsPoint, maxLines = 1, softWrap = false)
+                                }
+
+                                OutlinedButton(
+                                    onClick = { showCoordinatesDialog = true },
+                                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                    shape = RoundedCornerShape(16.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                                    modifier = Modifier
+                                        .heightIn(min = 48.dp)
+                                        .testTag("fullscreen_coords_btn"),
+                                ) {
+                                    Icon(Icons.Filled.PinDrop, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.size(4.dp))
+                                    Text(strings.btnCoordinatesModal, maxLines = 1, softWrap = false)
+                                }
+
+                                OutlinedButton(
+                                    onClick = { kmzOpenLauncher.launch(arrayOf("*/*")) },
+                                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                    shape = RoundedCornerShape(16.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                                    modifier = Modifier
+                                        .heightIn(min = 48.dp)
+                                        .testTag("fullscreen_kmz_btn"),
+                                ) {
+                                    Icon(Icons.Filled.FolderOpen, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.size(4.dp))
+                                    Text(strings.btnKmzOpen, maxLines = 1, softWrap = false)
+                                }
+
+                                IconButton(
+                                    onClick = onUndoPoint,
+                                    enabled = mapPoints.isNotEmpty(),
+                                    modifier = Modifier.size(48.dp).testTag("fullscreen_undo_btn"),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.Undo,
+                                        contentDescription = strings.undo,
+                                        tint = if (mapPoints.isNotEmpty()) Color.White else Color.White.copy(alpha = 0.35f),
+                                    )
+                                }
+
+                                IconButton(
+                                    onClick = onClearPoints,
+                                    enabled = mapPoints.isNotEmpty(),
+                                    modifier = Modifier.size(48.dp).testTag("fullscreen_clear_btn"),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Clear,
+                                        contentDescription = strings.clear,
+                                        tint = if (mapPoints.isNotEmpty()) Color(0xFFFCA5A5) else Color.White.copy(alpha = 0.35f),
+                                    )
+                                }
+                            }
+                        }
+                    },
+                )
+            }
+        }
+    }
+
     CoordinatesEntryDialog(
         visible = showCoordinatesDialog,
         initialCenter = mapCenter,
@@ -436,25 +697,6 @@ fun FieldsScreen(
         },
         onDismiss = { showCoordinatesDialog = false },
     )
-
-    fun syncRowsFromPolygon(pts: List<LatLon>) {
-        if (pts.isEmpty()) return
-        val llList = pts.map {
-            CoordRowInput(
-                x = String.format(Locale.US, "%.6f", it.lat),
-                y = String.format(Locale.US, "%.6f", it.lon),
-            )
-        }
-        val utmList = pts.map {
-            val u = GeoUtils.latLonToUtm(it.lat, it.lon)
-            CoordRowInput(
-                x = String.format(Locale.US, "%.2f", u.easting),
-                y = String.format(Locale.US, "%.2f", u.northing),
-            )
-        }
-        latLonRows = padRowsToMinimum(llList)
-        utmRows = padRowsToMinimum(utmList)
-    }
 
     KmzViewerDialog(
         document = activeKmzDoc,
@@ -489,114 +731,95 @@ fun FieldsScreen(
         onDismiss = { activeKmzDoc = null },
     )
 
-    if (isMapFullscreen) {
-        Dialog(
-            onDismissRequest = { isMapFullscreen = false },
-            properties = DialogProperties(
-                usePlatformDefaultWidth = false,
-                decorFitsSystemWindows = false,
-            ),
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .testTag("fullscreen_map_dialog"),
-            ) {
-                FieldMapCanvas(
-                    center = mapCenter,
-                    zoom = mapZoom,
-                    isSatellite = isSatellite,
-                    points = mapPoints,
-                    gpsLocation = gpsLocation,
-                    onCenterChanged = onCenterChanged,
-                    onZoomChanged = onZoomChanged,
-                    onAddPoint = onAddPoint,
-                    onMovePoint = onMovePoint,
-                    onToggleLayer = onToggleLayer,
-                    onLocateMe = { triggerLocate(false) },
-                    isFullscreen = true,
-                    onToggleFullscreen = { isMapFullscreen = false },
-                    modifier = Modifier.fillMaxSize(),
-                )
-
-                // Top-center live parcel measurement HUD
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
-                    shadowElevation = 3.dp,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .statusBarsPadding()
-                        .padding(top = 108.dp, start = 12.dp, end = 12.dp),
-                ) {
-                    Text(
-                        text = "${formatNumber(measurements.areaHa, 4)} ha • ${formatNumber(measurements.areaSot, 1)} sot • ${mapPoints.size} pts",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    )
-                }
-
-                // Bottom floating map controls
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
-                    shadowElevation = 6.dp,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .navigationBarsPadding()
-                        .padding(horizontal = 12.dp, vertical = 12.dp),
-                ) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .horizontalScroll(rememberScrollState())
-                            .padding(8.dp),
+    if (showQuickSaveDialog) {
+        var quickName by remember { mutableStateOf(fieldName) }
+        var quickCrop by remember { mutableStateOf(fieldCrop) }
+        var quickLocation by remember { mutableStateOf(fieldLocation) }
+        var quickError by remember { mutableStateOf<String?>(null) }
+        AlertDialog(
+            onDismissRequest = { showQuickSaveDialog = false },
+            title = { Text(strings.mapQuickSaveTitle, fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = extra.pale,
+                        border = BorderStroke(1.dp, extra.line),
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Button(
-                            onClick = { showCoordinatesDialog = true },
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                            modifier = Modifier.heightIn(min = 48.dp).testTag("fullscreen_coords_btn"),
-                        ) {
-                            Icon(Icons.Filled.PinDrop, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.size(4.dp))
-                            Text(strings.btnCoordinatesModal, maxLines = 1, softWrap = false)
-                        }
-                        OutlinedButton(
-                            onClick = { kmzOpenLauncher.launch(arrayOf("*/*")) },
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                            modifier = Modifier.heightIn(min = 48.dp).testTag("fullscreen_kmz_btn"),
-                        ) {
-                            Icon(Icons.Filled.FolderOpen, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.size(4.dp))
-                            Text(strings.btnKmzOpen, maxLines = 1, softWrap = false)
-                        }
-                        IconButton(
-                            onClick = onUndoPoint,
-                            modifier = Modifier.size(48.dp).testTag("fullscreen_undo_btn"),
-                        ) {
-                            Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = strings.undo)
-                        }
-                        IconButton(
-                            onClick = onClearPoints,
-                            modifier = Modifier.size(48.dp).testTag("fullscreen_clear_btn"),
-                        ) {
-                            Icon(Icons.Filled.Clear, contentDescription = strings.clear)
-                        }
-                        IconButton(
-                            onClick = { isMapFullscreen = false },
-                            modifier = Modifier.size(48.dp).testTag("fullscreen_exit_btn"),
-                        ) {
-                            Icon(Icons.Filled.FullscreenExit, contentDescription = strings.btnExitFullscreenMap)
-                        }
+                        Text(
+                            text = "${formatNumber(measurements.areaHa, 4)} ha • ${formatNumber(measurements.areaSot, 1)} sot • ${measurements.widthM.roundToInt()}×${measurements.lengthM.roundToInt()} ${strings.mUnit}",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(10.dp),
+                        )
+                    }
+                    OutlinedTextField(
+                        value = quickName,
+                        onValueChange = { quickName = it; quickError = null },
+                        label = { Text(strings.fieldNameLabel) },
+                        placeholder = { Text(strings.fieldNamePlaceholder) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().testTag("quick_save_field_name"),
+                    )
+                    OutlinedTextField(
+                        value = quickCrop,
+                        onValueChange = { quickCrop = it; quickError = null },
+                        label = { Text(strings.fieldCropLabel) },
+                        placeholder = { Text(strings.fieldCropPlaceholder) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().testTag("quick_save_field_crop"),
+                    )
+                    OutlinedTextField(
+                        value = quickLocation,
+                        onValueChange = { quickLocation = it },
+                        label = { Text(strings.fieldLocationLabel) },
+                        placeholder = { Text(strings.fieldLocationPlaceholder) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    if (quickError != null) {
+                        DangerBannerBox(text = quickError!!)
                     }
                 }
-            }
-        }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (quickName.isBlank() || quickCrop.isBlank() || measurements.areaHa <= 0.0) {
+                            quickError = strings.fillRequiredFields
+                        } else {
+                            val encodedCoords = mapPoints.map { GeoUtils.encodeCoord(it) }
+                            scope.launch {
+                                onSaveField(
+                                    quickName.trim(),
+                                    quickCrop.trim(),
+                                    measurements.areaHa,
+                                    measurements.widthM,
+                                    measurements.lengthM,
+                                    quickLocation.trim(),
+                                    encodedCoords,
+                                )
+                                fieldName = ""
+                                fieldCrop = ""
+                                fieldLocation = ""
+                                formMessage = strings.fieldSavedToast
+                                showQuickSaveDialog = false
+                            }
+                        }
+                    },
+                    modifier = Modifier.testTag("quick_save_confirm_btn"),
+                ) {
+                    Text(strings.save)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showQuickSaveDialog = false }) {
+                    Text(strings.cancel)
+                }
+            },
+        )
     }
 
     ConfirmDeleteDialog(
@@ -674,6 +897,7 @@ fun FieldsScreen(
                         onMovePoint = onMovePoint,
                         onToggleLayer = onToggleLayer,
                         onLocateMe = { triggerLocate(false) },
+                        savedOverlays = savedOverlays,
                         onToggleFullscreen = { isMapFullscreen = true },
                     )
                     Spacer(modifier = Modifier.height(8.dp))

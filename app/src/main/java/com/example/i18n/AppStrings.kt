@@ -234,6 +234,13 @@ interface AppStrings {
     val btnAddCoordRow: String
     val btnFullscreenMap: String
     val btnExitFullscreenMap: String
+    val mapCompassReset: String
+    val mapDrawModeActive: String
+    val mapDrawModeLocked: String
+    val mapAddGpsPoint: String
+    val mapQuickSaveBtn: String
+    val mapQuickCreateBtn: String
+    val mapQuickSaveTitle: String
 
     // NPK Calculator
     val npkTitle: String
