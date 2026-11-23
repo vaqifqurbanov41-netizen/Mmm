@@ -41,9 +41,15 @@ data class PlantPhotoAssessment(
 object OfflineAgronomistAdvisor {
 
     fun buildPromptContext(question: String, language: AppLanguage): String {
-        val matched = findRelevantThreats(question).take(8)
-        val fullCatalog = buildScannerCatalogDigest(language)
+        val norm = CropProtectionCatalog.normalizeSearch(question)
+        val matched = findRelevantThreats(question).take(6)
+        val wantsOverview = norm.contains("butun bitki") || norm.contains("hansi bitki") ||
+            norm.contains("butun xestelik") || norm.contains("hamis") ||
+            norm.contains("all crop") || norm.contains("all disease") ||
+            norm.contains("все культур") || norm.contains("все болезн")
+        val cropSummary = CropProtectionCatalog.crops.joinToString(", ") { it.name.get(language) }
         return buildString {
+            appendLine("AqroMəsləhət local crops (${CropProtectionCatalog.crops.size}): $cropSummary.")
             if (matched.isNotEmpty()) {
                 appendLine("Most relevant local crop-protection matches for this question:")
                 matched.forEach { entry ->
@@ -52,9 +58,10 @@ object OfflineAgronomistAdvisor {
                     val cue = profile?.visualCue?.get(language).orEmpty()
                     appendLine("- $cropName | ${entry.name.get(language)} | Symptoms: ${entry.symptoms.get(language)} | Visual signs: $cue | Active ingredient: ${entry.activeIngredient.get(language)} | Tip: ${entry.guidance.get(language)}")
                 }
+            } else if (wantsOverview) {
                 appendLine()
+                append(buildScannerCatalogDigest(language))
             }
-            append(fullCatalog)
         }
     }
 

@@ -372,7 +372,7 @@ object TexnonezaretEngine {
                 matches = emptyList(),
                 totalCount = 0,
                 extraHiddenCount = 0,
-                promptMessage = "Əvvəlcə Excel faylını yükləyin.",
+                promptMessage = null,
             )
         }
 
@@ -452,6 +452,130 @@ object TexnonezaretEngine {
                 promptMessage = if (combined.isEmpty()) "“${plateQuery.trim()}” üzrə nəticə tapılmadı." else null,
             )
         }
+    }
+
+    /**
+     * Converts voice-recognized utterances (including Azerbaijani spoken digits/numbers)
+     * into normalized uppercase plate/DQŞ search text (e.g. "sıfır dörd BA yüz yetmiş iki" -> "04BA172").
+     */
+    fun parseSpokenPlateQuery(rawSpeech: String?): String {
+        if (rawSpeech.isNullOrBlank()) return ""
+        val zeroWords = setOf("sıfır", "sifir", "zero", "ноль", "нуль", "o")
+        val onesMap = mapOf(
+            "bir" to 1, "one" to 1, "один" to 1, "одна" to 1,
+            "iki" to 2, "two" to 2, "два" to 2, "две" to 2,
+            "üç" to 3, "uc" to 3, "three" to 3, "три" to 3,
+            "dörd" to 4, "dord" to 4, "four" to 4, "четыре" to 4,
+            "beş" to 5, "bes" to 5, "five" to 5, "пять" to 5,
+            "altı" to 6, "alti" to 6, "six" to 6, "шесть" to 6,
+            "yeddi" to 7, "seven" to 7, "семь" to 7,
+            "səkkiz" to 8, "sekkiz" to 8, "eight" to 8, "восемь" to 8,
+            "doqquz" to 9, "nine" to 9, "девять" to 9,
+        )
+        val tensMap = mapOf(
+            "on" to 10, "ten" to 10, "десять" to 10,
+            "iyirmi" to 20, "twenty" to 20, "двадцать" to 20,
+            "otuz" to 30, "thirty" to 30, "тридцать" to 30,
+            "qırx" to 40, "qirx" to 40, "forty" to 40, "сорок" to 40,
+            "əlli" to 50, "elli" to 50, "fifty" to 50, "пятьдесят" to 50,
+            "altmış" to 60, "altmis" to 60, "sixty" to 60, "шестьдесят" to 60,
+            "yetmiş" to 70, "yetmis" to 70, "seventy" to 70, "семьдесят" to 70,
+            "səksən" to 80, "seksen" to 80, "eighty" to 80, "восемьдесят" to 80,
+            "doxsan" to 90, "ninety" to 90, "девяносто" to 90,
+        )
+        val hundredWords = setOf("yüz", "yuz", "hundred", "сто")
+        val thousandWords = setOf("min", "thousand", "тысяча")
+
+        val tokens = rawSpeech
+            .trim()
+            .replace('-', ' ')
+            .replace('/', ' ')
+            .split(Regex("\\s+"))
+            .filter { it.isNotBlank() }
+
+        val out = StringBuilder()
+        var currentNumber: Int? = null
+
+        fun flushNumber() {
+            currentNumber?.let {
+                out.append(it)
+                currentNumber = null
+            }
+        }
+
+        for (rawTok in tokens) {
+            val lower = rawTok.lowercase(azLocale).replace(Regex("[^\\p{L}\\p{Nd}]"), "")
+            if (lower.isEmpty()) continue
+
+            when {
+                lower in zeroWords -> {
+                    flushNumber()
+                    out.append('0')
+                }
+                onesMap.containsKey(lower) -> {
+                    val d = onesMap.getValue(lower)
+                    val cur = currentNumber
+                    if (cur != null && cur >= 10 && cur % 10 == 0) {
+                        currentNumber = cur + d
+                    } else {
+                        flushNumber()
+                        currentNumber = d
+                    }
+                }
+                tensMap.containsKey(lower) -> {
+                    val t = tensMap.getValue(lower)
+                    val cur = currentNumber
+                    if (cur != null && cur >= 100 && cur % 100 == 0) {
+                        currentNumber = cur + t
+                    } else {
+                        flushNumber()
+                        currentNumber = t
+                    }
+                }
+                lower in hundredWords -> {
+                    val cur = currentNumber
+                    currentNumber = when {
+                        cur != null && cur in 1..9 -> cur * 100
+                        cur != null && cur >= 1000 && cur % 1000 == 0 -> cur + 100
+                        else -> {
+                            flushNumber()
+                            100
+                        }
+                    }
+                }
+                lower in thousandWords -> {
+                    val cur = currentNumber
+                    currentNumber = if (cur != null && cur in 1..999) {
+                        cur * 1000
+                    } else {
+                        flushNumber()
+                        1000
+                    }
+                }
+                else -> {
+                    flushNumber()
+                    out.append(normPlate(rawTok))
+                }
+            }
+        }
+        flushNumber()
+        return out.toString()
+    }
+
+    fun pickBestVoicePlateQuery(candidates: List<String>, rows: List<VehicleRow>): String {
+        val parsedList = candidates.map { parseSpokenPlateQuery(it) }.filter { it.isNotBlank() }
+        if (parsedList.isEmpty()) return ""
+        if (rows.isNotEmpty()) {
+            val exactHit = parsedList.firstOrNull { key ->
+                rows.any { it.normPlate == key || it.normChassis == key }
+            }
+            if (exactHit != null) return exactHit
+            val partialHit = parsedList.firstOrNull { key ->
+                rows.any { it.normPlate.contains(key) || it.normChassis.contains(key) }
+            }
+            if (partialHit != null) return partialHit
+        }
+        return parsedList.firstOrNull { candidate -> candidate.any { it.isDigit() } } ?: parsedList.first()
     }
 
     /**

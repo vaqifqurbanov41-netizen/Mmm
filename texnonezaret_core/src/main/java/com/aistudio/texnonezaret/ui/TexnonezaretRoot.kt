@@ -55,6 +55,7 @@ fun TexnonezaretRoot(
                 securityState = securityState,
                 effects = viewModel.effects,
                 onImportSpreadsheet = viewModel::importSpreadsheetUri,
+                onClearData = viewModel::clearLoadedSpreadsheet,
                 onRequestProtectedAction = viewModel::requestProtectedAction,
                 onLockInterventionMode = viewModel::lockInterventionMode,
                 onOpenSecurityCenter = viewModel::openSecurityCenter,
@@ -83,7 +84,7 @@ fun TexnonezaretRoot(
                     report = securityState.integrityReport,
                     isInterventionUnlocked = securityState.isInterventionUnlocked,
                     onUnlockIntervention = {
-                        viewModel.requestProtectedAction(PendingInterventionAction.UnlockModeOnly)
+                        viewModel.requestProtectedAction(PendingInterventionAction.OpenSecurityCenter)
                     },
                     onLockIntervention = viewModel::lockInterventionMode,
                     onDismiss = viewModel::dismissSecurityCenter,

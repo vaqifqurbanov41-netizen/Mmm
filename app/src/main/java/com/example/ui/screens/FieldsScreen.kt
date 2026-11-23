@@ -528,7 +528,7 @@ fun FieldsScreen(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
                         .statusBarsPadding()
-                        .padding(top = 62.dp, start = 12.dp, end = 12.dp),
+                        .padding(top = 108.dp, start = 12.dp, end = 12.dp),
                 ) {
                     Text(
                         text = "${formatNumber(measurements.areaHa, 4)} ha • ${formatNumber(measurements.areaSot, 1)} sot • ${mapPoints.size} pts",

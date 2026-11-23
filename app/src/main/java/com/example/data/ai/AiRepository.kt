@@ -10,10 +10,16 @@ import com.google.firebase.ai.type.Tool
 import com.google.firebase.ai.type.content
 import com.google.firebase.ai.type.generationConfig
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 
 import com.example.domain.CadastralDocumentParser
@@ -151,19 +157,75 @@ class FirebaseAiRepository : AiRepository {
         }
 
         val accumulated = StringBuilder()
-        withTimeout(60_000L) {
-            generalModel.generateContentStream(prompt).collect { chunk ->
-                val chunkText = chunk.text.orEmpty()
-                if (chunkText.isNotEmpty()) {
-                    accumulated.append(chunkText)
+        val firstChunkChannel = Channel<String>(Channel.UNLIMITED)
+        var streamFailure: Throwable? = null
+        coroutineScope {
+            val collectorJob = launch(Dispatchers.IO) {
+                try {
+                    generalModel.generateContentStream(prompt).collect { chunk ->
+                        val chunkText = chunk.text.orEmpty()
+                        if (chunkText.isNotEmpty()) {
+                            firstChunkChannel.trySend(chunkText)
+                        }
+                    }
+                    firstChunkChannel.close()
+                } catch (t: Throwable) {
+                    firstChunkChannel.close(t)
+                }
+            }
+
+            val firstResult = withTimeoutOrNull(12_000L) {
+                firstChunkChannel.receiveCatching()
+            }
+
+            if (firstResult != null && firstResult.isSuccess) {
+                val firstText = firstResult.getOrNull().orEmpty()
+                if (firstText.isNotEmpty()) {
+                    accumulated.append(firstText)
                     emit(accumulated.toString())
+                }
+                withTimeout(25_000L) {
+                    while (true) {
+                        val next = firstChunkChannel.receiveCatching()
+                        if (next.isClosed) {
+                            next.exceptionOrNull()?.let { throw it }
+                            break
+                        }
+                        val nextText = next.getOrNull().orEmpty()
+                        if (nextText.isNotEmpty()) {
+                            accumulated.append(nextText)
+                            emit(accumulated.toString())
+                        }
+                    }
+                }
+            } else {
+                streamFailure = firstResult?.exceptionOrNull()
+                collectorJob.cancel()
+                firstChunkChannel.close()
+                if (streamFailure is CancellationException) {
+                    throw streamFailure!!
+                }
+                val streamErrMsg = streamFailure?.localizedMessage.orEmpty()
+                if (com.example.data.firebase.isAppCheckTokenError(streamErrMsg)) {
+                    throw streamFailure!!
+                }
+                // Stream stalled or closed empty; try fast unary generateContent fallback
+                val unaryResponse = withTimeout(12_000L) {
+                    generalModel.generateContent(prompt)
+                }
+                val unaryText = unaryResponse.text.orEmpty()
+                if (unaryText.isNotBlank()) {
+                    accumulated.append(unaryText)
+                    emit(unaryText)
+                } else if (streamFailure != null) {
+                    throw streamFailure!!
                 }
             }
         }
         if (accumulated.isBlank()) {
-            throw IllegalStateException("AI model returned an empty response.")
+            throw (streamFailure ?: IllegalStateException("AI model returned an empty response."))
         }
-    }
+    }.flowOn(Dispatchers.IO)
 
     override fun analyzePlantPhotoStream(
         bitmap: Bitmap?,
@@ -243,12 +305,55 @@ class FirebaseAiRepository : AiRepository {
         val accumulated = StringBuilder()
         suspend fun streamFromModel(useSearchGrounding: Boolean) {
             val targetModel = if (useSearchGrounding) scannerGroundedModel else generalModel
-            withTimeout(60_000L) {
-                targetModel.generateContentStream(inputContent).collect { chunk ->
-                    val chunkText = chunk.text.orEmpty()
-                    if (chunkText.isNotEmpty()) {
-                        accumulated.append(chunkText)
+            val ch = Channel<String>(Channel.UNLIMITED)
+            coroutineScope {
+                val job = launch(Dispatchers.IO) {
+                    try {
+                        targetModel.generateContentStream(inputContent).collect { chunk ->
+                            val t = chunk.text.orEmpty()
+                            if (t.isNotEmpty()) ch.trySend(t)
+                        }
+                        ch.close()
+                    } catch (t: Throwable) {
+                        ch.close(t)
+                    }
+                }
+                val first = withTimeoutOrNull(14_000L) { ch.receiveCatching() }
+                if (first != null && first.isSuccess) {
+                    val firstText = first.getOrNull().orEmpty()
+                    if (firstText.isNotEmpty()) {
+                        accumulated.append(firstText)
                         emit(accumulated.toString())
+                    }
+                    withTimeout(30_000L) {
+                        while (true) {
+                            val next = ch.receiveCatching()
+                            if (next.isClosed) {
+                                next.exceptionOrNull()?.let { throw it }
+                                break
+                            }
+                            val nextText = next.getOrNull().orEmpty()
+                            if (nextText.isNotEmpty()) {
+                                accumulated.append(nextText)
+                                emit(accumulated.toString())
+                            }
+                        }
+                    }
+                } else {
+                    val err = first?.exceptionOrNull()
+                    job.cancel()
+                    ch.close()
+                    if (err is CancellationException) throw err
+                    if (err != null && com.example.data.firebase.isAppCheckTokenError(err.localizedMessage.orEmpty())) {
+                        throw err
+                    }
+                    val unary = withTimeout(14_000L) { targetModel.generateContent(inputContent) }
+                    val txt = unary.text.orEmpty()
+                    if (txt.isNotBlank()) {
+                        accumulated.append(txt)
+                        emit(txt)
+                    } else if (err != null) {
+                        throw err
                     }
                 }
             }
@@ -269,7 +374,7 @@ class FirebaseAiRepository : AiRepository {
         if (accumulated.isBlank()) {
             throw IllegalStateException("AI model returned an empty diagnosis.")
         }
-    }
+    }.flowOn(Dispatchers.IO)
 
     override suspend fun scanFieldDocument(
         bitmap: Bitmap,

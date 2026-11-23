@@ -390,27 +390,23 @@ fun configureAppCheck(context: Context, intent: Intent?) {
         if (BuildConfig.DEBUG) {
             val intentToken = intent?.getStringExtra(DEBUG_TOKEN_EXTRA)?.trim()?.takeIf { it.isNotEmpty() }
             val customToken = getCustomAppCheckDebugToken(context)
-            val effectiveToken = intentToken ?: customToken
-            if (!effectiveToken.isNullOrEmpty()) {
-                val persistenceKey = FirebaseApp.getInstance().persistenceKey
-                val prefs = context.getSharedPreferences(
-                    "$DEBUG_STORE_PREFIX$persistenceKey",
-                    Context.MODE_PRIVATE
-                )
-                prefs.edit()
-                    .putString(DEBUG_SECRET_KEY, effectiveToken)
-                    .commit()
-                FirebaseAppCheck.getInstance().installAppCheckProviderFactory(
-                    DebugAppCheckProviderFactory.getInstance()
-                )
-                Log.d(TAG, "App Check debug secret configured and DebugAppCheckProviderFactory installed.")
-            } else {
-                // On sideloaded debug APKs without an explicit registered debug token, installing
-                // DebugAppCheckProviderFactory sends an unregistered UUID that fails attestation and
-                // injects a dummy error token ('Firebase app check token is invalid'). Skip it unless
-                // a token was provided via launch Intent or saved by the user.
-                Log.i(TAG, "No debug token supplied; skipping DebugAppCheckProviderFactory.")
-            }
+            val effectiveToken = intentToken ?: customToken ?: getOrCreateAppCheckDebugUuid(context)
+            val persistenceKey = FirebaseApp.getInstance().persistenceKey
+            val prefs = context.getSharedPreferences(
+                "$DEBUG_STORE_PREFIX$persistenceKey",
+                Context.MODE_PRIVATE
+            )
+            // Synchronous commit() is required before DebugAppCheckProviderFactory initialization.
+            prefs.edit()
+                .putString(DEBUG_SECRET_KEY, effectiveToken)
+                .commit()
+            FirebaseAppCheck.getInstance().installAppCheckProviderFactory(
+                DebugAppCheckProviderFactory.getInstance()
+            )
+            Log.d(
+                TAG,
+                "DebugAppCheckProviderFactory installed (source=${if (intentToken != null) "intent" else if (customToken != null) "custom" else "device_uuid"})."
+            )
         } else {
             val resId = context.resources.getIdentifier(
                 RECAPTCHA_SITE_KEY_RES,

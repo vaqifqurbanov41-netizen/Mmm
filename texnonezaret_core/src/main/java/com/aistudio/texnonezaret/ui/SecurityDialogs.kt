@@ -232,7 +232,16 @@ fun SecurityCenterDialog(
                     }
                 }
 
-                if (report != null) {
+                if (!isInterventionUnlocked) {
+                    Text(
+                        text = "Təhlükəsizlik qalxanının daxili məlumatları gizlədilib. Məlumatları görmək üçün müdaxilə icazəsi tələb olunur.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = extra.muted,
+                        modifier = Modifier
+                            .padding(vertical = 4.dp)
+                            .testTag("security_center_locked_notice"),
+                    )
+                } else if (report != null) {
                     SecurityCheckRow(
                         title = "APK İmza Yoxlaması",
                         ok = report.signatureVerified && report.signatureMatchesKnownOrSealed,

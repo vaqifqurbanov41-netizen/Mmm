@@ -156,4 +156,15 @@ class TexnonezaretOfflineTest {
         assertNotEquals(h1, hWrong)
         assertTrue(h1.isNotBlank())
     }
+
+    @Test
+    fun parsesSpokenPlateNumbersAndHidesEmptyExcelPrompt() {
+        val emptyOutcome = TexnonezaretEngine.searchRows(emptyList(), "", "", SearchMode.PLATE)
+        assertNull(emptyOutcome.promptMessage)
+
+        assertEquals("04BA172", TexnonezaretEngine.parseSpokenPlateQuery("sıfır dörd BA yüz yetmiş iki"))
+        assertEquals("90AA999", TexnonezaretEngine.parseSpokenPlateQuery("doqquz sıfır AA doqquz yüz doxsan doqquz"))
+        assertEquals("10TX010", TexnonezaretEngine.parseSpokenPlateQuery("10 tx 010"))
+        assertEquals("77BB205", TexnonezaretEngine.parseSpokenPlateQuery("yetmiş yeddi BB iki yüz beş"))
+    }
 }

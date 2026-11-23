@@ -78,8 +78,8 @@ data class SearchUiState(
 
 sealed interface PendingInterventionAction {
     data object UnlockModeOnly : PendingInterventionAction
+    data object OpenSecurityCenter : PendingInterventionAction
     data object ImportExcel : PendingInterventionAction
-    data object ClearData : PendingInterventionAction
     data class UpdateColumn(val field: ColumnField, val colIdx: Int) : PendingInterventionAction
     data object ExportBackup : PendingInterventionAction
     data object ImportBackup : PendingInterventionAction
@@ -228,7 +228,12 @@ class TexnonezaretViewModel(application: Application) : AndroidViewModel(applica
     fun openSecurityCenter() {
         recordUserActivity()
         runSecurityAudit()
-        _securityState.update { it.copy(showSecurityCenterDialog = true) }
+        if (_securityState.value.isInterventionUnlocked) {
+            _securityState.update { it.copy(showSecurityCenterDialog = true) }
+        } else {
+            pendingAction = PendingInterventionAction.OpenSecurityCenter
+            openMasterPasswordDialog(actionLabel(PendingInterventionAction.OpenSecurityCenter))
+        }
     }
 
     fun dismissSecurityCenter() {
@@ -412,8 +417,8 @@ class TexnonezaretViewModel(application: Application) : AndroidViewModel(applica
 
     private fun actionLabel(action: PendingInterventionAction): String = when (action) {
         PendingInterventionAction.UnlockModeOnly -> "Müdaxilə rejimini açmaq"
+        PendingInterventionAction.OpenSecurityCenter -> "Təhlükəsizlik qalxanının məlumatlarını görmək"
         PendingInterventionAction.ImportExcel -> "Yeni Excel/CSV faylı yükləmək"
-        PendingInterventionAction.ClearData -> "Yaddaşdakı məlumatları təmizləmək"
         is PendingInterventionAction.UpdateColumn -> "Sütun uyğunluğunu dəyişdirmək"
         PendingInterventionAction.ExportBackup -> "Ehtiyat nüsxə ixrac etmək"
         PendingInterventionAction.ImportBackup -> "Ehtiyat nüsxədən məlumat yükləmək"
@@ -423,11 +428,12 @@ class TexnonezaretViewModel(application: Application) : AndroidViewModel(applica
     private fun executeInterventionAction(action: PendingInterventionAction) {
         when (action) {
             PendingInterventionAction.UnlockModeOnly -> Unit
+            PendingInterventionAction.OpenSecurityCenter -> {
+                runSecurityAudit()
+                _securityState.update { it.copy(showSecurityCenterDialog = true) }
+            }
             PendingInterventionAction.ImportExcel -> {
                 _effects.tryEmit(InterventionUiEffect.LaunchExcelPicker)
-            }
-            PendingInterventionAction.ClearData -> {
-                clearLoadedSpreadsheet()
             }
             is PendingInterventionAction.UpdateColumn -> {
                 updateColumnMapping(action.field, action.colIdx)
@@ -679,7 +685,7 @@ class TexnonezaretViewModel(application: Application) : AndroidViewModel(applica
         }
     }
 
-    private fun clearLoadedSpreadsheet() {
+    fun clearLoadedSpreadsheet() {
         recordUserActivity()
         storage.clearSheetData()
         _searchState.update { cur ->

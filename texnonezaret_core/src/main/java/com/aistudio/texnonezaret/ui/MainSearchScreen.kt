@@ -1,7 +1,9 @@
 package com.aistudio.texnonezaret.ui
 
+import android.app.Activity
 import android.content.Intent
 import android.net.Uri
+import android.speech.RecognizerIntent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -47,6 +49,7 @@ import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Shield
@@ -109,6 +112,7 @@ fun MainSearchScreen(
     securityState: SecurityUiState,
     effects: SharedFlow<InterventionUiEffect>,
     onImportSpreadsheet: (Uri) -> Unit,
+    onClearData: () -> Unit,
     onRequestProtectedAction: (PendingInterventionAction) -> Unit,
     onLockInterventionMode: () -> Unit,
     onOpenSecurityCenter: () -> Unit,
@@ -141,6 +145,23 @@ fun MainSearchScreen(
         if (uri != null) {
             localMessage = null
             onImportBackupUri(uri)
+        }
+    }
+
+    val voicePlateLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val candidates = result.data
+                ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+                .orEmpty()
+            val parsed = TexnonezaretEngine.pickBestVoicePlateQuery(candidates, state.rows)
+            if (parsed.isNotBlank()) {
+                localMessage = null
+                onPlateQueryChange(parsed)
+            } else {
+                localMessage = "Səsdən nömrə tanınmadı, yenidən cəhd edin."
+            }
         }
     }
 
@@ -197,7 +218,10 @@ fun MainSearchScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
+                        Column(
+                            verticalArrangement = Arrangement.Center,
+                            modifier = Modifier.weight(1f),
+                        ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -221,12 +245,6 @@ fun MainSearchScreen(
                                     color = extra.ink,
                                 )
                             }
-                            Spacer(modifier = Modifier.height(3.dp))
-                            Text(
-                                text = "Excel faylını yükləyin, DQN və ya DQŞ-i yazın – baxışın bitmə tarixi və sahibin məlumatı çıxsın.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = extra.muted,
-                            )
                         }
                         Spacer(modifier = Modifier.width(8.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -418,7 +436,8 @@ fun MainSearchScreen(
                             if (state.raw.isNotEmpty()) {
                                 OutlinedButton(
                                     onClick = {
-                                        onRequestProtectedAction(PendingInterventionAction.ClearData)
+                                        localMessage = null
+                                        onClearData()
                                     },
                                     shape = RoundedCornerShape(10.dp),
                                     border = BorderStroke(1.dp, extra.line),
@@ -583,6 +602,36 @@ fun MainSearchScreen(
                                     tint = Color(0xFF555555),
                                 )
                             }
+                        }
+                        IconButton(
+                            onClick = {
+                                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                    putExtra(
+                                        RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                                        RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
+                                    )
+                                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, "az-AZ")
+                                    putExtra(
+                                        RecognizerIntent.EXTRA_PROMPT,
+                                        "Nömrəni səslə deyin (məs. 04 BA 172)",
+                                    )
+                                    putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+                                }
+                                runCatching {
+                                    voicePlateLauncher.launch(intent)
+                                }.onFailure {
+                                    localMessage = "Bu cihazda səsli daxiletmə xidməti tapılmadı."
+                                }
+                            },
+                            modifier = Modifier
+                                .size(48.dp)
+                                .testTag("voice_plate_input_btn"),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Mic,
+                                contentDescription = "Səslə nömrə daxil et",
+                                tint = extra.brand,
+                            )
                         }
                     }
 

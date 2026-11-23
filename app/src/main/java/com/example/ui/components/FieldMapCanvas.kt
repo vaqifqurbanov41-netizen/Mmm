@@ -20,8 +20,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -779,6 +781,7 @@ fun FieldMapCanvas(
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                 modifier = Modifier
                     .align(Alignment.TopStart)
+                    .then(if (isFullscreen) Modifier.statusBarsPadding() else Modifier)
                     .padding(10.dp)
                     .minimumInteractiveComponentSize()
                     .clip(RoundedCornerShape(12.dp))
@@ -812,6 +815,7 @@ fun FieldMapCanvas(
             horizontalAlignment = Alignment.End,
             modifier = Modifier
                 .align(Alignment.TopEnd)
+                .then(if (isFullscreen) Modifier.statusBarsPadding() else Modifier)
                 .padding(10.dp),
         ) {
             Surface(
@@ -879,7 +883,18 @@ fun FieldMapCanvas(
             verticalArrangement = Arrangement.spacedBy(6.dp),
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(10.dp),
+                .then(
+                    if (isFullscreen) {
+                        Modifier
+                            .navigationBarsPadding()
+                            .padding(
+                                end = 12.dp,
+                                bottom = if (isReadOnly) 20.dp else 92.dp,
+                            )
+                    } else {
+                        Modifier.padding(10.dp)
+                    }
+                ),
         ) {
             if (allPolygonPoints.isNotEmpty()) {
                 Surface(
