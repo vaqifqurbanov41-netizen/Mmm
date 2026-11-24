@@ -4,7 +4,9 @@ import android.graphics.Bitmap
 import android.util.Log
 import com.example.i18n.AppLanguage
 import com.google.firebase.Firebase
+import com.google.firebase.ai.GenerativeModel
 import com.google.firebase.ai.ai
+import com.google.firebase.ai.type.Content
 import com.google.firebase.ai.type.Schema
 import com.google.firebase.ai.type.Tool
 import com.google.firebase.ai.type.content
@@ -12,14 +14,10 @@ import com.google.firebase.ai.type.generationConfig
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
-import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 
 import com.example.domain.CadastralDocumentParser
@@ -52,6 +50,7 @@ interface AiRepository {
         farmerName: String,
         farmerRegion: String,
         language: AppLanguage,
+        farmContextSummary: String = "",
     ): Flow<String>
 
     fun analyzePlantPhotoStream(
@@ -71,8 +70,50 @@ interface AiRepository {
 
 class FirebaseAiRepository : AiRepository {
 
+    private val agronomistSystemInstruction by lazy {
+        content {
+            text(
+                """
+                You are AqroMəsləhət AI Agronomist, a senior agricultural advisor specializing in Azerbaijan and regional farming (grains, vegetables, cotton, orchards, vineyards, alfalfa, hazelnut, livestock feed, NPK fertilization, drip irrigation, EKTIS subsidies, and Aqrosığorta).
+                Guidelines:
+                - Always respond strictly in the language requested by the prompt (Azerbaijani, English, or Russian).
+                - Give practical, field-ready, structured recommendations (short paragraphs or bullet points, clear dosages/timing, safe pre-harvest intervals).
+                - Never invent non-existent chemical active ingredients; prioritize approved active ingredients ("təsiredici ana maddə") and safe PPE/quarantine practices.
+                - When farmer field data or weather warnings are provided, tailor your advice directly to those crops, areas, and conditions.
+                """.trimIndent()
+            )
+        }
+    }
+
+    private val chatGenerationConfig by lazy {
+        generationConfig {
+            temperature = 0.45f
+            topP = 0.9f
+        }
+    }
+
+    private val primaryChatModel by lazy {
+        Firebase.ai.generativeModel(
+            modelName = "gemini-3.8-flash",
+            generationConfig = chatGenerationConfig,
+            systemInstruction = agronomistSystemInstruction,
+        )
+    }
+
+    private val fallbackChatModel by lazy {
+        Firebase.ai.generativeModel(
+            modelName = "gemini-3.5-flash-lite",
+            generationConfig = chatGenerationConfig,
+            systemInstruction = agronomistSystemInstruction,
+        )
+    }
+
     private val generalModel by lazy {
         Firebase.ai.generativeModel(modelName = "gemini-3.8-flash")
+    }
+
+    private val fallbackMultimodalModel by lazy {
+        Firebase.ai.generativeModel(modelName = "gemini-3.5-flash-lite")
     }
 
     private val scannerGroundedModel by lazy {
@@ -124,6 +165,7 @@ class FirebaseAiRepository : AiRepository {
         farmerName: String,
         farmerRegion: String,
         language: AppLanguage,
+        farmContextSummary: String,
     ): Flow<String> = flow {
         val langInstruction = when (language) {
             AppLanguage.AZ -> "Respond strictly in natural, professional Azerbaijani (Azərbaycan dili)."
@@ -132,100 +174,93 @@ class FirebaseAiRepository : AiRepository {
         }
 
         val localCatalogContext = OfflineAgronomistAdvisor.buildPromptContext(question, language)
-        val systemContext = buildString {
-            appendLine("You are AqroMəsləhət AI Agronomist, an expert agricultural advisor for farmers in Azerbaijan and the region.")
+        val turnPrompt = buildString {
+            appendLine("[Instructions]")
             appendLine(langInstruction)
             if (farmerName.isNotBlank()) appendLine("Farmer name: $farmerName.")
             if (farmerRegion.isNotBlank()) appendLine("Farmer region: $farmerRegion.")
-            appendLine("You MUST know and accurately diagnose every single crop and all of its diseases/pests listed in the AqroMəsləhət reference catalog below. Compare the user's described symptoms against all matching diseases for that crop, highlight key visual diagnostic differences, prioritize active ingredients (təsiredici ana maddə), and keep advice structured and safe.")
+            if (farmContextSummary.isNotBlank()) {
+                appendLine("Farmer fields & weather context:")
+                appendLine(farmContextSummary)
+            }
             if (localCatalogContext.isNotBlank()) {
-                appendLine()
-                append(localCatalogContext)
+                appendLine("Reference context:")
+                appendLine(localCatalogContext)
             }
+            appendLine()
+            appendLine("[Farmer Question]")
+            append(question.trim())
         }
 
-        val prompt = buildString {
-            appendLine(systemContext)
-            if (history.isNotEmpty()) {
-                appendLine("\nRecent conversation:")
-                history.takeLast(6).forEach { turn ->
-                    val role = if (turn.isUser) "Farmer" else "Agronomist"
-                    appendLine("$role: ${turn.text}")
-                }
-            }
-            appendLine("\nFarmer question: $question")
-        }
+        val chatHistory = buildNormalizedChatHistory(history.takeLast(10))
 
-        val accumulated = StringBuilder()
-        val firstChunkChannel = Channel<String>(Channel.UNLIMITED)
-        var streamFailure: Throwable? = null
-        coroutineScope {
-            val collectorJob = launch(Dispatchers.IO) {
-                try {
-                    generalModel.generateContentStream(prompt).collect { chunk ->
-                        val chunkText = chunk.text.orEmpty()
-                        if (chunkText.isNotEmpty()) {
-                            firstChunkChannel.trySend(chunkText)
-                        }
-                    }
-                    firstChunkChannel.close()
-                } catch (t: Throwable) {
-                    firstChunkChannel.close(t)
-                }
-            }
-
-            val firstResult = withTimeoutOrNull(12_000L) {
-                firstChunkChannel.receiveCatching()
-            }
-
-            if (firstResult != null && firstResult.isSuccess) {
-                val firstText = firstResult.getOrNull().orEmpty()
-                if (firstText.isNotEmpty()) {
-                    accumulated.append(firstText)
-                    emit(accumulated.toString())
-                }
-                withTimeout(25_000L) {
-                    while (true) {
-                        val next = firstChunkChannel.receiveCatching()
-                        if (next.isClosed) {
-                            next.exceptionOrNull()?.let { throw it }
-                            break
-                        }
-                        val nextText = next.getOrNull().orEmpty()
-                        if (nextText.isNotEmpty()) {
-                            accumulated.append(nextText)
-                            emit(accumulated.toString())
-                        }
+        suspend fun tryChatModel(model: GenerativeModel): String {
+            val accumulated = StringBuilder()
+            withTimeout(60_000L) {
+                val chat = model.startChat(history = chatHistory)
+                chat.sendMessageStream(turnPrompt).collect { chunk ->
+                    val chunkText = chunk.text.orEmpty()
+                    if (chunkText.isNotEmpty()) {
+                        accumulated.append(chunkText)
+                        emit(accumulated.toString())
                     }
                 }
-            } else {
-                streamFailure = firstResult?.exceptionOrNull()
-                collectorJob.cancel()
-                firstChunkChannel.close()
-                if (streamFailure is CancellationException) {
-                    throw streamFailure!!
-                }
-                val streamErrMsg = streamFailure?.localizedMessage.orEmpty()
-                if (com.example.data.firebase.isAppCheckTokenError(streamErrMsg)) {
-                    throw streamFailure!!
-                }
-                // Stream stalled or closed empty; try fast unary generateContent fallback
-                val unaryResponse = withTimeout(12_000L) {
-                    generalModel.generateContent(prompt)
-                }
-                val unaryText = unaryResponse.text.orEmpty()
-                if (unaryText.isNotBlank()) {
-                    accumulated.append(unaryText)
-                    emit(unaryText)
-                } else if (streamFailure != null) {
-                    throw streamFailure!!
+                if (accumulated.isBlank()) {
+                    val unary = model.startChat(history = chatHistory).sendMessage(turnPrompt)
+                    val unaryText = unary.text.orEmpty()
+                    if (unaryText.isNotBlank()) {
+                        accumulated.append(unaryText)
+                        emit(unaryText)
+                    }
                 }
             }
+            return accumulated.toString()
         }
-        if (accumulated.isBlank()) {
-            throw (streamFailure ?: IllegalStateException("AI model returned an empty response."))
+
+        var responseText = ""
+        try {
+            responseText = tryChatModel(primaryChatModel)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (primaryErr: Exception) {
+            val msg = primaryErr.localizedMessage ?: primaryErr.message.orEmpty()
+            Log.e(TAG, "Primary chat model failed: $msg", primaryErr)
+            if (com.example.data.firebase.isAppCheckTokenError(msg)) {
+                throw primaryErr
+            }
+            // Fallback to ultra-fast Gemini 3.5 Flash-Lite
+            try {
+                responseText = tryChatModel(fallbackChatModel)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (fallbackErr: Exception) {
+                Log.e(TAG, "Fallback chat model failed: ${fallbackErr.localizedMessage}", fallbackErr)
+                throw fallbackErr
+            }
+        }
+
+        if (responseText.isBlank()) {
+            throw IllegalStateException("AI model returned an empty response.")
         }
     }.flowOn(Dispatchers.IO)
+
+    private fun buildNormalizedChatHistory(turns: List<ChatHistoryTurn>): List<Content> {
+        val cleaned = turns.filter { it.text.isNotBlank() }
+        if (cleaned.isEmpty()) return emptyList()
+        val result = mutableListOf<Content>()
+        var expectUser = true
+        for (turn in cleaned) {
+            if (turn.isUser == expectUser) {
+                result += content(if (turn.isUser) "user" else "model") { text(turn.text.trim()) }
+                expectUser = !expectUser
+            }
+        }
+        // startChat history must end with a "model" turn before sendMessageStream sends the next "user" message
+        if (result.isNotEmpty() && expectUser.not()) {
+            result.removeAt(result.lastIndex)
+        }
+        return result
+    }
 
     override fun analyzePlantPhotoStream(
         bitmap: Bitmap?,
@@ -302,77 +337,47 @@ class FirebaseAiRepository : AiRepository {
             text(promptText)
         }
 
-        val accumulated = StringBuilder()
-        suspend fun streamFromModel(useSearchGrounding: Boolean) {
-            val targetModel = if (useSearchGrounding) scannerGroundedModel else generalModel
-            val ch = Channel<String>(Channel.UNLIMITED)
-            coroutineScope {
-                val job = launch(Dispatchers.IO) {
-                    try {
-                        targetModel.generateContentStream(inputContent).collect { chunk ->
-                            val t = chunk.text.orEmpty()
-                            if (t.isNotEmpty()) ch.trySend(t)
-                        }
-                        ch.close()
-                    } catch (t: Throwable) {
-                        ch.close(t)
-                    }
-                }
-                val first = withTimeoutOrNull(14_000L) { ch.receiveCatching() }
-                if (first != null && first.isSuccess) {
-                    val firstText = first.getOrNull().orEmpty()
-                    if (firstText.isNotEmpty()) {
-                        accumulated.append(firstText)
+        suspend fun runPlantModel(model: GenerativeModel): String {
+            val accumulated = StringBuilder()
+            withTimeout(60_000L) {
+                model.generateContentStream(inputContent).collect { chunk ->
+                    val t = chunk.text.orEmpty()
+                    if (t.isNotEmpty()) {
+                        accumulated.append(t)
                         emit(accumulated.toString())
                     }
-                    withTimeout(30_000L) {
-                        while (true) {
-                            val next = ch.receiveCatching()
-                            if (next.isClosed) {
-                                next.exceptionOrNull()?.let { throw it }
-                                break
-                            }
-                            val nextText = next.getOrNull().orEmpty()
-                            if (nextText.isNotEmpty()) {
-                                accumulated.append(nextText)
-                                emit(accumulated.toString())
-                            }
-                        }
-                    }
-                } else {
-                    val err = first?.exceptionOrNull()
-                    job.cancel()
-                    ch.close()
-                    if (err is CancellationException) throw err
-                    if (err != null && com.example.data.firebase.isAppCheckTokenError(err.localizedMessage.orEmpty())) {
-                        throw err
-                    }
-                    val unary = withTimeout(14_000L) { targetModel.generateContent(inputContent) }
+                }
+                if (accumulated.isBlank()) {
+                    val unary = model.generateContent(inputContent)
                     val txt = unary.text.orEmpty()
                     if (txt.isNotBlank()) {
                         accumulated.append(txt)
                         emit(txt)
-                    } else if (err != null) {
-                        throw err
                     }
                 }
             }
+            return accumulated.toString()
         }
 
-        try {
-            streamFromModel(useSearchGrounding = true)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (groundedError: Exception) {
-            if (accumulated.isNotBlank()) throw groundedError
-            val msg = groundedError.localizedMessage.orEmpty()
-            if (com.example.data.firebase.isAppCheckTokenError(msg)) throw groundedError
-            Log.w(TAG, "Grounded search model unavailable, falling back to standard multimodal model: $msg")
-            streamFromModel(useSearchGrounding = false)
+        val modelsToTry = listOf(scannerGroundedModel, generalModel, fallbackMultimodalModel)
+        var finalText = ""
+        var lastError: Throwable? = null
+        for (model in modelsToTry) {
+            try {
+                finalText = runPlantModel(model)
+                if (finalText.isNotBlank()) break
+            } catch (e: CancellationException) {
+                throw e
+            } catch (err: Exception) {
+                val msg = err.localizedMessage.orEmpty()
+                Log.w(TAG, "Plant scanner model attempt failed: $msg")
+                if (com.example.data.firebase.isAppCheckTokenError(msg)) throw err
+                lastError = err
+            }
         }
 
-        if (accumulated.isBlank()) {
-            throw IllegalStateException("AI model returned an empty diagnosis.")
+        if (finalText.isBlank()) {
+            throw (lastError ?: IllegalStateException("AI model returned an empty diagnosis."))
         }
     }.flowOn(Dispatchers.IO)
 

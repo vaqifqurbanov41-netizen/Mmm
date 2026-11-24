@@ -60,6 +60,7 @@ fun TexnonezaretRoot(
                 onLockInterventionMode = viewModel::lockInterventionMode,
                 onOpenSecurityCenter = viewModel::openSecurityCenter,
                 onToggleColumnMapExpanded = viewModel::toggleColumnMapExpanded,
+                onUpdateColumnMapping = viewModel::updateColumnMapping,
                 onPlateQueryChange = viewModel::updatePlateQuery,
                 onNameQueryChange = viewModel::updateNameQuery,
                 onSelectStatusFilter = viewModel::selectStatusFilter,

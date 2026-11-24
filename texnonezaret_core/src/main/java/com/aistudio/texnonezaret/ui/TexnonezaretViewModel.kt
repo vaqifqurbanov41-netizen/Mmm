@@ -264,6 +264,10 @@ class TexnonezaretViewModel(application: Application) : AndroidViewModel(applica
             openMasterPasswordDialog("Təhlükəsizlik kilidi aktivdir")
             return
         }
+        if (action is PendingInterventionAction.UpdateColumn) {
+            executeInterventionAction(action)
+            return
+        }
         if (sec.isInterventionUnlocked) {
             executeInterventionAction(action)
         } else {
@@ -696,7 +700,7 @@ class TexnonezaretViewModel(application: Application) : AndroidViewModel(applica
         }
     }
 
-    private fun updateColumnMapping(field: ColumnField, columnIndex: Int) {
+    fun updateColumnMapping(field: ColumnField, columnIndex: Int) {
         recordUserActivity()
         val cur = _searchState.value
         val updatedMap = cur.map.withField(field, columnIndex)

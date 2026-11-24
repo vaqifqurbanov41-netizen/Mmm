@@ -2,16 +2,19 @@ package com.example.data.ai
 
 import android.graphics.Bitmap
 import android.graphics.Color
+import com.example.data.model.AqroSigortaCatalog
 import com.example.data.model.CropProtectionCatalog
 import com.example.data.model.CropThreatEntry
 import com.example.data.model.DiseaseVisualCatalog
 import com.example.data.model.DiseaseVisualProfile
+import com.example.data.model.FarmField
 import com.example.data.model.SeedCatalog
 import com.example.data.model.ThreatKind
 import com.example.i18n.AppLanguage
 import com.example.i18n.StringsAz
 import com.example.i18n.StringsEn
 import com.example.i18n.StringsRu
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -40,6 +43,34 @@ data class PlantPhotoAssessment(
 
 object OfflineAgronomistAdvisor {
 
+    fun buildFarmContextSummary(
+        fields: List<FarmField>,
+        region: String = "",
+        tempC: Double? = null,
+        hazardLabels: List<String> = emptyList(),
+    ): String {
+        val parts = mutableListOf<String>()
+        if (region.isNotBlank()) {
+            parts += "Region: $region"
+        }
+        if (fields.isNotEmpty()) {
+            val totalHa = fields.sumOf { it.sizeHa }
+            val fieldList = fields.take(5).joinToString("; ") { f ->
+                val cropText = f.crop.ifBlank { "ümumi sahə" }
+                val areaText = String.format(Locale.US, "%.2f ha", f.sizeHa)
+                "${f.name} ($cropText, $areaText)"
+            }
+            parts += "Farmer fields (${fields.size}, total ${String.format(Locale.US, "%.2f ha", totalHa)}): $fieldList"
+        }
+        if (tempC != null) {
+            parts += "Current temperature: ${String.format(Locale.US, "%.1f°C", tempC)}"
+        }
+        if (hazardLabels.isNotEmpty()) {
+            parts += "7-day weather warnings: ${hazardLabels.distinct().take(4).joinToString(", ")}"
+        }
+        return parts.joinToString("\n")
+    }
+
     fun buildPromptContext(question: String, language: AppLanguage): String {
         val norm = CropProtectionCatalog.normalizeSearch(question)
         val matched = findRelevantThreats(question).take(6)
@@ -47,6 +78,9 @@ object OfflineAgronomistAdvisor {
             norm.contains("butun xestelik") || norm.contains("hamis") ||
             norm.contains("all crop") || norm.contains("all disease") ||
             norm.contains("все культур") || norm.contains("все болезн")
+        val wantsInsurance = norm.contains("sigort") || norm.contains("aqrosigort") ||
+            norm.contains("1651") || norm.contains("filial") ||
+            norm.contains("insur") || norm.contains("страх")
         val cropSummary = CropProtectionCatalog.crops.joinToString(", ") { it.name.get(language) }
         return buildString {
             appendLine("AqroMəsləhət local crops (${CropProtectionCatalog.crops.size}): $cropSummary.")
@@ -61,6 +95,13 @@ object OfflineAgronomistAdvisor {
             } else if (wantsOverview) {
                 appendLine()
                 append(buildScannerCatalogDigest(language))
+            }
+            if (wantsInsurance) {
+                appendLine()
+                appendLine("Azerbaijan Aqrar Sığorta Fondu (Aqrosığorta, 50% state premium subsidy, hotline 1651) regional branches:")
+                AqroSigortaCatalog.branches.forEach { b ->
+                    appendLine("- ${b.name}: ${b.address} | Tel: ${b.phone}")
+                }
             }
         }
     }
@@ -447,6 +488,7 @@ object OfflineAgronomistAdvisor {
         question: String,
         language: AppLanguage,
         aiFailureNote: String? = null,
+        farmContextSummary: String = "",
     ): String {
         val normalizedQ = CropProtectionCatalog.normalizeSearch(question)
         val strings = when (language) {
@@ -510,7 +552,6 @@ object OfflineAgronomistAdvisor {
         val threats = findRelevantThreats(question).let { found ->
             if (matchedCrops.size == 1) {
                 val cropAll = CropProtectionCatalog.threatsForCrop(matchedCrops.first())
-                // If asking generally about a single crop or top hits, include ALL diseases of that crop so none are missed!
                 if (found.size <= 2 || normalizedQ.contains("butun") || normalizedQ.contains("hamis") || normalizedQ.contains("xestelik") || normalizedQ.contains("all") || normalizedQ.contains("все")) {
                     (found + cropAll).distinctBy { it.id }
                 } else {
@@ -521,11 +562,50 @@ object OfflineAgronomistAdvisor {
             }
         }
 
-        if (threats.isNotEmpty()) {
+        val isFertilizerTopic = containsAny(
+            normalizedQ,
+            "gubre", "npk", "azot", "karbamid", "sora", "fosfor", "kalium", "ammofos", "peyin", "yemleme",
+            "fertiliz", "urea", "nitrogen", "phosphor", "potassium",
+            "удобрен", "азот", "карбамид", "селитр", "фосфор", "калий", "подкорм"
+        )
+        val isIrrigationTopic = containsAny(
+            normalizedQ,
+            "suvarma", "suvar", "damci", "damcila", "rutubet", "quraq", "nemlik",
+            "irrigat", "drip", "moisture", "drought",
+            "полив", "капельн", "орошен", "засух"
+        )
+        val isInsuranceOrSubsidyTopic = containsAny(
+            normalizedQ,
+            "sigorta", "aqrosigorta", "subsidiya", "ektis", "ekti", "1651", "1652", "filial",
+            "insur", "subsid", "branch",
+            "страх", "субсид", "филиал"
+        )
+        val isSoilTopic = containsAny(
+            normalizedQ,
+            "torpaq", "ph", "soran", "duz", "humus", "soil", "salin", "почв", "засолен", "солонч"
+        )
+        val isOrchardTopic = containsAny(
+            normalizedQ,
+            "budama", "bag", "ting", "agac", "prun", "orchard", "обрезк", "сад", "саженц"
+        )
+        val isGreenhouseTopic = containsAny(
+            normalizedQ,
+            "istixana", "parnik", "greenhouse", "теплиц"
+        )
+        val hasExplicitDiseaseKeyword = containsAny(
+            normalizedQ,
+            "xestelik", "leke", "qurd", "pas", "fitoftor", "alternar", "kif", "bocek", "bit", "gobelek",
+            "disease", "blight", "mildew", "rust", "pest", "aphid", "rot",
+            "болезн", "вред", "фитофтор", "ржавчин", "пятн", "мучнист", "тля"
+        )
+        val isDedicatedAgronomyTopic = isFertilizerTopic || isIrrigationTopic || isInsuranceOrSubsidyTopic ||
+            isSoilTopic || isOrchardTopic || isGreenhouseTopic
+
+        if (threats.isNotEmpty() && (!isDedicatedAgronomyTopic || hasExplicitDiseaseKeyword)) {
             val header = when (language) {
-                AppLanguage.AZ -> "📚 Oflayn Aqronom Bələdçisi (Bitki Mühafizə Bazası)"
+                AppLanguage.AZ -> "📚 Yerli Aqronom Bələdçisi (Bitki Mühafizə Bazası)"
                 AppLanguage.EN -> "📚 Offline Agronomist Guide (Local Crop Protection Base)"
-                AppLanguage.RU -> "📚 Офлайн Агроном (База защиты растений)"
+                AppLanguage.RU -> "📚 Локальный Агроном (База защиты растений)"
             }
             val body = buildString {
                 appendLine(header)
@@ -592,17 +672,16 @@ object OfflineAgronomistAdvisor {
                     CropProtectionCatalog.normalizeSearch(crop?.name?.en.orEmpty()).contains(tok) ||
                     CropProtectionCatalog.normalizeSearch(crop?.name?.ru.orEmpty()).contains(tok)
             }
-        }.take(3)
+        }.take(4)
         if (matchingVarieties.isNotEmpty() &&
-            (normalizedQ.contains("sort") || normalizedQ.contains("toxum") || normalizedQ.contains("sepin") ||
-                normalizedQ.contains("seed") || normalizedQ.contains("variety") || normalizedQ.contains("семен") || normalizedQ.contains("сорт"))
+            containsAny(normalizedQ, "sort", "toxum", "sepin", "ekin", "mehsuldar", "seed", "variety", "sow", "семен", "сорт", "посев")
         ) {
             val body = buildString {
                 appendLine(
                     when (language) {
-                        AppLanguage.AZ -> "🌱 Oflayn Toxum və Sort Bələdçisi"
-                        AppLanguage.EN -> "🌱 Offline Seed & Variety Guide"
-                        AppLanguage.RU -> "🌱 Офлайн гид по семенам и сортам"
+                        AppLanguage.AZ -> "🌱 Toxum və Sort Bələdçisi"
+                        AppLanguage.EN -> "🌱 Seed & Variety Guide"
+                        AppLanguage.RU -> "🌱 Гид по семенам и сортам"
                     }
                 )
                 matchingVarieties.forEach { v ->
@@ -615,42 +694,260 @@ object OfflineAgronomistAdvisor {
             return appendNoteIfNeeded(body, aiFailureNote, language)
         }
 
-        // 4. General helpful offline summary listing all 11 crops
+        // 4. Aqrosığorta & Subsidy branches
+        if (isInsuranceOrSubsidyTopic) {
+            val branchesText = AqroSigortaCatalog.branches.joinToString("\n") { b ->
+                "• ${b.name} — ${b.address} (Tel: ${b.phone})"
+            }
+            val body = when (language) {
+                AppLanguage.AZ -> """
+                    🛡️ Aqrosığorta və Subsidiya Bələdçisi
+
+                    • Dövlət Dəstəyi: Aqrar Sığorta Fondu vasitəsilə hesablanan sığorta haqqının 50%-ni dövlət qarşılayır.
+                    • Qaynar xətt: 1651 (Aqrar Sığorta) | 1652 (KTN) | EKTİS (eagro.az)
+                    • Məsləhət: Səpin və ya bağ bəyannaməsini vaxtında EKTİS-ə daxil edin; tətbiqdəki «Sığorta» kalkulyatoru və «Məntəqələr → Aqrosığorta» bölməsindən birbaşa zəng edə bilərsiniz.
+
+                    📍 Regional Aqrosığorta Filialları:
+                    $branchesText
+                """.trimIndent()
+                AppLanguage.EN -> """
+                    🛡️ Agricultural Insurance & Subsidy Guide
+
+                    • State Support: 50% of the agricultural insurance premium is subsidized by the state via the Agrarian Insurance Fund.
+                    • Hotlines: 1651 (AqroSığorta) | 1652 (Ministry) | EKTIS (eagro.az)
+
+                    📍 Regional Aqrosığorta Branches:
+                    $branchesText
+                """.trimIndent()
+                AppLanguage.RU -> """
+                    🛡️ Аграрное страхование и субсидии
+
+                    • Господдержка: государство компенсирует 50% страхового взноса через Фонд аграрного страхования.
+                    • Горячая линия: 1651 (AqroSığorta) | 1652 | EKTIS (eagro.az)
+
+                    📍 Региональные филиалы Aqrosığorta:
+                    $branchesText
+                """.trimIndent()
+            }
+            return appendNoteIfNeeded(body, aiFailureNote, language)
+        }
+
+        // 5. NPK & Fertilization advice
+        if (isFertilizerTopic) {
+            val cropHint = if (matchedCrops.isNotEmpty()) {
+                val names = matchedCrops.mapNotNull { id -> CropProtectionCatalog.crops.firstOrNull { it.id == id }?.name?.get(language) }
+                names.joinToString(", ")
+            } else ""
+            val body = when (language) {
+                AppLanguage.AZ -> """
+                    🧪 Gübrələmə və NPK Məsləhəti${if (cropHint.isNotBlank()) " ($cropHint)" else ""}
+
+                    • Əsas Səpin (Payız/Yaz): Fosfor (Ammofos/Superfosfat) və Kalium gübrələrini şum altına və ya səpinlə birlikdə verin — kök sistemini gücləndirir.
+                    • Yemləmə (Vegetasiya): Azotu (Karbamid 46% N və ya Ammonium şorası 34% N) 2–3 mərhələdə bölərək verin; taxıllarda kollanma və boruyaçıxma dövrü kritikdir.
+                    • Tətbiq Qaydası: Azot gübrəsini yağışdan əvvəl və ya suvarmadan dərhal öncə verin ki, buxarlanma itkisi (ammonyak uçması) olmasın.
+                    • Şoran və Qələvi Torpaqlar: pH > 7.5 olan sahələrdə ammonium sulfat və ya damcı gübrələmə (fertigasiya) daha yüksək mənimsəmə verir.
+                    • Məsləhət: Hektar üzrə dəqiq kq hesablaması üçün «NPK» bölməsindən istifadə edin.
+                """.trimIndent()
+                AppLanguage.EN -> """
+                    🧪 Fertilization & NPK Advice${if (cropHint.isNotBlank()) " ($cropHint)" else ""}
+
+                    • Basal Application: Apply Phosphorus (MAP/DAP/Superphosphate) and Potassium before or at planting to boost root establishment.
+                    • Top-Dressing: Split Nitrogen (Urea 46% N or Ammonium Nitrate 34% N) into 2–3 doses during active tillering/vegetative growth.
+                    • Efficiency Tip: Incorporate Urea or irrigate lightly after application to reduce volatilization losses; use fertigation on high-pH soils.
+                    • Use the «NPK» module for exact per-hectare bag counts.
+                """.trimIndent()
+                AppLanguage.RU -> """
+                    🧪 Рекомендации по удобрениям и NPK${if (cropHint.isNotBlank()) " ($cropHint)" else ""}
+
+                    • Основное внесение: Фосфор (Аммофос/Суперфосфат) и Калий вносите под вспашку или при посеве для развития корней.
+                    • Подкормки: Азот (Карбамид 46% N или Аммиачная селитра 34% N) делите на 2–3 приёма в фазах кущения и активного роста.
+                    • Потери: Вносите азот перед поливом или дождём, чтобы избежать потерь аммиака. Точную норму рассчитайте в разделе «NPK».
+                """.trimIndent()
+            }
+            return appendNoteIfNeeded(body, aiFailureNote, language)
+        }
+
+        // 6. Irrigation & Moisture advice
+        if (isIrrigationTopic) {
+            val body = when (language) {
+                AppLanguage.AZ -> """
+                    💧 Suvarma və Rütubət İdarəetməsi
+
+                    • Vaxt Seçimi: Səhər tezdən (05:00–09:00) və ya axşamüstü suvarın; günorta suvarmasında 30–40% buxarlanma itkisi yaranır.
+                    • Damcılı Suvarma: Tərəvəz (pomidor, xiyar) və meyvə bağlarında su sərfini 45–55% azaldır, fitoftoroz və alternarioz kimi göbələk xəstəliklərini kəskin aşağı salır.
+                    • Kritik Mərhələlər: Taxıllarda boruyaçıxma–sünbülləmə, pambıqda qönçələmə–çiçəkləmə, tərəvəzdə isə meyvə bağlama dövründə rütubət stressinə yol verməyin.
+                    • Kök Dərinliyi Testi: 15–20 sm dərinlikdə torpağı əlinizdə sıxdıqda dağılırsa, suvarma vaxtı çatıb.
+                """.trimIndent()
+                AppLanguage.EN -> """
+                    💧 Irrigation & Moisture Management
+
+                    • Timing: Irrigate early morning or late afternoon to cut evaporation losses by 30–40% and prevent leaf scald.
+                    • Drip Systems: Reduce water usage by 45–55% and keep foliage dry to suppress blight and leaf spots.
+                    • Critical Stages: Avoid moisture stress during grain heading, cotton flowering, and vegetable fruit set.
+                """.trimIndent()
+                AppLanguage.RU -> """
+                    💧 Полив и управление влагой
+
+                    • Время полива: Проводите полив рано утром или вечером, чтобы снизить испарение на 30–40%.
+                    • Капельное орошение: Экономит 45–55% воды и сохраняет листья сухими, снижая риск фитофтороза и пятнистостей.
+                    • Критические фазы: Не допускайте засухи в фазы колошения зерновых, цветения хлопчатника и налива плодов.
+                """.trimIndent()
+            }
+            return appendNoteIfNeeded(body, aiFailureNote, language)
+        }
+
+        // 7. Soil, pH & Salinity
+        if (containsAny(normalizedQ, "torpaq", "ph", "soran", "duz", "humus", "soil", "salin", "почв", "засолен", "солонч")) {
+            val body = when (language) {
+                AppLanguage.AZ -> """
+                    🌱 Torpaq Sağlamlığı, pH və Şoranlıqla Mübarizə
+
+                    • Nümunə Götürmə: Hər 5–10 ha sahədən 0–30 sm dərinlikdən ziqzaq üsulu ilə qarışıq nümunə götürüb «Məntəqələr → Aqrokimyəvi laboratoriya»da analiz etdirin.
+                    • Şoran Sahələr: Qış yuyulması (duzların drenaja axıdılması), gips tətbiqi və üzvi gübrə (çürümüş peyin/kompost) torpağın strukturunu bərpa edir.
+                    • Optimal pH: Əksər bitkilər üçün pH 6.0–7.2 idealdır; yüksək qələvi torpaqda kükürd və mikroelementlər (dəmir, sink) faydalıdır.
+                """.trimIndent()
+                AppLanguage.EN -> """
+                    🌱 Soil Health, pH & Salinity Control
+
+                    • Sampling: Collect zigzag composite samples (0–30 cm) per 5–10 ha and send to an agrochemical lab.
+                    • Saline Soils: Winter leaching with working drainage, gypsum amendment, and well-rotted compost restore soil structure.
+                    • Optimal pH: 6.0–7.2 fits most crops; apply elemental sulfur and chelated micronutrients on alkaline soils.
+                """.trimIndent()
+                AppLanguage.RU -> """
+                    🌱 Здоровье почвы, pH и засоление
+
+                    • Отбор проб: Отбирайте смешанный образец с 0–30 см зигзагом с каждых 5–10 га для агрохимического анализа.
+                    • Засолённые почвы: Зимняя промывка при рабочем дренаже, гипсование и перепревший навоз восстанавливают структуру.
+                    • Оптимальный pH: 6.0–7.2 для большинства культур; на щелочных почвах полезны сера и хелаты микроэлементов.
+                """.trimIndent()
+            }
+            return appendNoteIfNeeded(body, aiFailureNote, language)
+        }
+
+        // 8. Orchard Pruning & Greenhouse
+        if (containsAny(normalizedQ, "budama", "bag", "ting", "agac", "prun", "orchard", "обрезк", "сад", "саженц")) {
+            val body = when (language) {
+                AppLanguage.AZ -> """
+                    🌳 Bağçılıq və Budama Tövsiyələri
+
+                    • Qış Budaması: Şaxtalar bitdikdən sonra, tumurcuqlar açmazdan əvvəl (fevral–mart) qurumuş, xəstə və içəri böyüyən budaqları kəsin.
+                    • Kəsiklərin Qorunması: 2 sm-dən qalın kəsik yerlərini bağ məlhəmi (var) ilə örtün və budama sonrası 1–3% Bordo məhlulu və ya mis preparatı ilə çiləmə aparın.
+                    • Fındıq və Meyvə Bağları: İşıqlanmanı və hava dövranını təmin edən kasa forması göbələk xəstəliklərini azaldır.
+                """.trimIndent()
+                AppLanguage.EN -> """
+                    🌳 Orchard Care & Pruning Tips
+
+                    • Dormant Pruning: Prune dead, diseased, and crossing branches in late winter before bud break.
+                    • Wound Protection: Seal cuts >2 cm and apply a copper spray right after pruning to block bacterial/fungal entry.
+                """.trimIndent()
+                AppLanguage.RU -> """
+                    🌳 Уход за садом и обрезка
+
+                    • Зимняя обрезка: До распускания почек удалите сухие, больные и загущающие крону ветви.
+                    • Защита срезов: Замажьте срезы >2 см садовым варом и проведите обработку медьсодержащим препаратом.
+                """.trimIndent()
+            }
+            return appendNoteIfNeeded(body, aiFailureNote, language)
+        }
+
+        if (containsAny(normalizedQ, "istixana", "parnik", "greenhouse", "теплиц")) {
+            val body = when (language) {
+                AppLanguage.AZ -> """
+                    🏡 İstixana (Parnik) İdarəetməsi
+
+                    • Rütubət Nəzarəti: Nisbi rütubəti 65–75% arasında saxlayın; səhər tezdən qısa havalandırma kondensatı və boz çürümə/fitoftorozu önləyir.
+                    • Temperatur: Pomidor üçün gündüz 22–26°C, gecə 16–18°C; xiyar üçün gündüz 24–28°C, gecə 18–20°C idealdır.
+                    • Tozlanma və Gigiyena: Çiçəkləmədə arı ailələri (bombus) və sarı/mavi yapışqan tələlərdən istifadə edin.
+                """.trimIndent()
+                AppLanguage.EN -> """
+                    🏡 Greenhouse Management
+
+                    • Humidity Control: Keep RH at 65–75% and ventilate early morning to clear condensation and prevent Botrytis/blight.
+                    • Temperatures: Tomato 22–26°C day / 16–18°C night; Cucumber 24–28°C day / 18–20°C night.
+                """.trimIndent()
+                AppLanguage.RU -> """
+                    🏡 Управление теплицей
+
+                    • Влажность: Держите 65–75% и проветривайте утром для удаления конденсата (защита от серой гнили и фитофторы).
+                    • Температура: Томат 22–26°C днём / 16–18°C ночью; огурец 24–28°C днём / 18–20°C ночью.
+                """.trimIndent()
+            }
+            return appendNoteIfNeeded(body, aiFailureNote, language)
+        }
+
+        // 9. Greetings & conversational check
+        if (containsAny(normalizedQ, "salam", "hello", "hi", "hey", "привет", "здравств", "komek", "help", "помощ", "necesen")) {
+            val contextHint = if (farmContextSummary.isNotBlank()) "\n\n📋 ${farmContextSummary.replace("\n", " • ")}" else ""
+            val body = when (language) {
+                AppLanguage.AZ -> """
+                    Salam! 👋 Mən AqroMəsləhət AI Aqronom köməkçinizəm.
+
+                    Sizə bu mövzularda dərhal kömək edə bilərəm:
+                    • 🦠 Xəstəlik və zərərverici diaqnostikası («Pomidor fitoftoroz», «Buğda pası»)
+                    • 🧪 Gübrələmə və NPK hesablaması («Buğda azot yemləməsi»)
+                    • 💧 Suvarma, torpaq şoranlığı və istixana rejimi
+                    • 🛡️ Aqrosığorta filialları (1651), subsidiya və sertifikatlı sortlar$contextHint
+                """.trimIndent()
+                AppLanguage.EN -> """
+                    Hello! 👋 I am your AqroMəsləhət AI Agronomist assistant.
+
+                    Ask me about:
+                    • 🦠 Crop diseases & pests ("Tomato late blight", "Wheat rust")
+                    • 🧪 NPK fertilization & soil salinity
+                    • 💧 Drip irrigation & greenhouse management
+                    • 🛡️ Aqrosığorta branches (1651), subsidies & certified varieties$contextHint
+                """.trimIndent()
+                AppLanguage.RU -> """
+                    Здравствуйте! 👋 Я ваш AI Агроном AqroMəsləhət.
+
+                    Можете спросить меня о:
+                    • 🦠 Болезнях и вредителях («Фитофтороз томата», «Ржавчина пшеницы»)
+                    • 🧪 Удобрениях NPK и засолении почвы
+                    • 💧 Капельном поливе и микроклимате теплиц
+                    • 🛡️ Филиалах Aqrosığorta (1651), субсидиях и сортах семян$contextHint
+                """.trimIndent()
+            }
+            return appendNoteIfNeeded(body, aiFailureNote, language)
+        }
+
+        // 10. General helpful offline summary listing all 11 crops + broad topics
         val cropListText = CropProtectionCatalog.crops.joinToString(", ") { it.name.get(language) }
+        val contextNote = if (farmContextSummary.isNotBlank()) "\n\n📋 ${farmContextSummary.replace("\n", " • ")}" else ""
         val fallback = when (language) {
             AppLanguage.AZ -> """
-                📚 Oflayn Aqronom Bələdçisi (Yerli Baza aktivdir)
+                🌿 Yerli Aqronom Bələdçisi aktivdir
 
-                Bazamızdakı bütün bitkilər ($cropListText) üzrə ${CropProtectionCatalog.threats.size} xəstəlik və zərərverici əlamətləri ilə tanınır. Sualınızda bitki və ya əlamət yazın:
-                • «Kartof xəstəlikləri və fitoftoroz»
-                • «Buğda sarı pası / fuzarioz»
-                • «Yonca qonur ləkəlik / kuskuta»
-                • «Fındıq unlu şeh / bakterial yanığı»
-                • «Pomidor yarpaqları saralır»
-
-                İstənilən bitkinin bütün xəstəliklərini görmək üçün «Bütün bitkilər və xəstəliklər» yaza bilərsiniz.
+                Bazamızdakı bütün bitkilər ($cropListText) üzrə ${CropProtectionCatalog.threats.size} xəstəlik/zərərverici, gübrələmə, suvarma və Aqrosığorta məlumatları əlçatandır. Nümunə sual yazın:
+                • «Pomidor fitoftoroz müalicəsi»
+                • «Buğda azot və fosfor gübrəsi»
+                • «Damcılı suvarma rejimi»
+                • «Aqrosığorta filialları»
+                • «Bütün bitkilər və xəstəliklər»$contextNote
             """.trimIndent()
             AppLanguage.EN -> """
-                📚 Offline Agronomist Guide (Local Database Active)
+                🌿 Local Agronomist Guide Active
 
-                Our assistant recognizes ${CropProtectionCatalog.threats.size} diseases and pests across all ${CropProtectionCatalog.crops.size} crops ($cropListText). Ask by crop or symptom:
-                • "Potato diseases / early blight"
-                • "Wheat rust / fusarium / bunt"
-                • "Alfalfa leaf spot / rust"
-                • "Hazelnut powdery mildew / blight"
+                Ask about ${CropProtectionCatalog.threats.size} diseases & pests across ${CropProtectionCatalog.crops.size} crops ($cropListText), fertilization, irrigation, or Aqrosığorta branches:
+                • "Tomato late blight"
+                • "Wheat NPK fertilization"
+                • "Drip irrigation timing"
+                • "Aqrosığorta branches"$contextNote
             """.trimIndent()
             AppLanguage.RU -> """
-                📚 Офлайн Агроном (Локальная база активна)
+                🌿 Локальный Агроном активен
 
-                Ассистент знает все ${CropProtectionCatalog.threats.size} болезней и вредителей по ${CropProtectionCatalog.crops.size} культурам ($cropListText). Укажите культуру или симптом:
-                • «Болезни картофеля / альтернариоз»
-                • «Ржавчина или фузариоз пшеницы»
-                • «Бурая пятнистость люцерны»
-                • «Мучнистая роса и ожог фундука»
+                Доступна база по ${CropProtectionCatalog.threats.size} болезням и вредителям (${CropProtectionCatalog.crops.size} культур: $cropListText), удобрениям, поливу и филиалам Aqrosığorta:
+                • «Фитофтороз томата»
+                • «Удобрения NPK для пшеницы»
+                • «Капельный полив»
+                • «Филиалы Aqrosığorta»$contextNote
             """.trimIndent()
         }
         return appendNoteIfNeeded(fallback, aiFailureNote, language)
     }
+
+    private fun containsAny(normText: String, vararg keywords: String): Boolean =
+        keywords.any { normText.contains(it) }
 
     private fun findMatchedCropIds(normQuery: String): Set<String> {
         val tokens = normQuery.split(Regex("[^a-zа-я0-9]+")).filter { it.length >= 3 }
@@ -723,9 +1020,9 @@ object OfflineAgronomistAdvisor {
         val err = aiFailureNote?.trim().orEmpty()
         if (err.isBlank()) return base
         val prefix = when (language) {
-            AppLanguage.AZ -> "ℹ️ Bulud AI hazırda əlçatan olmadığından (və ya oflayn rejimdə) yerli baza üzrə cavab verildi"
+            AppLanguage.AZ -> "ℹ️ Bulud AI hazırda əlçatan olmadığından yerli aqronom bazası üzrə cavab verildi"
             AppLanguage.EN -> "ℹ️ Answered from local catalog because Cloud AI is unavailable or offline"
-            AppLanguage.RU -> "ℹ️ Ответ сформирован по локальной базе (облачный AI недоступен или офлайн)"
+            AppLanguage.RU -> "ℹ️ Ответ сформирован по локальной базе (облачный AI недоступен)"
         }
         return "$base\n\n$prefix ($err)"
     }

@@ -166,5 +166,14 @@ class TexnonezaretOfflineTest {
         assertEquals("90AA999", TexnonezaretEngine.parseSpokenPlateQuery("doqquz sıfır AA doqquz yüz doxsan doqquz"))
         assertEquals("10TX010", TexnonezaretEngine.parseSpokenPlateQuery("10 tx 010"))
         assertEquals("77BB205", TexnonezaretEngine.parseSpokenPlateQuery("yetmiş yeddi BB iki yüz beş"))
+        assertEquals("04BA172", TexnonezaretEngine.parseSpokenPlateQuery("sıfırdörd BA yüzyetmişiki"))
+        assertEquals("15", TexnonezaretEngine.parseSpokenPlateQuery("onbeş"))
+        assertEquals("205", TexnonezaretEngine.parseSpokenPlateQuery("2 yüz 5"))
+        assertEquals("172", TexnonezaretEngine.parseSpokenPlateQuery("100 yetmiş 2"))
+        assertEquals("72", TexnonezaretEngine.parseSpokenPlateQuery("70 iki"))
+        assertEquals("04", TexnonezaretEngine.parseSpokenPlateQuery("nol dörd"))
+        assertEquals("478", TexnonezaretEngine.parseSpokenPlateQuery("dört yedi sekiz"))
+        assertEquals("10AO123", TexnonezaretEngine.parseSpokenPlateQuery("10 A O 123"))
+        assertEquals("ONUR", TexnonezaretEngine.parseSpokenPlateQuery("ONUR"))
     }
 }

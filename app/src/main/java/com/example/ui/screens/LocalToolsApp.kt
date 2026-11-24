@@ -83,10 +83,14 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import android.graphics.Bitmap
+import android.util.Log
 import androidx.compose.material.icons.filled.Map
+import com.example.data.ai.ChatHistoryTurn
+import com.example.data.ai.FirebaseAiRepository
 import com.example.data.ai.OfflineAgronomistAdvisor
 import com.example.data.ai.OfflineDocumentScanner
 import com.example.data.ai.ReferenceImageMatcher
+import com.example.data.firebase.isAppCheckTokenError
 import com.example.data.local.LocalRecordsStore
 import com.example.data.local.PreferencesStore
 import com.example.data.local.collectEquipmentAlerts
@@ -132,6 +136,7 @@ import com.example.ui.viewmodel.EquipmentStatus
 import com.example.ui.viewmodel.WeatherUiState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -145,6 +150,7 @@ fun LocalToolsApp(
     onSelectTheme: (ThemePreference) -> Unit,
     onToggleDark: (Boolean) -> Unit,
     onOpenFirebaseSetup: () -> Unit,
+    canUseCloudAi: Boolean = false,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -169,9 +175,15 @@ fun LocalToolsApp(
     var docScanState by remember { mutableStateOf(DocScanUiState()) }
     val mapMeasurements = remember(mapPoints) { GeoUtils.calculateMeasurements(mapPoints) }
 
+    val aiRepository = remember(canUseCloudAi) {
+        if (canUseCloudAi) FirebaseAiRepository() else null
+    }
     var offlineChatMessages by remember { mutableStateOf<List<ChatMessageUi>>(emptyList()) }
+    var isLocalChatStreaming by remember { mutableStateOf(false) }
+    var localChatJob by remember { mutableStateOf<Job?>(null) }
     var offlineScannerBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var offlineScannerResult by remember { mutableStateOf("") }
+    var offlineScannerError by remember { mutableStateOf<String?>(null) }
     var isOfflineScannerLoading by remember { mutableStateOf(false) }
     var showNotificationsDialog by remember { mutableStateOf(false) }
     val strings = LocalStrings.current
@@ -188,25 +200,92 @@ fun LocalToolsApp(
         )
     }
 
-    fun sendOfflineAiQuestion(question: String, lang: AppLanguage) {
+    var weatherState by remember { mutableStateOf(WeatherUiState()) }
+    var climateState by remember { mutableStateOf(ClimateHistoryUiState()) }
+
+    fun sendLocalOrCloudAiQuestion(question: String, lang: AppLanguage) {
         val trimmed = question.trim()
-        if (trimmed.isBlank()) return
+        if (trimmed.isBlank() || isLocalChatStreaming) return
+        val farmContextSummary = OfflineAgronomistAdvisor.buildFarmContextSummary(
+            fields = localFields,
+            tempC = weatherState.response?.current?.temperature2m,
+        )
         val userMsg = ChatMessageUi(
             id = "loc_u_${System.currentTimeMillis()}",
             isUser = true,
             text = trimmed,
         )
-        val botMsg = ChatMessageUi(
-            id = "loc_b_${System.currentTimeMillis() + 1}",
-            isUser = false,
-            text = OfflineAgronomistAdvisor.answerOffline(trimmed, lang),
-            isStreaming = false,
-        )
-        offlineChatMessages = offlineChatMessages + userMsg + botMsg
-    }
+        val repo = aiRepository
+        if (repo == null) {
+            val botMsg = ChatMessageUi(
+                id = "loc_b_${System.currentTimeMillis() + 1}",
+                isUser = false,
+                text = OfflineAgronomistAdvisor.answerOffline(
+                    question = trimmed,
+                    language = lang,
+                    farmContextSummary = farmContextSummary,
+                ),
+                isStreaming = false,
+            )
+            offlineChatMessages = offlineChatMessages + userMsg + botMsg
+            return
+        }
 
-    var weatherState by remember { mutableStateOf(WeatherUiState()) }
-    var climateState by remember { mutableStateOf(ClimateHistoryUiState()) }
+        val historySnapshot = offlineChatMessages.map {
+            ChatHistoryTurn(isUser = it.isUser, text = it.text)
+        }
+        val botId = "loc_b_${System.currentTimeMillis() + 1}"
+        val placeholderBot = ChatMessageUi(
+            id = botId,
+            isUser = false,
+            text = "",
+            isStreaming = true,
+        )
+        offlineChatMessages = offlineChatMessages + userMsg + placeholderBot
+        isLocalChatStreaming = true
+
+        localChatJob?.cancel()
+        localChatJob = scope.launch {
+            try {
+                repo.askAgronomistStream(
+                    question = trimmed,
+                    history = historySnapshot,
+                    farmerName = "",
+                    farmerRegion = "",
+                    language = lang,
+                    farmContextSummary = farmContextSummary,
+                ).collect { accumulated ->
+                    offlineChatMessages = offlineChatMessages.map { msg ->
+                        if (msg.id == botId) msg.copy(text = accumulated, isStreaming = true) else msg
+                    }
+                }
+                offlineChatMessages = offlineChatMessages.map { msg ->
+                    if (msg.id == botId) msg.copy(isStreaming = false) else msg
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e("LocalToolsApp", "Cloud AI in local mode failed, falling back", e)
+                val errText = e.localizedMessage ?: e.message ?: "AI error"
+                val offlineAnswer = OfflineAgronomistAdvisor.answerOffline(
+                    question = trimmed,
+                    language = lang,
+                    aiFailureNote = errText,
+                    farmContextSummary = farmContextSummary,
+                )
+                offlineChatMessages = offlineChatMessages.map { msg ->
+                    if (msg.id == botId) {
+                        msg.copy(
+                            text = if (msg.text.isBlank()) offlineAnswer else "${msg.text}\n\n($errText)",
+                            isStreaming = false,
+                        )
+                    } else msg
+                }
+            } finally {
+                isLocalChatStreaming = false
+            }
+        }
+    }
 
     fun fetchWeather(lat: Double, lon: Double) {
         scope.launch {
@@ -368,20 +447,22 @@ fun LocalToolsApp(
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            AqroTopHeader(
-                farmerFirstName = "",
-                language = language,
-                weatherTempText = weatherTempPill,
-                hasAlertDot = hasAlertDot,
-                isDark = extraColors.isDark,
-                onWeatherClick = { navigateTo(NavRoutes.WEATHER) },
-                onThemeToggle = { onToggleDark(extraColors.isDark) },
-                onNotificationsClick = {
-                    scope.launch { preferencesStore.markNotificationsViewed(activeNotifSignature) }
-                    showNotificationsDialog = true
-                },
-                alertCount = alertCount,
-            )
+            if (currentRoute != NavRoutes.CHAT) {
+                AqroTopHeader(
+                    farmerFirstName = "",
+                    language = language,
+                    weatherTempText = weatherTempPill,
+                    hasAlertDot = hasAlertDot,
+                    isDark = extraColors.isDark,
+                    onWeatherClick = { navigateTo(NavRoutes.WEATHER) },
+                    onThemeToggle = { onToggleDark(extraColors.isDark) },
+                    onNotificationsClick = {
+                        scope.launch { preferencesStore.markNotificationsViewed(activeNotifSignature) }
+                        showNotificationsDialog = true
+                    },
+                    alertCount = alertCount,
+                )
+            }
         },
         bottomBar = {
             if (!isImeVisible) {
@@ -412,6 +493,7 @@ fun LocalToolsApp(
                         fieldsCount = localFields.size,
                         totalAreaHa = localFields.sumOf { it.sizeHa },
                         hiddenModules = hiddenModules,
+                        canUseCloudAi = canUseCloudAi,
                         onToggleModuleVisible = { route, visible ->
                             scope.launch { preferencesStore.setModuleVisible(route, visible) }
                         },
@@ -529,11 +611,15 @@ fun LocalToolsApp(
                     ChatScreen(
                         language = language,
                         messages = offlineChatMessages,
-                        isStreaming = false,
-                        onSendQuestion = ::sendOfflineAiQuestion,
-                        onClearChat = { offlineChatMessages = emptyList() },
+                        isStreaming = isLocalChatStreaming,
+                        onSendQuestion = ::sendLocalOrCloudAiQuestion,
+                        onClearChat = {
+                            localChatJob?.cancel()
+                            isLocalChatStreaming = false
+                            offlineChatMessages = emptyList()
+                        },
                         onBack = { navController.popBackStack() },
-                        isOfflineOnly = true,
+                        isOfflineOnly = !canUseCloudAi,
                     )
                 }
 
@@ -543,14 +629,17 @@ fun LocalToolsApp(
                         selectedBitmap = offlineScannerBitmap,
                         diagnosisResult = offlineScannerResult,
                         isLoading = isOfflineScannerLoading,
-                        errorMessage = null,
+                        errorMessage = offlineScannerError,
                         onSelectBitmap = {
                             offlineScannerBitmap = it
                             offlineScannerResult = ""
+                            offlineScannerError = null
                         },
                         onStartDiagnosis = { note, lang ->
                             scope.launch {
                                 isOfflineScannerLoading = true
+                                offlineScannerResult = ""
+                                offlineScannerError = null
                                 try {
                                     val bmp = offlineScannerBitmap
                                     val realSims = if (bmp != null) {
@@ -569,12 +658,35 @@ fun LocalToolsApp(
                                     } else {
                                         emptyMap()
                                     }
-                                    offlineScannerResult = OfflineAgronomistAdvisor.diagnosePlantPhotoOffline(
-                                        bitmap = bmp,
-                                        note = note,
-                                        language = lang,
-                                        realPhotoSimilarities = realSims,
-                                    )
+                                    val repo = aiRepository
+                                    if (repo != null) {
+                                        try {
+                                            repo.analyzePlantPhotoStream(bmp, note, lang, realSims).collect { partial ->
+                                                offlineScannerResult = partial
+                                            }
+                                        } catch (e: CancellationException) {
+                                            throw e
+                                        } catch (e: Exception) {
+                                            val errText = e.localizedMessage ?: "Analysis failed"
+                                            offlineScannerResult = OfflineAgronomistAdvisor.diagnosePlantPhotoOffline(
+                                                bitmap = bmp,
+                                                note = note,
+                                                language = lang,
+                                                aiFailureNote = errText,
+                                                realPhotoSimilarities = realSims,
+                                            )
+                                            if (isAppCheckTokenError(errText)) {
+                                                offlineScannerError = errText
+                                            }
+                                        }
+                                    } else {
+                                        offlineScannerResult = OfflineAgronomistAdvisor.diagnosePlantPhotoOffline(
+                                            bitmap = bmp,
+                                            note = note,
+                                            language = lang,
+                                            realPhotoSimilarities = realSims,
+                                        )
+                                    }
                                 } finally {
                                     isOfflineScannerLoading = false
                                 }
@@ -743,6 +855,7 @@ private fun LocalToolsHomeScreen(
     fieldsCount: Int,
     totalAreaHa: Double,
     hiddenModules: Set<String>,
+    canUseCloudAi: Boolean,
     onToggleModuleVisible: (String, Boolean) -> Unit,
     onResetModules: () -> Unit,
     onNavigate: (String) -> Unit,
@@ -801,11 +914,11 @@ private fun LocalToolsHomeScreen(
                 )
             }
 
-            // Illustrated Offline AI Agronomist Card
+            // Illustrated AI Agronomist Card
             item {
                 HomeAssistantBannerCard(
                     title = strings.aiBannerTitle,
-                    badgeLabel = strings.aiOfflineBadge,
+                    badgeLabel = if (canUseCloudAi) strings.aiLiveBadge else strings.aiOfflineBadge,
                     subtitle = strings.aiBannerSub,
                     actionLabel = strings.askNowBtn,
                     tag = "local_home_ai_banner",

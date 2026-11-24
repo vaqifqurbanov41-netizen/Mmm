@@ -164,6 +164,7 @@ fun AqroRootApp(
                     onSelectTheme = settingsViewModel::setThemePreference,
                     onToggleDark = settingsViewModel::toggleLightDark,
                     onOpenFirebaseSetup = { continueInLocalMode = false },
+                    canUseCloudAi = isFirebaseReady,
                 )
             } else if (!isFirebaseReady) {
                 FirebaseConfigMissingScreen(
@@ -377,21 +378,23 @@ private fun AuthenticatedMainApp(
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            AqroTopHeader(
-                farmerFirstName = firstName,
-                language = language,
-                weatherTempText = weatherTempPill,
-                hasAlertDot = hasAlertDot,
-                isDark = extraColors.isDark,
-                onWeatherClick = { navigateTo(NavRoutes.WEATHER) },
-                onThemeToggle = { onToggleDark(extraColors.isDark) },
-                onNotificationsClick = {
-                    scope.launch { preferencesStore.markNotificationsViewed(activeNotifSignature) }
-                    showNotificationsDialog = true
-                },
-                weatherRegionName = regionLabel,
-                alertCount = alertCount,
-            )
+            if (currentRoute != NavRoutes.CHAT) {
+                AqroTopHeader(
+                    farmerFirstName = firstName,
+                    language = language,
+                    weatherTempText = weatherTempPill,
+                    hasAlertDot = hasAlertDot,
+                    isDark = extraColors.isDark,
+                    onWeatherClick = { navigateTo(NavRoutes.WEATHER) },
+                    onThemeToggle = { onToggleDark(extraColors.isDark) },
+                    onNotificationsClick = {
+                        scope.launch { preferencesStore.markNotificationsViewed(activeNotifSignature) }
+                        showNotificationsDialog = true
+                    },
+                    weatherRegionName = regionLabel,
+                    alertCount = alertCount,
+                )
+            }
         },
         bottomBar = {
             if (!isImeVisible) {

@@ -751,6 +751,23 @@ interface AppStrings {
     val modulesAllHiddenMsg: String
     val modulesProfileCardTitle: String
     val modulesProfileCardSub: String
+
+    // Aqrosığorta in Stations & WhatsApp Chat Status
+    val stationsFilterAll: String
+    val stationsFilterServices: String
+    val stationsFilterInsurance: String
+    val stationsInsuranceTitle: String
+    val stationsInsuranceSubtitle: String
+    val stationsFilterBtn: String
+    val stationsSearchHint: String
+    val stationsCallBtn: String
+    val stationsOpenCalcBtn: String
+    val aiOnlineStatus: String
+    val aiOfflineStatus: String
+    val aiTypingStatus: String
+    val aiInputPlaceholderShort: String
+    val aiLocalSourceTag: String
+    val aiCloudSourceTag: String
 }
 
 val LocalStrings = staticCompositionLocalOf<AppStrings> {

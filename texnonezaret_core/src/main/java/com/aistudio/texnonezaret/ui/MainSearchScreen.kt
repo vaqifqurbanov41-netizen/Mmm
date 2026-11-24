@@ -117,6 +117,7 @@ fun MainSearchScreen(
     onLockInterventionMode: () -> Unit,
     onOpenSecurityCenter: () -> Unit,
     onToggleColumnMapExpanded: () -> Unit,
+    onUpdateColumnMapping: (ColumnField, Int) -> Unit,
     onPlateQueryChange: (String) -> Unit,
     onNameQueryChange: (String) -> Unit,
     onSelectStatusFilter: (StatusFilter) -> Unit,
@@ -515,9 +516,7 @@ fun MainSearchScreen(
                                                 headers = headers,
                                                 columnCount = state.columnCount,
                                                 onSelectCol = { colIdx ->
-                                                    onRequestProtectedAction(
-                                                        PendingInterventionAction.UpdateColumn(field, colIdx)
-                                                    )
+                                                    onUpdateColumnMapping(field, colIdx)
                                                 },
                                             )
                                         }
@@ -611,6 +610,7 @@ fun MainSearchScreen(
                                         RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
                                     )
                                     putExtra(RecognizerIntent.EXTRA_LANGUAGE, "az-AZ")
+                                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "az-AZ")
                                     putExtra(
                                         RecognizerIntent.EXTRA_PROMPT,
                                         "Nömrəni səslə deyin (məs. 04 BA 172)",

@@ -455,43 +455,89 @@ object TexnonezaretEngine {
     }
 
     /**
-     * Converts voice-recognized utterances (including Azerbaijani spoken digits/numbers)
-     * into normalized uppercase plate/DQŞ search text (e.g. "sıfır dörd BA yüz yetmiş iki" -> "04BA172").
+     * Converts voice-recognized utterances (including Azerbaijani spoken digits/numbers,
+     * concatenated compound number words, and mixed digit+word forms) into normalized
+     * uppercase plate/DQŞ search text where spoken numbers appear strictly in digit format.
      */
     fun parseSpokenPlateQuery(rawSpeech: String?): String {
         if (rawSpeech.isNullOrBlank()) return ""
-        val zeroWords = setOf("sıfır", "sifir", "zero", "ноль", "нуль", "o")
+        val zeroWords = setOf("sıfır", "sifir", "nol", "nöl", "zero", "ноль", "нуль")
         val onesMap = mapOf(
-            "bir" to 1, "one" to 1, "один" to 1, "одна" to 1,
-            "iki" to 2, "two" to 2, "два" to 2, "две" to 2,
-            "üç" to 3, "uc" to 3, "three" to 3, "три" to 3,
-            "dörd" to 4, "dord" to 4, "four" to 4, "четыре" to 4,
+            "bir" to 1, "bır" to 1, "one" to 1, "один" to 1, "одна" to 1,
+            "iki" to 2, "ikı" to 2, "two" to 2, "два" to 2, "две" to 2,
+            "üç" to 3, "uc" to 3, "üc" to 3, "uç" to 3, "three" to 3, "три" to 3,
+            "dörd" to 4, "dord" to 4, "dört" to 4, "dort" to 4, "four" to 4, "четыре" to 4,
             "beş" to 5, "bes" to 5, "five" to 5, "пять" to 5,
             "altı" to 6, "alti" to 6, "six" to 6, "шесть" to 6,
-            "yeddi" to 7, "seven" to 7, "семь" to 7,
-            "səkkiz" to 8, "sekkiz" to 8, "eight" to 8, "восемь" to 8,
-            "doqquz" to 9, "nine" to 9, "девять" to 9,
+            "yeddi" to 7, "yedi" to 7, "seven" to 7, "семь" to 7,
+            "səkkiz" to 8, "sekkiz" to 8, "sekiz" to 8, "eight" to 8, "восемь" to 8,
+            "doqquz" to 9, "doqguz" to 9, "dokuz" to 9, "nine" to 9, "девять" to 9,
+        )
+        val teensMap = mapOf(
+            "eleven" to 11, "twelve" to 12, "thirteen" to 13, "fourteen" to 14,
+            "fifteen" to 15, "sixteen" to 16, "seventeen" to 17, "eighteen" to 18, "nineteen" to 19,
+            "одиннадцать" to 11, "двенадцать" to 12, "тринадцать" to 13, "четырнадцать" to 14,
+            "пятнадцать" to 15, "шестнадцать" to 16, "семнадцать" to 17, "восемнадцать" to 18, "девятнадцать" to 19,
         )
         val tensMap = mapOf(
             "on" to 10, "ten" to 10, "десять" to 10,
-            "iyirmi" to 20, "twenty" to 20, "двадцать" to 20,
+            "iyirmi" to 20, "yirmi" to 20, "twenty" to 20, "двадцать" to 20,
             "otuz" to 30, "thirty" to 30, "тридцать" to 30,
-            "qırx" to 40, "qirx" to 40, "forty" to 40, "сорок" to 40,
+            "qırx" to 40, "qirx" to 40, "kırk" to 40, "kirk" to 40, "forty" to 40, "сорок" to 40,
             "əlli" to 50, "elli" to 50, "fifty" to 50, "пятьдесят" to 50,
-            "altmış" to 60, "altmis" to 60, "sixty" to 60, "шестьдесят" to 60,
+            "altmış" to 60, "altmis" to 60, "atmış" to 60, "atmis" to 60, "sixty" to 60, "шестьдесят" to 60,
             "yetmiş" to 70, "yetmis" to 70, "seventy" to 70, "семьдесят" to 70,
             "səksən" to 80, "seksen" to 80, "eighty" to 80, "восемьдесят" to 80,
-            "doxsan" to 90, "ninety" to 90, "девяносто" to 90,
+            "doxsan" to 90, "doksan" to 90, "ninety" to 90, "девяносто" to 90,
         )
         val hundredWords = setOf("yüz", "yuz", "hundred", "сто")
-        val thousandWords = setOf("min", "thousand", "тысяча")
+        val exactHundredsMap = mapOf(
+            "двести" to 200, "триста" to 300, "четыреста" to 400, "пятьсот" to 500,
+            "шестьсот" to 600, "семьсот" to 700, "восемьсот" to 800, "девятьсот" to 900,
+        )
+        val thousandWords = setOf("min", "bin", "thousand", "тысяча", "тысячи", "тысяч")
 
-        val tokens = rawSpeech
+        val allNumberWords: Set<String> = buildSet {
+            addAll(zeroWords)
+            addAll(onesMap.keys)
+            addAll(teensMap.keys)
+            addAll(tensMap.keys)
+            addAll(hundredWords)
+            addAll(exactHundredsMap.keys)
+            addAll(thousandWords)
+        }
+        val maxNumberWordLen = allNumberWords.maxOfOrNull { it.length } ?: 12
+
+        fun segmentConcatenatedNumberWords(lowerWord: String): List<String>? {
+            if (lowerWord.isEmpty()) return null
+            if (lowerWord in allNumberWords) return listOf(lowerWord)
+            val n = lowerWord.length
+            val dp = arrayOfNulls<List<String>>(n + 1)
+            dp[0] = emptyList()
+            for (i in 0 until n) {
+                val prefix = dp[i] ?: continue
+                val maxEnd = minOf(n, i + maxNumberWordLen)
+                for (end in maxEnd downTo i + 1) {
+                    if (dp[end] != null) continue
+                    val piece = lowerWord.substring(i, end)
+                    if (piece in allNumberWords) {
+                        dp[end] = prefix + piece
+                    }
+                }
+            }
+            return dp[n]
+        }
+
+        val rawWords = rawSpeech
             .trim()
-            .replace('-', ' ')
-            .replace('/', ' ')
+            .replace(Regex("[.,:;\\-/_()\\[\\]]+"), " ")
             .split(Regex("\\s+"))
             .filter { it.isNotBlank() }
+
+        val chunkRegex = Regex("\\d+|[^\\d]+")
+        val subTokens = rawWords.flatMap { word ->
+            chunkRegex.findAll(word).map { it.value }.toList()
+        }
 
         val out = StringBuilder()
         var currentNumber: Int? = null
@@ -503,10 +549,7 @@ object TexnonezaretEngine {
             }
         }
 
-        for (rawTok in tokens) {
-            val lower = rawTok.lowercase(azLocale).replace(Regex("[^\\p{L}\\p{Nd}]"), "")
-            if (lower.isEmpty()) continue
-
+        fun handleNumberWord(lower: String) {
             when {
                 lower in zeroWords -> {
                     flushNumber()
@@ -520,6 +563,16 @@ object TexnonezaretEngine {
                     } else {
                         flushNumber()
                         currentNumber = d
+                    }
+                }
+                teensMap.containsKey(lower) -> {
+                    val t = teensMap.getValue(lower)
+                    val cur = currentNumber
+                    if (cur != null && cur >= 100 && cur % 100 == 0) {
+                        currentNumber = cur + t
+                    } else {
+                        flushNumber()
+                        currentNumber = t
                     }
                 }
                 tensMap.containsKey(lower) -> {
@@ -543,6 +596,16 @@ object TexnonezaretEngine {
                         }
                     }
                 }
+                exactHundredsMap.containsKey(lower) -> {
+                    val h = exactHundredsMap.getValue(lower)
+                    val cur = currentNumber
+                    if (cur != null && cur >= 1000 && cur % 1000 == 0) {
+                        currentNumber = cur + h
+                    } else {
+                        flushNumber()
+                        currentNumber = h
+                    }
+                }
                 lower in thousandWords -> {
                     val cur = currentNumber
                     currentNumber = if (cur != null && cur in 1..999) {
@@ -552,9 +615,52 @@ object TexnonezaretEngine {
                         1000
                     }
                 }
-                else -> {
+            }
+        }
+
+        for (sub in subTokens) {
+            if (sub.all { it in '0'..'9' }) {
+                if (sub == "0") {
                     flushNumber()
-                    out.append(normPlate(rawTok))
+                    out.append('0')
+                } else if (sub.length > 1 && sub.startsWith('0')) {
+                    flushNumber()
+                    out.append(sub)
+                } else {
+                    val n = sub.toIntOrNull()
+                    if (n == null) {
+                        flushNumber()
+                        out.append(sub)
+                    } else {
+                        val cur = currentNumber
+                        when {
+                            n in 1..9 && cur != null && cur >= 10 && cur % 10 == 0 -> {
+                                currentNumber = cur + n
+                            }
+                            n in 10..99 && cur != null && cur >= 100 && cur % 100 == 0 -> {
+                                currentNumber = cur + n
+                            }
+                            n in 1..999 && cur != null && cur >= 1000 && cur % 1000 == 0 -> {
+                                currentNumber = cur + n
+                            }
+                            else -> {
+                                flushNumber()
+                                currentNumber = n
+                            }
+                        }
+                    }
+                }
+            } else {
+                val lower = sub.lowercase(azLocale).replace(Regex("[^\\p{L}]"), "")
+                if (lower.isEmpty()) continue
+                val segmentedWords = segmentConcatenatedNumberWords(lower)
+                if (segmentedWords != null) {
+                    for (word in segmentedWords) {
+                        handleNumberWord(word)
+                    }
+                } else {
+                    flushNumber()
+                    out.append(normPlate(sub))
                 }
             }
         }

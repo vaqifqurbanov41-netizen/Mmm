@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -29,12 +30,16 @@ import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Biotech
 import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Eco
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Grass
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MedicalServices
 import androidx.compose.material.icons.filled.Park
 import androidx.compose.material.icons.filled.Science
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -62,6 +67,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.data.model.AdminContentItem
+import com.example.data.model.AqroSigortaBranch
+import com.example.data.model.AqroSigortaCatalog
 import com.example.i18n.AppLanguage
 import com.example.i18n.LocalStrings
 import com.example.ui.components.AqroCard
@@ -69,6 +76,8 @@ import com.example.ui.components.ScreenTopBar
 import com.example.ui.components.openExternalUrl
 import com.example.ui.navigation.NavRoutes
 import com.example.ui.theme.LocalAqroColors
+
+private enum class StationTab { ALL, SERVICES, INSURANCE }
 
 private data class StationServiceDef(
     val id: String,
@@ -243,12 +252,28 @@ fun StationsScreen(
     val extra = LocalAqroColors.current
     val context = LocalContext.current
 
+    var activeTab by remember { mutableStateOf(StationTab.ALL) }
     var districtInput by remember { mutableStateOf("Ağcabədi") }
+    var insuranceFilterOpen by remember { mutableStateOf(false) }
+    var insuranceSearch by remember { mutableStateOf("") }
     var selectedService by remember { mutableStateOf<StationServiceDef?>(null) }
+
+    BackHandler(enabled = activeTab != StationTab.ALL) {
+        activeTab = StationTab.ALL
+    }
+
+    val filteredBranches = remember(insuranceSearch) {
+        AqroSigortaCatalog.filterBranches(insuranceSearch)
+    }
 
     fun openMapsSearch(queryText: String) {
         val fullQuery = listOf(districtInput.trim(), queryText).filter { it.isNotBlank() }.joinToString(" ")
         val url = "https://www.google.com/maps/search/?api=1&query=${Uri.encode(fullQuery)}"
+        openExternalUrl(context, url)
+    }
+
+    fun openExactMapsQuery(exactQuery: String) {
+        val url = "https://www.google.com/maps/search/?api=1&query=${Uri.encode(exactQuery)}"
         openExternalUrl(context, url)
     }
 
@@ -330,99 +355,264 @@ fun StationsScreen(
             .testTag("stations_screen"),
     ) {
         item {
-            ScreenTopBar(title = strings.stationsTitle, onBack = onBack)
+            ScreenTopBar(
+                title = if (activeTab == StationTab.INSURANCE) strings.stationsInsuranceTitle else strings.stationsTitle,
+                onBack = {
+                    if (activeTab != StationTab.ALL) {
+                        activeTab = StationTab.ALL
+                    } else {
+                        onBack()
+                    }
+                },
+            )
         }
 
+        // Category filter row: Hamısı | Məntəqələr | Aqrosığorta
         item {
-            AqroCard {
-                Text(
-                    text = strings.stationsSubtitle,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = extra.muted,
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+            ) {
+                FilterChip(
+                    selected = activeTab == StationTab.ALL,
+                    onClick = { activeTab = StationTab.ALL },
+                    label = { Text(strings.stationsFilterAll) },
+                    modifier = Modifier.testTag("stations_tab_all"),
                 )
-                Spacer(modifier = Modifier.height(10.dp))
-                OutlinedTextField(
-                    value = districtInput,
-                    onValueChange = { districtInput = it },
-                    label = { Text(strings.stationsDistrictHint) },
+                FilterChip(
+                    selected = activeTab == StationTab.SERVICES,
+                    onClick = { activeTab = StationTab.SERVICES },
+                    label = { Text(strings.stationsFilterServices) },
+                    modifier = Modifier.testTag("stations_tab_services"),
+                )
+                FilterChip(
+                    selected = activeTab == StationTab.INSURANCE,
+                    onClick = { activeTab = StationTab.INSURANCE },
                     leadingIcon = {
-                        Icon(Icons.Filled.LocationOn, contentDescription = null)
+                        Icon(
+                            imageVector = Icons.Filled.VerifiedUser,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
                     },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth().testTag("stations_district_input"),
+                    label = { Text("${strings.stationsFilterInsurance} (${AqroSigortaCatalog.branches.size})") },
+                    modifier = Modifier.testTag("stations_tab_insurance"),
                 )
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+            }
+        }
+
+        if (activeTab != StationTab.INSURANCE) {
+            item {
+                AqroCard {
+                    Text(
+                        text = strings.stationsSubtitle,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = extra.muted,
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = districtInput,
+                        onValueChange = { districtInput = it },
+                        label = { Text(strings.stationsDistrictHint) },
+                        leadingIcon = {
+                            Icon(Icons.Filled.LocationOn, contentDescription = null)
+                        },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().testTag("stations_district_input"),
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    ) {
+                        districtPresets.forEach { preset ->
+                            FilterChip(
+                                selected = districtInput.equals(preset, ignoreCase = true),
+                                onClick = { districtInput = preset },
+                                label = { Text(preset) },
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 7 Service Cards matching Yonca Məntəqələr
+            items(stationServices, key = { it.id }) { service ->
+                Card(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    border = BorderStroke(1.dp, extra.line),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .clickable { selectedService = service }
+                        .testTag("station_card_${service.id}"),
                 ) {
-                    districtPresets.forEach { preset ->
-                        FilterChip(
-                            selected = districtInput.equals(preset, ignoreCase = true),
-                            onClick = { districtInput = preset },
-                            label = { Text(preset) },
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.padding(14.dp),
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(46.dp)
+                                .clip(CircleShape)
+                                .background(service.accent.copy(alpha = 0.14f)),
+                        ) {
+                            Icon(
+                                imageVector = service.icon,
+                                contentDescription = service.title(language),
+                                tint = service.accent,
+                                modifier = Modifier.size(24.dp),
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = service.title(language),
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Text(
+                                text = service.summary(language),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = extra.muted,
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = strings.open,
+                            tint = extra.muted,
                         )
                     }
                 }
             }
         }
 
-        // 7 Service Cards matching Yonca Məntəqələr
-        items(stationServices, key = { it.id }) { service ->
-            Card(
-                shape = RoundedCornerShape(18.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = BorderStroke(1.dp, extra.line),
-                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(18.dp))
-                    .clickable { selectedService = service }
-                    .testTag("station_card_${service.id}"),
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.padding(14.dp),
+        // Aqrosığorta Section (visible in ALL and INSURANCE modes)
+        if (activeTab == StationTab.ALL || activeTab == StationTab.INSURANCE) {
+            item(key = "aqrosigorta_header") {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = if (activeTab == StationTab.ALL) 10.dp else 0.dp)
+                        .testTag("aqrosigorta_section"),
                 ) {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .size(46.dp)
-                            .clip(CircleShape)
-                            .background(service.accent.copy(alpha = 0.14f)),
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Icon(
-                            imageVector = service.icon,
-                            contentDescription = service.title(language),
-                            tint = service.accent,
-                            modifier = Modifier.size(24.dp),
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF0369A1).copy(alpha = 0.14f)),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.VerifiedUser,
+                                    contentDescription = strings.stationsInsuranceTitle,
+                                    tint = Color(0xFF0369A1),
+                                    modifier = Modifier.size(22.dp),
+                                )
+                            }
+                            Column {
+                                Text(
+                                    text = strings.stationsInsuranceTitle,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.onBackground,
+                                )
+                                Text(
+                                    text = strings.stationsInsuranceSubtitle,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = extra.muted,
+                                )
+                            }
+                        }
+                        TextButton(
+                            onClick = { insuranceFilterOpen = !insuranceFilterOpen },
+                            modifier = Modifier.testTag("aqrosigorta_filter_btn"),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.FilterList,
+                                contentDescription = strings.stationsFilterBtn,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = strings.stationsFilterBtn,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
+
+                    if (insuranceFilterOpen || activeTab == StationTab.INSURANCE) {
+                        OutlinedTextField(
+                            value = insuranceSearch,
+                            onValueChange = { insuranceSearch = it },
+                            placeholder = { Text(strings.stationsSearchHint) },
+                            leadingIcon = {
+                                Icon(Icons.Filled.Search, contentDescription = null)
+                            },
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("aqrosigorta_search_input"),
                         )
                     }
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = service.title(language),
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Text(
-                            text = service.summary(language),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = extra.muted,
-                        )
+
+                    if (onNavigateToTool != null) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            OutlinedButton(
+                                onClick = { onNavigateToTool(NavRoutes.INSURANCE) },
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Text(
+                                    text = strings.stationsOpenCalcBtn,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                            OutlinedButton(
+                                onClick = { openExternalUrl(context, "https://asf.gov.az/") },
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("asf.gov.az", fontWeight = FontWeight.SemiBold)
+                            }
+                        }
                     }
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = strings.open,
-                        tint = extra.muted,
-                    )
                 }
+            }
+
+            items(filteredBranches, key = { "aqrosigorta_${it.id}" }) { branch ->
+                AqroSigortaBranchCard(
+                    branch = branch,
+                    callLabel = strings.stationsCallBtn,
+                    mapsLabel = strings.btnViewOnMap,
+                    onCall = { openExternalUrl(context, branch.dialUri) },
+                    onOpenMap = { openExactMapsQuery(branch.mapQuery) },
+                )
             }
         }
 
         // Admin-published custom stations (if any)
-        if (adminStations.isNotEmpty()) {
+        if (adminStations.isNotEmpty() && activeTab != StationTab.INSURANCE) {
             items(adminStations, key = { "admin_station_${it.id}" }) { item ->
                 Card(
                     shape = RoundedCornerShape(18.dp),
@@ -481,3 +671,88 @@ fun StationsScreen(
         }
     }
 }
+
+@Composable
+private fun AqroSigortaBranchCard(
+    branch: AqroSigortaBranch,
+    callLabel: String,
+    mapsLabel: String,
+    onCall: () -> Unit,
+    onOpenMap: () -> Unit,
+) {
+    val extra = LocalAqroColors.current
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, extra.line),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("aqrosigorta_card_${branch.id}"),
+    ) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.padding(16.dp),
+        ) {
+            Text(
+                text = branch.name,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = branch.address,
+                style = MaterialTheme.typography.bodyMedium,
+                color = extra.muted,
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp),
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = extra.pale,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable(onClick = onCall)
+                        .testTag("aqrosigorta_call_${branch.id}"),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Call,
+                            contentDescription = callLabel,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Text(
+                            text = branch.phone,
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+                TextButton(
+                    onClick = onOpenMap,
+                    modifier = Modifier.testTag("aqrosigorta_map_${branch.id}"),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.LocationOn,
+                        contentDescription = mapsLabel,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(mapsLabel, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+    }
+}
+

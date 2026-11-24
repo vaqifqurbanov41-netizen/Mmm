@@ -537,6 +537,13 @@ class FarmViewModel(
         chatJob?.cancel()
         chatJob = viewModelScope.launch {
             val currentProfile = profile.value
+            val currentWeather = weatherState.value
+            val farmContextSummary = OfflineAgronomistAdvisor.buildFarmContextSummary(
+                fields = fields.value,
+                region = currentProfile?.place.orEmpty(),
+                tempC = currentWeather.response?.current?.temperature2m,
+                hazardLabels = weatherHazards.value.map { "${it.locationLabel}: ${it.kind.name} (${it.metricText})" },
+            )
             try {
                 aiRepository.askAgronomistStream(
                     question = trimmed,
@@ -544,6 +551,7 @@ class FarmViewModel(
                     farmerName = currentProfile?.fullName.orEmpty(),
                     farmerRegion = currentProfile?.place.orEmpty(),
                     language = language,
+                    farmContextSummary = farmContextSummary,
                 ).collect { accumulated ->
                     _chatMessages.value = _chatMessages.value.map { msg ->
                         if (msg.id == botId) msg.copy(text = accumulated, isStreaming = true) else msg
@@ -556,11 +564,12 @@ class FarmViewModel(
                 throw e
             } catch (e: Exception) {
                 Log.e(TAG, "AI chat error", e)
-                val errText = e.localizedMessage ?: "AI error"
+                val errText = e.localizedMessage ?: e.message ?: "AI error"
                 val offlineAnswer = OfflineAgronomistAdvisor.answerOffline(
                     question = trimmed,
                     language = language,
                     aiFailureNote = errText,
+                    farmContextSummary = farmContextSummary,
                 )
                 _chatMessages.value = _chatMessages.value.map { msg ->
                     if (msg.id == botId) {
