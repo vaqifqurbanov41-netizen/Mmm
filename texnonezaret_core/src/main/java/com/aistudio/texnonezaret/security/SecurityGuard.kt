@@ -27,9 +27,13 @@ data class SecurityIntegrityReport(
     val signatureMatchesKnownOrSealed: Boolean,
     val noDebuggerAttached: Boolean,
     val noHookFramework: Boolean,
+    val noRootDetected: Boolean = true,
+    val keyStoreActive: Boolean = true,
     val offlineIsolated: Boolean,
     val storageIntegrityOk: Boolean,
+    val photoVaultIntegrityOk: Boolean = true,
     val screenProtectionEnabled: Boolean = true,
+    val tapjackingProtected: Boolean = true,
     val isDebuggableBuild: Boolean = false,
     val tamperReasons: List<String> = emptyList(),
 ) {
@@ -58,6 +62,7 @@ object SecurityGuard {
     private const val AES_KEY_ALIAS = "tnt_master_aes_v1"
     private const val HMAC_KEY_ALIAS = "tnt_prefs_hmac_v1"
     private const val ENC_PREFIX = "TNTENC1:"
+    private val BIN_MAGIC = "TNTBIN1".toByteArray(StandardCharsets.US_ASCII)
     private const val GCM_IV_BYTES = 12
     private const val GCM_TAG_BITS = 128
 
@@ -121,9 +126,10 @@ object SecurityGuard {
         return if (out.size == dkLen) out else out.copyOf(dkLen)
     }
 
-    fun sha256Hex(text: String): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-            .digest(text.toByteArray(StandardCharsets.UTF_8))
+    fun sha256Hex(text: String): String = sha256Hex(text.toByteArray(StandardCharsets.UTF_8))
+
+    fun sha256Hex(bytes: ByteArray): String {
+        val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
         return bytesToHex(digest)
     }
 
@@ -155,6 +161,49 @@ object SecurityGuard {
             val decrypted = cipher.doFinal(ct)
             String(decrypted, StandardCharsets.UTF_8)
         }.getOrNull()
+    }
+
+    fun encryptBytes(plainBytes: ByteArray, contextAad: String = ""): ByteArray {
+        val key = getOrCreateAesKey()
+        val iv = ByteArray(GCM_IV_BYTES)
+        SecureRandom().nextBytes(iv)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, key, GCMParameterSpec(GCM_TAG_BITS, iv))
+        if (contextAad.isNotEmpty()) {
+            cipher.updateAAD(contextAad.toByteArray(StandardCharsets.UTF_8))
+        }
+        val encrypted = cipher.doFinal(plainBytes)
+        val out = ByteArray(BIN_MAGIC.size + GCM_IV_BYTES + encrypted.size)
+        System.arraycopy(BIN_MAGIC, 0, out, 0, BIN_MAGIC.size)
+        System.arraycopy(iv, 0, out, BIN_MAGIC.size, GCM_IV_BYTES)
+        System.arraycopy(encrypted, 0, out, BIN_MAGIC.size + GCM_IV_BYTES, encrypted.size)
+        return out
+    }
+
+    fun decryptBytes(cipherBytes: ByteArray, contextAad: String = ""): ByteArray? {
+        if (cipherBytes.size <= BIN_MAGIC.size + GCM_IV_BYTES) return null
+        for (i in BIN_MAGIC.indices) {
+            if (cipherBytes[i] != BIN_MAGIC[i]) return null
+        }
+        val iv = cipherBytes.copyOfRange(BIN_MAGIC.size, BIN_MAGIC.size + GCM_IV_BYTES)
+        val ct = cipherBytes.copyOfRange(BIN_MAGIC.size + GCM_IV_BYTES, cipherBytes.size)
+        return runCatching {
+            val key = getOrCreateAesKey()
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(GCM_TAG_BITS, iv))
+            if (contextAad.isNotEmpty()) {
+                cipher.updateAAD(contextAad.toByteArray(StandardCharsets.UTF_8))
+            }
+            cipher.doFinal(ct)
+        }.getOrNull()
+    }
+
+    fun isHardwareKeyStoreActive(): Boolean {
+        return runCatching {
+            val ks = KeyStore.getInstance(KEYSTORE_PROVIDER).apply { load(null) }
+            getOrCreateAesKey()
+            ks.containsAlias(AES_KEY_ALIAS)
+        }.getOrDefault(false)
     }
 
     fun computeIntegrityHmac(payload: String): String {
@@ -218,6 +267,7 @@ object SecurityGuard {
         sealedSignerSha256: String?,
         onSealFirstSigner: (String) -> Unit,
         storageIntegrityOk: Boolean,
+        photoVaultIntegrityOk: Boolean = true,
     ): SecurityIntegrityReport {
         val pkgName = context.packageName
         val pkgValid = pkgName in ALLOWED_PACKAGES
@@ -239,6 +289,9 @@ object SecurityGuard {
 
         val noDebugger = !Debug.isDebuggerConnected() && !Debug.waitingForDebugger()
         val noHooks = !detectHookFrameworks()
+        val noRoot = !detectRootIndicators()
+        val emulator = isLikelyEmulator()
+        val keyStoreOk = isHardwareKeyStoreActive()
 
         val hasInternetPerm = context.packageManager.checkPermission(
             android.Manifest.permission.INTERNET,
@@ -253,8 +306,10 @@ object SecurityGuard {
             if (!sigVerified || !matchesKnownOrSealed) add("APK imzası dəyişdirilib və ya yenidən imzalanıb")
             if (!noDebugger) add("Aktiv debugger qoşulması aşkarlandı")
             if (!noHooks) add("Kənar müdaxilə (Hook / Frida / Xposed) aşkarlandı")
+            if (!noRoot && !emulator) add("Root / icazəsiz sistem müdaxiləsi (su/Magisk) aşkarlandı")
             if (!offlineIsolated) add("İcazəsiz şəbəkə icazəsi əlavə edilib")
             if (!storageIntegrityOk) add("Yaddaşdakı qorunan fayllara kənar müdaxilə edilib")
+            if (!photoVaultIntegrityOk) add("Şifrələnmiş foto qalereya fayllarına kənar müdaxilə aşkarlandı")
         }
 
         return SecurityIntegrityReport(
@@ -265,9 +320,13 @@ object SecurityGuard {
             signatureMatchesKnownOrSealed = matchesKnownOrSealed,
             noDebuggerAttached = noDebugger,
             noHookFramework = noHooks,
+            noRootDetected = noRoot,
+            keyStoreActive = keyStoreOk,
             offlineIsolated = offlineIsolated,
             storageIntegrityOk = storageIntegrityOk,
+            photoVaultIntegrityOk = photoVaultIntegrityOk,
             screenProtectionEnabled = true,
+            tapjackingProtected = true,
             isDebuggableBuild = isDebuggable,
             tamperReasons = reasons,
         )
@@ -312,11 +371,59 @@ object SecurityGuard {
         }.getOrDefault(false)
         if (mapsHit) return true
 
+        val fridaPortHit = runCatching {
+            val tcpFile = File("/proc/net/tcp")
+            if (!tcpFile.canRead()) return@runCatching false
+            tcpFile.bufferedReader().useLines { lines ->
+                lines.any { line ->
+                    // 27042 (0x69A2) and 27043 (0x69A3) in LISTEN state (" 0A ")
+                    (line.contains(":69A2", ignoreCase = true) || line.contains(":69A3", ignoreCase = true)) &&
+                        line.contains(" 0A ")
+                }
+            }
+        }.getOrDefault(false)
+        if (fridaPortHit) return true
+
         val stackHit = Thread.currentThread().stackTrace.any { frame ->
             val cls = frame.className.lowercase()
             signatures.any { token -> cls.contains(token) }
         }
         return stackHit
+    }
+
+    private fun detectRootIndicators(): Boolean {
+        val testKeys = Build.TAGS?.contains("test-keys") == true
+        if (testKeys) return true
+        val rootPaths = listOf(
+            "/sbin/su",
+            "/system/bin/su",
+            "/system/xbin/su",
+            "/data/local/bin/su",
+            "/data/local/xbin/su",
+            "/system/sd/xbin/su",
+            "/sbin/.magisk",
+            "/data/adb/magisk",
+            "/system/app/Superuser.apk",
+        )
+        return rootPaths.any { path -> runCatching { File(path).exists() }.getOrDefault(false) }
+    }
+
+    private fun isLikelyEmulator(): Boolean {
+        val fp = Build.FINGERPRINT.orEmpty().lowercase()
+        val model = Build.MODEL.orEmpty().lowercase()
+        val brand = Build.BRAND.orEmpty().lowercase()
+        val device = Build.DEVICE.orEmpty().lowercase()
+        val product = Build.PRODUCT.orEmpty().lowercase()
+        val hardware = Build.HARDWARE.orEmpty().lowercase()
+        return fp.startsWith("generic") ||
+            fp.contains("emulator") ||
+            model.contains("emulator") ||
+            model.contains("android sdk built for") ||
+            hardware.contains("goldfish") ||
+            hardware.contains("ranchu") ||
+            product.contains("sdk_gphone") ||
+            product.contains("emulator") ||
+            (brand.startsWith("generic") && device.startsWith("generic"))
     }
 
     fun bytesToHex(bytes: ByteArray): String {

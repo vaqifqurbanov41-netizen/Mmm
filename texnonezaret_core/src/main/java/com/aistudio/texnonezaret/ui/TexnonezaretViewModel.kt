@@ -9,6 +9,11 @@ import com.aistudio.texnonezaret.data.PersistedSheetData
 import com.aistudio.texnonezaret.data.SpreadsheetParser
 import com.aistudio.texnonezaret.data.TexnonezaretStorage
 import com.aistudio.texnonezaret.data.ThemeMode
+import com.aistudio.texnonezaret.data.TntCapturedPhoto
+import com.aistudio.texnonezaret.data.TntLocationHelper
+import com.aistudio.texnonezaret.data.TntPhotoProcessor
+import com.aistudio.texnonezaret.data.TntPhotoVault
+import com.aistudio.texnonezaret.data.TntPhotoWatermarkFormatter
 import com.aistudio.texnonezaret.domain.ColumnField
 import com.aistudio.texnonezaret.domain.ColumnMapping
 import com.aistudio.texnonezaret.domain.InspectionStatusKind
@@ -21,7 +26,11 @@ import com.aistudio.texnonezaret.security.SecurityGuard
 import com.aistudio.texnonezaret.security.SecurityIntegrityReport
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
+import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.InputStream
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -92,6 +101,20 @@ sealed interface InterventionUiEffect {
     data object LaunchBackupImport : InterventionUiEffect
 }
 
+enum class TntBottomTab {
+    SEARCH,
+    GALLERY,
+}
+
+data class PhotoVaultUiState(
+    val activeTab: TntBottomTab = TntBottomTab.SEARCH,
+    val photos: List<TntCapturedPhoto> = emptyList(),
+    val isProcessingPhoto: Boolean = false,
+    val selectedPhoto: TntCapturedPhoto? = null,
+    val vaultMessage: String? = null,
+    val vaultError: String? = null,
+)
+
 data class SecurityUiState(
     val isInterventionUnlocked: Boolean = false,
     val showInterventionDialog: Boolean = false,
@@ -101,11 +124,13 @@ data class SecurityUiState(
     val masterCooldownSecondsLeft: Int = 0,
     val integrityReport: SecurityIntegrityReport? = null,
     val tamperAlertActive: Boolean = false,
+    val immediateBgLock: Boolean = false,
 )
 
 class TexnonezaretViewModel(application: Application) : AndroidViewModel(application) {
 
     private val storage = TexnonezaretStorage(application)
+    private val photoVault = TntPhotoVault(application)
 
     private val _pinState = MutableStateFlow(PinUiState())
     val pinState: StateFlow<PinUiState> = _pinState.asStateFlow()
@@ -113,8 +138,13 @@ class TexnonezaretViewModel(application: Application) : AndroidViewModel(applica
     private val _searchState = MutableStateFlow(SearchUiState(themeMode = storage.getThemeMode()))
     val searchState: StateFlow<SearchUiState> = _searchState.asStateFlow()
 
-    private val _securityState = MutableStateFlow(SecurityUiState())
+    private val _securityState = MutableStateFlow(
+        SecurityUiState(immediateBgLock = storage.isImmediateBgLockEnabled())
+    )
     val securityState: StateFlow<SecurityUiState> = _securityState.asStateFlow()
+
+    private val _vaultState = MutableStateFlow(PhotoVaultUiState())
+    val vaultState: StateFlow<PhotoVaultUiState> = _vaultState.asStateFlow()
 
     private val _effects = MutableSharedFlow<InterventionUiEffect>(extraBufferCapacity = 4)
     val effects: SharedFlow<InterventionUiEffect> = _effects.asSharedFlow()
@@ -125,7 +155,12 @@ class TexnonezaretViewModel(application: Application) : AndroidViewModel(applica
     private var masterCooldownJob: Job? = null
     private var pendingAction: PendingInterventionAction? = null
     private var lastActivityElapsedMs: Long = System.currentTimeMillis()
-    private val idleTimeoutMs: Long = 5 * 60 * 1000L
+    private val idleTimeoutMs: Long = 10 * 60 * 1000L
+    private var isExternalCapturePending: Boolean = false
+
+    companion object {
+        private const val MAX_IMPORT_BYTES = 25 * 1024 * 1024
+    }
 
     init {
         runSecurityAudit()
@@ -136,16 +171,19 @@ class TexnonezaretViewModel(application: Application) : AndroidViewModel(applica
             openPinScreen(PinFlowMode.ENTER)
         }
         loadPersistedSheet()
+        loadVaultPhotos()
     }
 
     fun runSecurityAudit() {
         val prefsOk = storage.verifySecurityPrefsIntegrity()
         val sheetTampered = storage.isSheetFileTampered()
+        val vaultTampered = photoVault.isVaultTampered()
         val report = SecurityGuard.inspectApkIntegrity(
             context = getApplication(),
             sealedSignerSha256 = storage.getSealedSignerSha256(),
             onSealFirstSigner = { sig -> storage.saveSealedSignerSha256(sig) },
             storageIntegrityOk = prefsOk && !sheetTampered,
+            photoVaultIntegrityOk = !vaultTampered,
         )
         _securityState.update { cur ->
             cur.copy(
@@ -164,14 +202,47 @@ class TexnonezaretViewModel(application: Application) : AndroidViewModel(applica
         }
     }
 
+    private fun loadVaultPhotos() {
+        viewModelScope.launch {
+            val items = photoVault.loadPhotos()
+            _vaultState.update { it.copy(photos = items) }
+        }
+    }
+
     fun recordUserActivity() {
         lastActivityElapsedMs = System.currentTimeMillis()
+    }
+
+    fun markExternalCapturePending(pending: Boolean) {
+        isExternalCapturePending = pending
+        recordUserActivity()
+    }
+
+    fun onAppBackgrounded() {
+        if (!isExternalCapturePending) {
+            _securityState.update {
+                it.copy(
+                    isInterventionUnlocked = false,
+                    showInterventionDialog = false,
+                    showSecurityCenterDialog = false,
+                    pendingActionLabel = null,
+                    masterPasswordError = null,
+                )
+            }
+            pendingAction = null
+            if (_securityState.value.immediateBgLock &&
+                storage.getSavedPinHash() != null &&
+                !_pinState.value.isLocked
+            ) {
+                lockNow()
+            }
+        }
     }
 
     fun checkIdleLockOnForeground() {
         runSecurityAudit()
         val hasPin = storage.getSavedPinHash() != null
-        if (hasPin && !_pinState.value.isLocked) {
+        if (hasPin && !_pinState.value.isLocked && !isExternalCapturePending) {
             if (System.currentTimeMillis() - lastActivityElapsedMs >= idleTimeoutMs) {
                 lockNow()
             }
@@ -238,6 +309,13 @@ class TexnonezaretViewModel(application: Application) : AndroidViewModel(applica
 
     fun dismissSecurityCenter() {
         _securityState.update { it.copy(showSecurityCenterDialog = false) }
+    }
+
+    fun toggleImmediateBgLock(enabled: Boolean) {
+        recordUserActivity()
+        if (!_securityState.value.isInterventionUnlocked) return
+        storage.setImmediateBgLockEnabled(enabled)
+        _securityState.update { it.copy(immediateBgLock = enabled) }
     }
 
     fun lockInterventionMode() {
@@ -541,7 +619,7 @@ class TexnonezaretViewModel(application: Application) : AndroidViewModel(applica
             }
             PinFlowMode.CONFIRM -> {
                 if (entered == tempNewPin) {
-                    storage.savePinHash(TexnonezaretEngine.hashPin(entered))
+                    storage.savePinHash(TexnonezaretEngine.hashPinStrong(entered))
                     storage.setFailCount(0)
                     storage.setLockUntilMillis(0L)
                     unlockApp()
@@ -564,7 +642,7 @@ class TexnonezaretViewModel(application: Application) : AndroidViewModel(applica
             }
             PinFlowMode.CHANGE_OLD -> {
                 val saved = storage.getSavedPinHash()
-                if (saved != null && TexnonezaretEngine.hashPin(entered) == saved) {
+                if (saved != null && TexnonezaretEngine.verifyPinHash(entered, saved)) {
                     openPinScreen(PinFlowMode.SETUP)
                 } else {
                     _pinState.update {
@@ -579,7 +657,10 @@ class TexnonezaretViewModel(application: Application) : AndroidViewModel(applica
             PinFlowMode.ENTER -> {
                 if (isUnderCooldown()) return
                 val saved = storage.getSavedPinHash()
-                if (saved != null && TexnonezaretEngine.hashPin(entered) == saved) {
+                if (saved != null && TexnonezaretEngine.verifyPinHash(entered, saved)) {
+                    if (!TexnonezaretEngine.isStrongPinHash(saved)) {
+                        storage.savePinHash(TexnonezaretEngine.hashPinStrong(entered))
+                    }
                     storage.setFailCount(0)
                     storage.setLockUntilMillis(0L)
                     unlockApp()
@@ -667,7 +748,7 @@ class TexnonezaretViewModel(application: Application) : AndroidViewModel(applica
                 runCatching {
                     val resolver = getApplication<Application>().contentResolver
                     val displayName = resolveDisplayName(uri)
-                    val bytes = resolver.openInputStream(uri)?.use { it.readBytes() }
+                    val bytes = resolver.openInputStream(uri)?.use { readBoundedBytes(it, MAX_IMPORT_BYTES) }
                         ?: throw IllegalStateException("Fayl oxuna bilmədi")
                     val raw = SpreadsheetParser.parseBytes(bytes, displayName)
                     if (raw.isEmpty()) throw IllegalStateException("Boş cədvəl")
@@ -788,9 +869,10 @@ class TexnonezaretViewModel(application: Application) : AndroidViewModel(applica
             _searchState.update { it.copy(isLoadingFile = true, fileError = null, statusBanner = null) }
             val loaded = withContext(Dispatchers.IO) {
                 runCatching {
-                    val jsonText = getApplication<Application>().contentResolver
-                        .openInputStream(uri)?.use { it.bufferedReader(Charsets.UTF_8).readText() }
+                    val bytes = getApplication<Application>().contentResolver
+                        .openInputStream(uri)?.use { readBoundedBytes(it, MAX_IMPORT_BYTES) }
                         ?: throw IllegalStateException("Fayl oxunmadı")
+                    val jsonText = String(bytes, Charsets.UTF_8)
                     storage.deserializeSheetData(jsonText)
                         ?: throw IllegalStateException("Yanlış və ya zədələnmiş ehtiyat nüsxə faylı")
                 }
@@ -808,6 +890,135 @@ class TexnonezaretViewModel(application: Application) : AndroidViewModel(applica
                 }
             }
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Encrypted App-Internal Photo Vault & Telemetry Stamping
+    // -------------------------------------------------------------------------
+
+    fun setActiveTab(tab: TntBottomTab) {
+        recordUserActivity()
+        _vaultState.update { it.copy(activeTab = tab, vaultError = null) }
+    }
+
+    fun openPhotoPreview(photo: TntCapturedPhoto) {
+        recordUserActivity()
+        _vaultState.update { it.copy(selectedPhoto = photo) }
+    }
+
+    fun closePhotoPreview() {
+        recordUserActivity()
+        _vaultState.update { it.copy(selectedPhoto = null) }
+    }
+
+    fun clearVaultBanner() {
+        _vaultState.update { it.copy(vaultMessage = null, vaultError = null) }
+    }
+
+    fun processAndSaveCapturedPhoto(
+        tempFile: File,
+        plateTagOverride: String? = null,
+    ) {
+        recordUserActivity()
+        isExternalCapturePending = false
+        viewModelScope.launch {
+            _vaultState.update {
+                it.copy(isProcessingPhoto = true, vaultError = null, vaultMessage = null)
+            }
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val app = getApplication<Application>()
+                    val capturedAt = System.currentTimeMillis()
+                    val fixDeferred = async { TntLocationHelper.acquireBestFix(app) }
+                    val fix = fixDeferred.await()
+
+                    val tsText = TntPhotoWatermarkFormatter.formatTimestamp(capturedAt)
+                    val stripCoord = TntPhotoWatermarkFormatter.formatCompactCoordinatesForStrip(
+                        latitude = fix?.latitude,
+                        longitude = fix?.longitude,
+                    )
+                    val fullCoord = TntPhotoWatermarkFormatter.formatCoordinates(
+                        latitude = fix?.latitude,
+                        longitude = fix?.longitude,
+                        accuracyMeters = fix?.accuracyMeters,
+                    )
+                    val activePlate = (plateTagOverride ?: _searchState.value.plateQuery)
+                        .let { TexnonezaretEngine.normPlate(it) }
+
+                    val jpegBytes = TntPhotoProcessor.processAndStampPhoto(
+                        sourceFile = tempFile,
+                        timestampText = tsText,
+                        coordinatesStripText = stripCoord,
+                        plateTag = activePlate,
+                    )
+                    photoVault.saveStampedPhoto(
+                        jpegBytes = jpegBytes,
+                        capturedAtMillis = capturedAt,
+                        timestampText = tsText,
+                        latitude = fix?.latitude,
+                        longitude = fix?.longitude,
+                        accuracyMeters = fix?.accuracyMeters,
+                        coordinatesText = fullCoord,
+                        plateTag = activePlate,
+                    )
+                }.also {
+                    runCatching { if (tempFile.exists()) tempFile.delete() }
+                }
+            }
+
+            result.onSuccess { saved ->
+                val updated = photoVault.loadPhotos()
+                _vaultState.update {
+                    it.copy(
+                        photos = updated,
+                        activeTab = TntBottomTab.GALLERY,
+                        isProcessingPhoto = false,
+                        vaultMessage = "Şəkil şifrələndi və TNT qalereyasında saxlanıldı (${saved.timestampText}).",
+                        vaultError = null,
+                    )
+                }
+            }.onFailure { err ->
+                _vaultState.update {
+                    it.copy(
+                        isProcessingPhoto = false,
+                        vaultError = err.message ?: "Şəkil qorunan qalereyaya yazıla bilmədi.",
+                    )
+                }
+            }
+        }
+    }
+
+    suspend fun loadDecryptedPhotoBytes(photo: TntCapturedPhoto): ByteArray? =
+        photoVault.loadDecryptedPhotoBytes(photo)
+
+    fun deleteVaultPhoto(photoId: String) {
+        recordUserActivity()
+        viewModelScope.launch {
+            val remaining = photoVault.deletePhoto(photoId)
+            _vaultState.update { cur ->
+                cur.copy(
+                    photos = remaining,
+                    selectedPhoto = if (cur.selectedPhoto?.id == photoId) null else cur.selectedPhoto,
+                    vaultMessage = "Şəkil qorunan qalereyadan silindi.",
+                )
+            }
+        }
+    }
+
+    private fun readBoundedBytes(stream: InputStream, maxBytes: Int): ByteArray {
+        val baos = ByteArrayOutputStream()
+        val buf = ByteArray(8192)
+        var total = 0
+        while (true) {
+            val n = stream.read(buf)
+            if (n <= 0) break
+            total += n
+            if (total > maxBytes) {
+                throw IllegalStateException("Fayl ölçüsü icazə verilən həddi (25 MB) aşır")
+            }
+            baos.write(buf, 0, n)
+        }
+        return baos.toByteArray()
     }
 
     fun clearStatusBanner() {

@@ -1,11 +1,13 @@
 package com.aistudio.texnonezaret
 
 import com.aistudio.texnonezaret.data.SpreadsheetParser
+import com.aistudio.texnonezaret.data.TntPhotoWatermarkFormatter
 import com.aistudio.texnonezaret.domain.InspectionStatusKind
 import com.aistudio.texnonezaret.domain.SearchMode
 import com.aistudio.texnonezaret.domain.StatusFilter
 import com.aistudio.texnonezaret.domain.TexnonezaretEngine
 import com.aistudio.texnonezaret.security.SecurityGuard
+import java.util.TimeZone
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -175,5 +177,52 @@ class TexnonezaretOfflineTest {
         assertEquals("478", TexnonezaretEngine.parseSpokenPlateQuery("dört yedi sekiz"))
         assertEquals("10AO123", TexnonezaretEngine.parseSpokenPlateQuery("10 A O 123"))
         assertEquals("ONUR", TexnonezaretEngine.parseSpokenPlateQuery("ONUR"))
+    }
+
+    @Test
+    fun photoVaultBinaryEncryptionPinPbkdf2AndWatermarkFormattingWork() {
+        val rawJpegMock = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 10, 20, 30, 40)
+        val aad = "tnt_photo:abc123"
+        val enc = SecurityGuard.encryptBytes(rawJpegMock, aad)
+        assertTrue(enc.size > rawJpegMock.size + 19)
+        assertTrue(rawJpegMock.contentEquals(SecurityGuard.decryptBytes(enc, aad)!!))
+        // Wrong AAD or tampered byte must reject decryption
+        assertNull(SecurityGuard.decryptBytes(enc, "tnt_photo:wrong"))
+        val tampered = enc.copyOf().apply { this[lastIndex] = (this[lastIndex].toInt() xor 0xFF).toByte() }
+        assertNull(SecurityGuard.decryptBytes(tampered, aad))
+
+        // Strong PBKDF2-HMAC-SHA256 PIN verification + legacy FNV compatibility
+        val strongHash = TexnonezaretEngine.hashPinStrong("7391")
+        assertTrue(strongHash.startsWith("TNTPIN2:"))
+        assertTrue(TexnonezaretEngine.isStrongPinHash(strongHash))
+        assertTrue(TexnonezaretEngine.verifyPinHash("7391", strongHash))
+        assertFalse(TexnonezaretEngine.verifyPinHash("0000", strongHash))
+
+        val legacyHash = TexnonezaretEngine.hashPin("4820")
+        assertFalse(TexnonezaretEngine.isStrongPinHash(legacyHash))
+        assertTrue(TexnonezaretEngine.verifyPinHash("4820", legacyHash))
+        assertFalse(TexnonezaretEngine.verifyPinHash("4821", legacyHash))
+
+        // Exact date/time watermark formatting + coordinate formatting + path traversal guard
+        val formattedTime = TntPhotoWatermarkFormatter.formatTimestamp(
+            epochMillis = 1653980051_000L, // 31/05/2022 06:54:11 UTC
+            timeZone = TimeZone.getTimeZone("UTC"),
+        )
+        assertEquals("31/05/2022 06:54:11", formattedTime)
+        assertEquals(
+            "40.40926, 49.86709",
+            TntPhotoWatermarkFormatter.formatCompactCoordinatesForStrip(40.40926, 49.86709),
+        )
+        assertEquals(
+            "40.40926, 49.86709 (±8m)",
+            TntPhotoWatermarkFormatter.formatCoordinates(40.40926, 49.86709, 8.2f),
+        )
+        assertEquals(
+            "Koordinat təyin edilmədi",
+            TntPhotoWatermarkFormatter.formatCoordinates(null, null, null),
+        )
+        assertTrue(TntPhotoWatermarkFormatter.isSafeChildFileName("tnt_photo_123abc.tntimg"))
+        assertFalse(TntPhotoWatermarkFormatter.isSafeChildFileName("../secret.txt"))
+        assertFalse(TntPhotoWatermarkFormatter.isSafeChildFileName("sub/photo.tntimg"))
     }
 }

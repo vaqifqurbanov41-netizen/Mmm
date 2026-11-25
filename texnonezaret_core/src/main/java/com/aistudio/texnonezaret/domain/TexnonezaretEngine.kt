@@ -685,7 +685,7 @@ object TexnonezaretEngine {
     }
 
     /**
-     * Deterministic FNV-1a 32-bit salted hash matching Texnonəzarət's PIN verification.
+     * Deterministic FNV-1a 32-bit salted hash retained for backwards migration & unit tests.
      */
     fun hashPin(pin: String): String {
         var h = 2166136261uL.toUInt()
@@ -695,5 +695,50 @@ object TexnonezaretEngine {
             h *= 16777619u
         }
         return h.toString(16)
+    }
+
+    private const val STRONG_PIN_PREFIX = "TNTPIN2:"
+    private const val PIN_PBKDF2_ITERATIONS = 12_000
+
+    fun hashPinStrong(pin: String, saltBytes: ByteArray = randomSaltBytes(16)): String {
+        val derived = com.aistudio.texnonezaret.security.SecurityGuard.pbkdf2HmacSha256(
+            password = pin.toByteArray(Charsets.UTF_8),
+            salt = saltBytes,
+            iterations = PIN_PBKDF2_ITERATIONS,
+            dkLen = 32,
+        )
+        val saltHex = com.aistudio.texnonezaret.security.SecurityGuard.bytesToHex(saltBytes)
+        val digestHex = com.aistudio.texnonezaret.security.SecurityGuard.bytesToHex(derived)
+        return "$STRONG_PIN_PREFIX$saltHex:$digestHex"
+    }
+
+    fun isStrongPinHash(storedHash: String?): Boolean =
+        storedHash != null && storedHash.startsWith(STRONG_PIN_PREFIX)
+
+    fun verifyPinHash(candidatePin: String, storedHash: String?): Boolean {
+        if (storedHash.isNullOrBlank() || candidatePin.isEmpty()) return false
+        if (!storedHash.startsWith(STRONG_PIN_PREFIX)) {
+            val expected = hashPin(candidatePin).toByteArray(Charsets.UTF_8)
+            val actual = storedHash.toByteArray(Charsets.UTF_8)
+            return java.security.MessageDigest.isEqual(expected, actual)
+        }
+        val rest = storedHash.removePrefix(STRONG_PIN_PREFIX)
+        val sep = rest.indexOf(':')
+        if (sep <= 0) return false
+        val salt = com.aistudio.texnonezaret.security.SecurityGuard.hexToBytesOrNull(rest.substring(0, sep))
+            ?: return false
+        val expected = com.aistudio.texnonezaret.security.SecurityGuard.hexToBytesOrNull(rest.substring(sep + 1))
+            ?: return false
+        val derived = com.aistudio.texnonezaret.security.SecurityGuard.pbkdf2HmacSha256(
+            password = candidatePin.toByteArray(Charsets.UTF_8),
+            salt = salt,
+            iterations = PIN_PBKDF2_ITERATIONS,
+            dkLen = expected.size,
+        )
+        return java.security.MessageDigest.isEqual(derived, expected)
+    }
+
+    private fun randomSaltBytes(size: Int): ByteArray = ByteArray(size).also {
+        java.security.SecureRandom().nextBytes(it)
     }
 }

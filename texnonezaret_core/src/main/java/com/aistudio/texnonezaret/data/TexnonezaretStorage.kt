@@ -35,6 +35,8 @@ class TexnonezaretStorage(context: Context) {
         private const val KEY_MASTER_LOCK_UNTIL = "master_lock_until"
         private const val KEY_SEALED_SIGNER = "sealed_signer_sha256"
         private const val KEY_PREFS_HMAC = "security_prefs_hmac_v1"
+        private const val KEY_PREFS_HMAC_V2 = "security_prefs_hmac_v2"
+        private const val KEY_IMMEDIATE_BG_LOCK = "immediate_bg_lock"
         private const val KEY_THEME_MODE = "theme_mode"
     }
 
@@ -92,34 +94,49 @@ class TexnonezaretStorage(context: Context) {
         updateSecurityHmac()
     }
 
+    fun isImmediateBgLockEnabled(): Boolean = prefs.getBoolean(KEY_IMMEDIATE_BG_LOCK, false)
+
+    fun setImmediateBgLockEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_IMMEDIATE_BG_LOCK, enabled).apply()
+        updateSecurityHmac()
+    }
+
     fun verifySecurityPrefsIntegrity(): Boolean {
-        val storedHmac = prefs.getString(KEY_PREFS_HMAC, null)
+        val storedHmacV2 = prefs.getString(KEY_PREFS_HMAC_V2, null)
+        val storedHmacV1 = prefs.getString(KEY_PREFS_HMAC, null)
         val hasSecurityFields = getSavedPinHash() != null ||
             getFailCount() > 0 ||
             getLockUntilMillis() > 0L ||
             getMasterFailCount() > 0 ||
             getMasterLockUntilMillis() > 0L ||
-            getSealedSignerSha256() != null
+            getSealedSignerSha256() != null ||
+            prefs.contains(KEY_IMMEDIATE_BG_LOCK)
 
-        if (!hasSecurityFields && storedHmac == null) {
+        if (!hasSecurityFields && storedHmacV2 == null && storedHmacV1 == null) {
             return true
         }
-        if (storedHmac.isNullOrBlank()) {
-            // Migrate existing pre-hardening preferences seamlessly once
-            if (hasSecurityFields) {
-                updateSecurityHmac()
-                return true
-            }
-            return false
+        if (!storedHmacV2.isNullOrBlank()) {
+            return SecurityGuard.verifyIntegrityHmac(buildSecurityCanonicalStringV2(), storedHmacV2)
         }
-        return SecurityGuard.verifyIntegrityHmac(buildSecurityCanonicalString(), storedHmac)
+        if (!storedHmacV1.isNullOrBlank()) {
+            val v1Valid = SecurityGuard.verifyIntegrityHmac(buildSecurityCanonicalStringV1(), storedHmacV1)
+            if (v1Valid) {
+                updateSecurityHmac()
+            }
+            return v1Valid
+        }
+        if (hasSecurityFields) {
+            updateSecurityHmac()
+            return true
+        }
+        return false
     }
 
     fun refreshSecurityIntegritySeal() {
         updateSecurityHmac()
     }
 
-    private fun buildSecurityCanonicalString(): String {
+    private fun buildSecurityCanonicalStringV1(): String {
         return listOf(
             getSavedPinHash().orEmpty(),
             getFailCount().toString(),
@@ -130,9 +147,16 @@ class TexnonezaretStorage(context: Context) {
         ).joinToString("|")
     }
 
+    private fun buildSecurityCanonicalStringV2(): String {
+        return buildSecurityCanonicalStringV1() + "|" + if (isImmediateBgLockEnabled()) "1" else "0"
+    }
+
     private fun updateSecurityHmac() {
-        val hmac = SecurityGuard.computeIntegrityHmac(buildSecurityCanonicalString())
-        prefs.edit().putString(KEY_PREFS_HMAC, hmac).apply()
+        val hmacV2 = SecurityGuard.computeIntegrityHmac(buildSecurityCanonicalStringV2())
+        prefs.edit()
+            .putString(KEY_PREFS_HMAC_V2, hmacV2)
+            .remove(KEY_PREFS_HMAC)
+            .apply()
     }
 
     fun getThemeMode(): ThemeMode {

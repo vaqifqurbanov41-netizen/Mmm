@@ -97,13 +97,29 @@ object SpreadsheetParser {
 
     private fun parseXlsx(bytes: ByteArray): List<List<String>> {
         val entries = HashMap<String, ByteArray>()
+        var totalDecompressed = 0L
+        var entryCount = 0
+        val maxEntries = 200
+        val maxTotalBytes = 40L * 1024L * 1024L
+        val buf = ByteArray(8192)
         ZipInputStream(ByteArrayInputStream(bytes)).use { zis ->
             var entry = zis.nextEntry
-            while (entry != null) {
+            while (entry != null && entryCount < maxEntries) {
                 if (!entry.isDirectory) {
                     val normName = entry.name.trimStart('/').lowercase(Locale.US)
-                    if (normName.endsWith(".xml") || normName.endsWith(".rels")) {
-                        entries[normName] = zis.readBytes()
+                    if (!normName.contains("..") && (normName.endsWith(".xml") || normName.endsWith(".rels"))) {
+                        entryCount++
+                        val baos = ByteArrayOutputStream()
+                        while (true) {
+                            val read = zis.read(buf)
+                            if (read <= 0) break
+                            totalDecompressed += read
+                            if (totalDecompressed > maxTotalBytes) {
+                                return emptyList()
+                            }
+                            baos.write(buf, 0, read)
+                        }
+                        entries[normName] = baos.toByteArray()
                     }
                 }
                 runCatching { zis.closeEntry() }
@@ -861,6 +877,10 @@ object SpreadsheetParser {
     private fun parseXmlWithSax(xml: String, handler: DefaultHandler) {
         val factory = SAXParserFactory.newInstance().apply {
             isNamespaceAware = false
+            runCatching { setFeature("http://apache.org/xml/features/disallow-doctype-decl", true) }
+            runCatching { setFeature("http://xml.org/sax/features/external-general-entities", false) }
+            runCatching { setFeature("http://xml.org/sax/features/external-parameter-entities", false) }
+            runCatching { setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false) }
         }
         factory.newSAXParser().parse(InputSource(StringReader(xml)), handler)
     }

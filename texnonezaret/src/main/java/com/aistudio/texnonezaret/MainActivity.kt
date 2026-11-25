@@ -1,6 +1,7 @@
 package com.aistudio.texnonezaret
 
 import android.os.Bundle
+import android.view.View
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -15,8 +16,10 @@ class MainActivity : ComponentActivity() {
             WindowManager.LayoutParams.FLAG_SECURE,
             WindowManager.LayoutParams.FLAG_SECURE,
         )
+        window.decorView.filterTouchesWhenObscured = true
         setContent {
             TexnonezaretRoot()
         }
+        findViewById<View>(android.R.id.content)?.filterTouchesWhenObscured = true
     }
 }

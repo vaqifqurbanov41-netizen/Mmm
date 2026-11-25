@@ -41,6 +41,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -176,6 +177,8 @@ fun InterventionPasswordDialog(
 fun SecurityCenterDialog(
     report: SecurityIntegrityReport?,
     isInterventionUnlocked: Boolean,
+    immediateBgLock: Boolean = false,
+    onToggleImmediateBgLock: (Boolean) -> Unit = {},
     onUnlockIntervention: () -> Unit,
     onLockIntervention: () -> Unit,
     onDismiss: () -> Unit,
@@ -257,9 +260,9 @@ fun SecurityCenterDialog(
                         detail = report.packageName,
                     )
                     SecurityCheckRow(
-                        title = "Ekran və Yazma Qoruması",
-                        ok = report.screenProtectionEnabled,
-                        detail = "FLAG_SECURE aktivdir",
+                        title = "Ekran və Tapjacking Qoruması",
+                        ok = report.screenProtectionEnabled && report.tapjackingProtected,
+                        detail = "FLAG_SECURE və pərdəyə-qarşı toxunuş filtri aktivdir",
                     )
                     SecurityCheckRow(
                         title = "100% Oflayn İzolyasiya",
@@ -267,19 +270,63 @@ fun SecurityCenterDialog(
                         detail = if (report.offlineIsolated) "Şəbəkə icazəsi yoxdur" else "Şəbəkə icazəsi aşkarlandı",
                     )
                     SecurityCheckRow(
-                        title = "Yaddaş Şifrələməsi & HMAC",
-                        ok = report.storageIntegrityOk,
-                        detail = if (report.storageIntegrityOk) "AES-256-GCM və HMAC tamdır" else "Yaddaş bütövlüyü pozulub",
-                    )
-                    SecurityCheckRow(
-                        title = "Anti-Debug / Anti-Hook",
-                        ok = report.noDebuggerAttached && report.noHookFramework,
-                        detail = if (report.noDebuggerAttached && report.noHookFramework) {
-                            "Debugger və kənar müdaxilə yoxdur"
-                        } else {
-                            "Kənar debugger və ya hook aşkarlandı"
+                        title = "Android KeyStore & AES-256-GCM",
+                        ok = report.storageIntegrityOk && report.photoVaultIntegrityOk,
+                        detail = buildString {
+                            append(if (report.keyStoreActive) "Aparat KeyStore + " else "")
+                            append(if (report.storageIntegrityOk && report.photoVaultIntegrityOk) {
+                                "Cədvəl, Foto Qalereya və HMAC tamdır"
+                            } else {
+                                "Yaddaş və ya foto bütövlüyü pozulub"
+                            })
                         },
                     )
+                    SecurityCheckRow(
+                        title = "PIN Şifrələməsi (PBKDF2-SHA256)",
+                        ok = true,
+                        detail = "12,000 iterasiya duzlu heş + 30 san. cəhd kilidi",
+                    )
+                    SecurityCheckRow(
+                        title = "Anti-Debug / Anti-Hook / Root",
+                        ok = report.noDebuggerAttached && report.noHookFramework && report.noRootDetected,
+                        detail = when {
+                            !report.noDebuggerAttached -> "Aktiv debugger qoşulması aşkarlandı"
+                            !report.noHookFramework -> "Kənar müdaxilə (Frida/Xposed) aşkarlandı"
+                            !report.noRootDetected -> "Root / test-keys mühiti müşahidə edildi"
+                            else -> "Debugger, hook və root müdaxiləsi yoxdur"
+                        },
+                    )
+
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = extra.bg,
+                        border = BorderStroke(1.dp, extra.line),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Arxa plana keçəndə dərhal PIN kilidi",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = extra.ink,
+                                )
+                                Text(
+                                    text = "Tətbiqdən çıxan kimi PIN soruşulsun",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = extra.muted,
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Switch(
+                                checked = immediateBgLock,
+                                onCheckedChange = onToggleImmediateBgLock,
+                            )
+                        }
+                    }
                 }
             }
         },

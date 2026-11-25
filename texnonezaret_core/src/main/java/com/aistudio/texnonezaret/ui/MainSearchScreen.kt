@@ -1,11 +1,16 @@
 package com.aistudio.texnonezaret.ui
 
+import android.Manifest
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.speech.RecognizerIntent
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -51,6 +56,8 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.TableChart
@@ -94,6 +101,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.aistudio.texnonezaret.data.ThemeMode
+import com.aistudio.texnonezaret.data.TntCapturedPhoto
 import com.aistudio.texnonezaret.domain.ColumnField
 import com.aistudio.texnonezaret.domain.InspectionStatusKind
 import com.aistudio.texnonezaret.domain.StatusFilter
@@ -104,12 +112,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun MainSearchScreen(
     state: SearchUiState,
     securityState: SecurityUiState,
+    vaultState: PhotoVaultUiState,
     effects: SharedFlow<InterventionUiEffect>,
     onImportSpreadsheet: (Uri) -> Unit,
     onClearData: () -> Unit,
@@ -125,11 +135,23 @@ fun MainSearchScreen(
     onLockApp: () -> Unit,
     onBuildBackupJson: () -> String?,
     onImportBackupUri: (Uri) -> Unit,
+    onSelectTab: (TntBottomTab) -> Unit,
+    onMarkExternalCapturePending: (Boolean) -> Unit,
+    onSaveCapturedPhoto: (File, String?) -> Unit,
+    onOpenPhotoPreview: (TntCapturedPhoto) -> Unit,
+    onClosePhotoPreview: () -> Unit,
+    onDeleteVaultPhoto: (String) -> Unit,
+    onLoadPhotoBytes: suspend (TntCapturedPhoto) -> ByteArray?,
 ) {
     val extra = LocalTexnoColors.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var localMessage by remember { mutableStateOf<String?>(null) }
+    var pendingCaptureFile by remember { mutableStateOf<File?>(null) }
+
+    BackHandler(enabled = vaultState.activeTab == TntBottomTab.GALLERY) {
+        onSelectTab(TntBottomTab.SEARCH)
+    }
 
     val spreadsheetPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -185,6 +207,77 @@ fun MainSearchScreen(
         }
     }
 
+    val cameraCaptureLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        val file = pendingCaptureFile
+        pendingCaptureFile = null
+        if (success && file != null && file.exists() && file.length() > 0L) {
+            localMessage = null
+            onSaveCapturedPhoto(file, state.plateQuery.takeIf { it.isNotBlank() })
+        } else {
+            onMarkExternalCapturePending(false)
+            runCatching { file?.delete() }
+        }
+    }
+
+    fun launchSystemCamera() {
+        runCatching {
+            val tmpDir = File(context.cacheDir, "camera_tmp").apply { mkdirs() }
+            val tempFile = File(tmpDir, "tnt_cap_${System.currentTimeMillis()}.jpg")
+            val uri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                tempFile,
+            )
+            pendingCaptureFile = tempFile
+            onMarkExternalCapturePending(true)
+            cameraCaptureLauncher.launch(uri)
+        }.onFailure {
+            onMarkExternalCapturePending(false)
+            pendingCaptureFile = null
+            localMessage = "Kamera açıla bilmədi."
+        }
+    }
+
+    val cameraAndLocationPermLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        val camGranted = grants[Manifest.permission.CAMERA] == true ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+        if (camGranted) {
+            launchSystemCamera()
+        } else {
+            localMessage = "Şəkil çəkmək üçün kamera icazəsi tələb olunur."
+        }
+    }
+
+    fun requestCameraAndCapture() {
+        val camGranted = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.CAMERA,
+        ) == PackageManager.PERMISSION_GRANTED
+        val fineGranted = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_FINE_LOCATION,
+        ) == PackageManager.PERMISSION_GRANTED
+        val coarseGranted = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (camGranted && (fineGranted || coarseGranted)) {
+            launchSystemCamera()
+        } else {
+            val missing = buildList {
+                if (!camGranted) add(Manifest.permission.CAMERA)
+                if (!fineGranted) add(Manifest.permission.ACCESS_FINE_LOCATION)
+                if (!coarseGranted) add(Manifest.permission.ACCESS_COARSE_LOCATION)
+            }
+            cameraAndLocationPermLauncher.launch(missing.toTypedArray())
+        }
+    }
+
     LaunchedEffect(effects) {
         effects.collect { effect ->
             when (effect) {
@@ -202,15 +295,44 @@ fun MainSearchScreen(
             .background(extra.bg)
             .statusBarsPadding(),
     ) {
-        LazyColumn(
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier
-                .weight(1f)
-                .widthIn(max = 680.dp)
-                .fillMaxWidth()
-                .testTag("main_search_list"),
-        ) {
+        if (vaultState.activeTab == TntBottomTab.GALLERY) {
+            if (!localMessage.isNullOrBlank()) {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = extra.badBg,
+                    modifier = Modifier
+                        .widthIn(max = 680.dp)
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                ) {
+                    Text(
+                        text = localMessage.orEmpty(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = extra.badText,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    )
+                }
+            }
+            TntPhotoGalleryScreen(
+                vaultState = vaultState,
+                onRequestCapturePhoto = ::requestCameraAndCapture,
+                onOpenPhoto = onOpenPhotoPreview,
+                onClosePhoto = onClosePhotoPreview,
+                onDeletePhoto = onDeleteVaultPhoto,
+                onLoadPhotoBytes = onLoadPhotoBytes,
+                modifier = Modifier.weight(1f),
+            )
+        } else {
+            LazyColumn(
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .widthIn(max = 680.dp)
+                    .fillMaxWidth()
+                    .testTag("main_search_list"),
+            ) {
             // Top bar & security/theme actions
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -754,11 +876,13 @@ fun MainSearchScreen(
                     }
                 }
             }
+            }
         }
 
-        // Fixed bottom author footer on main page
+        // Bottom Camera Capture & Protected Gallery Bar + Author line
         Surface(
             color = extra.surface,
+            tonalElevation = 2.dp,
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding(),
@@ -767,27 +891,143 @@ fun MainSearchScreen(
                 HorizontalDivider(color = extra.line, thickness = 1.dp)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .widthIn(max = 680.dp)
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                ) {
+                    BottomTabButton(
+                        label = "Axtarış",
+                        icon = Icons.Filled.Search,
+                        selected = vaultState.activeTab == TntBottomTab.SEARCH,
+                        onClick = { onSelectTab(TntBottomTab.SEARCH) },
+                        testTag = "bottom_tab_search",
+                        modifier = Modifier.weight(1f),
+                    )
+
+                    Surface(
+                        onClick = ::requestCameraAndCapture,
+                        shape = RoundedCornerShape(14.dp),
+                        color = extra.brand,
+                        shadowElevation = 2.dp,
+                        modifier = Modifier
+                            .weight(1.25f)
+                            .heightIn(min = 48.dp)
+                            .testTag("bottom_capture_photo_btn"),
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
+                        ) {
+                            if (vaultState.isProcessingPhoto) {
+                                CircularProgressIndicator(
+                                    color = extra.brandInk,
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Filled.PhotoCamera,
+                                    contentDescription = "Şəkil çək",
+                                    tint = extra.brandInk,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Şəkil çək",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = extra.brandInk,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+
+                    val galleryLabel = if (vaultState.photos.isNotEmpty()) {
+                        "Qalereya (${vaultState.photos.size})"
+                    } else {
+                        "Qalereya"
+                    }
+                    BottomTabButton(
+                        label = galleryLabel,
+                        icon = Icons.Filled.PhotoLibrary,
+                        selected = vaultState.activeTab == TntBottomTab.GALLERY,
+                        onClick = { onSelectTab(TntBottomTab.GALLERY) },
+                        testTag = "bottom_tab_gallery",
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                        .padding(start = 16.dp, end = 16.dp, bottom = 6.dp),
                 ) {
                     Icon(
                         imageVector = Icons.Filled.Shield,
                         contentDescription = null,
                         tint = extra.brand,
-                        modifier = Modifier.size(15.dp),
+                        modifier = Modifier.size(13.dp),
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(5.dp))
                     Text(
                         text = "Müəllif: Vaqif Qurbanov Əvəz",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = extra.ink,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontSize = 11.sp,
+                        color = extra.muted,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.testTag("author_footer_text"),
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun BottomTabButton(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    selected: Boolean,
+    onClick: () -> Unit,
+    testTag: String,
+    modifier: Modifier = Modifier,
+) {
+    val extra = LocalTexnoColors.current
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(12.dp),
+        color = if (selected) extra.okBg else extra.bg,
+        border = BorderStroke(1.dp, if (selected) extra.brand else extra.line),
+        modifier = modifier
+            .heightIn(min = 48.dp)
+            .testTag(testTag),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp),
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = if (selected) extra.okText else extra.muted,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(5.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
+                color = if (selected) extra.okText else extra.ink,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }

@@ -17,12 +17,15 @@ fun TexnonezaretRoot(
     val pinState by viewModel.pinState.collectAsStateWithLifecycle()
     val searchState by viewModel.searchState.collectAsStateWithLifecycle()
     val securityState by viewModel.securityState.collectAsStateWithLifecycle()
+    val vaultState by viewModel.vaultState.collectAsStateWithLifecycle()
     val lifecycleOwner = LocalLifecycleOwner.current
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                viewModel.checkIdleLockOnForeground()
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> viewModel.checkIdleLockOnForeground()
+                Lifecycle.Event.ON_STOP -> viewModel.onAppBackgrounded()
+                else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -53,6 +56,7 @@ fun TexnonezaretRoot(
             MainSearchScreen(
                 state = searchState,
                 securityState = securityState,
+                vaultState = vaultState,
                 effects = viewModel.effects,
                 onImportSpreadsheet = viewModel::importSpreadsheetUri,
                 onClearData = viewModel::clearLoadedSpreadsheet,
@@ -68,6 +72,15 @@ fun TexnonezaretRoot(
                 onLockApp = viewModel::lockNow,
                 onBuildBackupJson = viewModel::buildBackupJson,
                 onImportBackupUri = viewModel::importBackupUri,
+                onSelectTab = viewModel::setActiveTab,
+                onMarkExternalCapturePending = viewModel::markExternalCapturePending,
+                onSaveCapturedPhoto = { file, plate ->
+                    viewModel.processAndSaveCapturedPhoto(file, plate)
+                },
+                onOpenPhotoPreview = viewModel::openPhotoPreview,
+                onClosePhotoPreview = viewModel::closePhotoPreview,
+                onDeleteVaultPhoto = viewModel::deleteVaultPhoto,
+                onLoadPhotoBytes = viewModel::loadDecryptedPhotoBytes,
             )
 
             if (securityState.showInterventionDialog) {
@@ -84,6 +97,8 @@ fun TexnonezaretRoot(
                 SecurityCenterDialog(
                     report = securityState.integrityReport,
                     isInterventionUnlocked = securityState.isInterventionUnlocked,
+                    immediateBgLock = securityState.immediateBgLock,
+                    onToggleImmediateBgLock = viewModel::toggleImmediateBgLock,
                     onUnlockIntervention = {
                         viewModel.requestProtectedAction(PendingInterventionAction.OpenSecurityCenter)
                     },
