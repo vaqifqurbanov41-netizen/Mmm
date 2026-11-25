@@ -356,9 +356,12 @@ fun applyCustomAppCheckDebugToken(context: Context, token: String): Boolean {
                 .putString(DEBUG_SECRET_KEY, trimmed)
                 .commit()
             if (BuildConfig.DEBUG) {
-                FirebaseAppCheck.getInstance().installAppCheckProviderFactory(
+                val appCheck = FirebaseAppCheck.getInstance()
+                appCheck.setTokenAutoRefreshEnabled(true)
+                appCheck.installAppCheckProviderFactory(
                     DebugAppCheckProviderFactory.getInstance()
                 )
+                runCatching { appCheck.getAppCheckToken(true) }
             }
         }
         true
@@ -400,7 +403,9 @@ fun configureAppCheck(context: Context, intent: Intent?) {
             prefs.edit()
                 .putString(DEBUG_SECRET_KEY, effectiveToken)
                 .commit()
-            FirebaseAppCheck.getInstance().installAppCheckProviderFactory(
+            val appCheck = FirebaseAppCheck.getInstance()
+            appCheck.setTokenAutoRefreshEnabled(true)
+            appCheck.installAppCheckProviderFactory(
                 DebugAppCheckProviderFactory.getInstance()
             )
             Log.d(

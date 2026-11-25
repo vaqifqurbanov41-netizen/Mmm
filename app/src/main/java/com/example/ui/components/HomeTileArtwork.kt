@@ -37,6 +37,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.rotate
@@ -55,13 +56,15 @@ import com.example.ui.theme.LocalAqroColors
 fun AqroLauncherIconEmblem(
     modifier: Modifier = Modifier,
     size: Dp = 40.dp,
+    shape: Shape = RoundedCornerShape(size * 0.26f),
+    tag: String = "header_app_icon",
 ) {
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier
             .size(size)
-            .clip(RoundedCornerShape(size * 0.26f))
-            .testTag("header_app_icon"),
+            .clip(shape)
+            .testTag(tag),
     ) {
         Image(
             painter = painterResource(id = R.drawable.ic_launcher_background),

@@ -51,6 +51,7 @@ interface AiRepository {
         farmerRegion: String,
         language: AppLanguage,
         farmContextSummary: String = "",
+        bitmap: Bitmap? = null,
     ): Flow<String>
 
     fun analyzePlantPhotoStream(
@@ -166,6 +167,7 @@ class FirebaseAiRepository : AiRepository {
         farmerRegion: String,
         language: AppLanguage,
         farmContextSummary: String,
+        bitmap: Bitmap?,
     ): Flow<String> = flow {
         val langInstruction = when (language) {
             AppLanguage.AZ -> "Respond strictly in natural, professional Azerbaijani (Azərbaycan dili)."
@@ -174,6 +176,11 @@ class FirebaseAiRepository : AiRepository {
         }
 
         val localCatalogContext = OfflineAgronomistAdvisor.buildPromptContext(question, language)
+        val visualClues = if (bitmap != null) {
+            OfflineAgronomistAdvisor.describeBitmapClues(bitmap, language)
+        } else {
+            ""
+        }
         val turnPrompt = buildString {
             appendLine("[Instructions]")
             appendLine(langInstruction)
@@ -187,18 +194,29 @@ class FirebaseAiRepository : AiRepository {
                 appendLine("Reference context:")
                 appendLine(localCatalogContext)
             }
+            if (visualClues.isNotBlank()) {
+                appendLine("Attached photo visual cues:")
+                appendLine(visualClues)
+            }
             appendLine()
             appendLine("[Farmer Question]")
             append(question.trim())
         }
 
         val chatHistory = buildNormalizedChatHistory(history.takeLast(10))
+        val scaledBitmap = bitmap?.let { scaleBitmapIfNeeded(it, maxDim = 1024) }
+        val userContent = content {
+            if (scaledBitmap != null) {
+                image(scaledBitmap)
+            }
+            text(turnPrompt)
+        }
 
         suspend fun tryChatModel(model: GenerativeModel): String {
             val accumulated = StringBuilder()
             withTimeout(60_000L) {
                 val chat = model.startChat(history = chatHistory)
-                chat.sendMessageStream(turnPrompt).collect { chunk ->
+                chat.sendMessageStream(userContent).collect { chunk ->
                     val chunkText = chunk.text.orEmpty()
                     if (chunkText.isNotEmpty()) {
                         accumulated.append(chunkText)
@@ -206,7 +224,7 @@ class FirebaseAiRepository : AiRepository {
                     }
                 }
                 if (accumulated.isBlank()) {
-                    val unary = model.startChat(history = chatHistory).sendMessage(turnPrompt)
+                    val unary = model.startChat(history = chatHistory).sendMessage(userContent)
                     val unaryText = unary.text.orEmpty()
                     if (unaryText.isNotBlank()) {
                         accumulated.append(unaryText)

@@ -161,6 +161,7 @@ fun LocalToolsApp(
     val localFields by localRecordsStore.fields.collectAsStateWithLifecycle()
     val localEquipment by localRecordsStore.equipment.collectAsStateWithLifecycle()
     val localFinance by localRecordsStore.finance.collectAsStateWithLifecycle()
+    val localPhotos by localRecordsStore.photos.collectAsStateWithLifecycle()
     val reminderDays by preferencesStore.equipmentReminderDaysFlow.collectAsStateWithLifecycle(initialValue = 7)
     val hiddenModules by preferencesStore.hiddenModulesFlow.collectAsStateWithLifecycle(initialValue = emptySet())
     val seenNotifSignature by preferencesStore.seenNotifSignatureFlow.collectAsStateWithLifecycle(initialValue = "")
@@ -203,9 +204,16 @@ fun LocalToolsApp(
     var weatherState by remember { mutableStateOf(WeatherUiState()) }
     var climateState by remember { mutableStateOf(ClimateHistoryUiState()) }
 
-    fun sendLocalOrCloudAiQuestion(question: String, lang: AppLanguage) {
+    fun sendLocalOrCloudAiQuestion(question: String, lang: AppLanguage, imageBitmap: Bitmap? = null) {
         val trimmed = question.trim()
-        if (trimmed.isBlank() || isLocalChatStreaming) return
+        if ((trimmed.isBlank() && imageBitmap == null) || isLocalChatStreaming) return
+        val effectivePrompt = trimmed.ifBlank {
+            when (lang) {
+                AppLanguage.AZ -> "Bu şəkli aqronom kimi analiz et və tövsiyə ver."
+                AppLanguage.EN -> "Analyze this photo as an agronomist and provide recommendations."
+                AppLanguage.RU -> "Проанализируйте это фото как агроном и дайте рекомендации."
+            }
+        }
         val farmContextSummary = OfflineAgronomistAdvisor.buildFarmContextSummary(
             fields = localFields,
             tempC = weatherState.response?.current?.temperature2m,
@@ -214,17 +222,27 @@ fun LocalToolsApp(
             id = "loc_u_${System.currentTimeMillis()}",
             isUser = true,
             text = trimmed,
+            imageBitmap = imageBitmap,
         )
         val repo = aiRepository
         if (repo == null) {
+            val botAnswer = if (imageBitmap != null) {
+                OfflineAgronomistAdvisor.diagnosePlantPhotoOffline(
+                    bitmap = imageBitmap,
+                    note = effectivePrompt,
+                    language = lang,
+                )
+            } else {
+                OfflineAgronomistAdvisor.answerOffline(
+                    question = effectivePrompt,
+                    language = lang,
+                    farmContextSummary = farmContextSummary,
+                )
+            }
             val botMsg = ChatMessageUi(
                 id = "loc_b_${System.currentTimeMillis() + 1}",
                 isUser = false,
-                text = OfflineAgronomistAdvisor.answerOffline(
-                    question = trimmed,
-                    language = lang,
-                    farmContextSummary = farmContextSummary,
-                ),
+                text = botAnswer,
                 isStreaming = false,
             )
             offlineChatMessages = offlineChatMessages + userMsg + botMsg
@@ -232,7 +250,10 @@ fun LocalToolsApp(
         }
 
         val historySnapshot = offlineChatMessages.map {
-            ChatHistoryTurn(isUser = it.isUser, text = it.text)
+            ChatHistoryTurn(
+                isUser = it.isUser,
+                text = if (it.text.isNotBlank()) it.text else if (it.imageBitmap != null) "[Photo]" else "",
+            )
         }
         val botId = "loc_b_${System.currentTimeMillis() + 1}"
         val placeholderBot = ChatMessageUi(
@@ -248,12 +269,13 @@ fun LocalToolsApp(
         localChatJob = scope.launch {
             try {
                 repo.askAgronomistStream(
-                    question = trimmed,
+                    question = effectivePrompt,
                     history = historySnapshot,
                     farmerName = "",
                     farmerRegion = "",
                     language = lang,
                     farmContextSummary = farmContextSummary,
+                    bitmap = imageBitmap,
                 ).collect { accumulated ->
                     offlineChatMessages = offlineChatMessages.map { msg ->
                         if (msg.id == botId) msg.copy(text = accumulated, isStreaming = true) else msg
@@ -267,12 +289,21 @@ fun LocalToolsApp(
             } catch (e: Exception) {
                 Log.e("LocalToolsApp", "Cloud AI in local mode failed, falling back", e)
                 val errText = e.localizedMessage ?: e.message ?: "AI error"
-                val offlineAnswer = OfflineAgronomistAdvisor.answerOffline(
-                    question = trimmed,
-                    language = lang,
-                    aiFailureNote = errText,
-                    farmContextSummary = farmContextSummary,
-                )
+                val offlineAnswer = if (imageBitmap != null) {
+                    OfflineAgronomistAdvisor.diagnosePlantPhotoOffline(
+                        bitmap = imageBitmap,
+                        note = effectivePrompt,
+                        language = lang,
+                        aiFailureNote = errText,
+                    )
+                } else {
+                    OfflineAgronomistAdvisor.answerOffline(
+                        question = effectivePrompt,
+                        language = lang,
+                        aiFailureNote = errText,
+                        farmContextSummary = farmContextSummary,
+                    )
+                }
                 offlineChatMessages = offlineChatMessages.map { msg ->
                     if (msg.id == botId) {
                         msg.copy(
@@ -620,6 +651,7 @@ fun LocalToolsApp(
                         },
                         onBack = { navController.popBackStack() },
                         isOfflineOnly = !canUseCloudAi,
+                        galleryPhotos = localPhotos,
                     )
                 }
 

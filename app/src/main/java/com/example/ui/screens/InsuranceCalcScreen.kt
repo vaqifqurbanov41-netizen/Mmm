@@ -2,8 +2,11 @@ package com.example.ui.screens
 
 import android.content.Intent
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -20,11 +23,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.filled.Business
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.Button
@@ -34,12 +44,14 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -48,12 +60,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import com.example.data.model.AqroSigortaBranch
+import com.example.data.model.AqroSigortaCatalog
 import com.example.i18n.AppLanguage
 import com.example.i18n.LocalStrings
 import com.example.ui.components.AqroCard
@@ -140,6 +158,7 @@ fun InsuranceCalcScreen(
     var priceText by remember { mutableStateOf(formatNumber(insuranceCrops.first().defaultPriceAznTon, 0)) }
     var packageIndex by remember { mutableIntStateOf(0) } // 0 = basic, 1 = extended
     var applyStateSubsidy by remember { mutableStateOf(true) }
+    var showBranchesDialog by remember { mutableStateOf(false) }
 
     val area = areaText.replace(",", ".").toDoubleOrNull()?.coerceAtLeast(0.0) ?: 0.0
     val expectedYield = yieldText.replace(",", ".").toDoubleOrNull()?.coerceAtLeast(0.0) ?: 0.0
@@ -172,6 +191,18 @@ fun InsuranceCalcScreen(
         context.startActivity(Intent.createChooser(intent, strings.insuranceTitle))
     }
 
+    if (showBranchesDialog) {
+        InsuranceBranchesDirectoryDialog(
+            title = strings.insuranceBranchesCardTitle,
+            searchHint = strings.stationsSearchHint,
+            callLabel = strings.stationsCallBtn,
+            closeLabel = strings.back,
+            onCallBranch = { dialUri -> openExternalUrl(context, dialUri) },
+            onOpenPortal = { openExternalUrl(context, "https://asf.gov.az/") },
+            onDismiss = { showBranchesDialog = false },
+        )
+    }
+
     LazyColumn(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -199,6 +230,62 @@ fun InsuranceCalcScreen(
                         text = strings.insuranceSubtitle,
                         style = MaterialTheme.typography.bodyMedium,
                         color = extra.muted,
+                    )
+                }
+            }
+        }
+
+        // Compact clickable section: Aqrar sığorta (filiallar)
+        item {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.dp, extra.line),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .clickable { showBranchesDialog = true }
+                    .testTag("insurance_branches_card"),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF0369A1).copy(alpha = 0.14f)),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Business,
+                            contentDescription = strings.insuranceBranchesCardTitle,
+                            tint = Color(0xFF0369A1),
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = strings.insuranceBranchesCardTitle,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            text = strings.insuranceBranchesCardSub,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = extra.muted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = strings.open,
+                        tint = extra.muted,
                     )
                 }
             }
@@ -472,5 +559,184 @@ private fun InsuranceStatRow(
             softWrap = false,
             maxLines = 1,
         )
+    }
+}
+
+@Composable
+private fun InsuranceBranchesDirectoryDialog(
+    title: String,
+    searchHint: String,
+    callLabel: String,
+    closeLabel: String,
+    onCallBranch: (String) -> Unit,
+    onOpenPortal: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val extra = LocalAqroColors.current
+    var searchQuery by remember { mutableStateOf("") }
+    val filteredBranches = remember(searchQuery) {
+        AqroSigortaCatalog.filterBranches(searchQuery)
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(
+            shape = RoundedCornerShape(22.dp),
+            color = MaterialTheme.colorScheme.background,
+            tonalElevation = 4.dp,
+            modifier = Modifier
+                .fillMaxWidth(0.94f)
+                .heightIn(max = 600.dp)
+                .testTag("insurance_branches_dialog"),
+        ) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.padding(16.dp),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.VerifiedUser,
+                            contentDescription = null,
+                            tint = Color(0xFF0369A1),
+                            modifier = Modifier.size(22.dp),
+                        )
+                        Text(
+                            text = title,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.ExtraBold,
+                        )
+                    }
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(40.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Close,
+                            contentDescription = closeLabel,
+                        )
+                    }
+                }
+
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text(searchHint) },
+                    leadingIcon = {
+                        Icon(Icons.Filled.Search, contentDescription = null)
+                    },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("insurance_branches_search"),
+                )
+
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .fillMaxWidth(),
+                ) {
+                    items(filteredBranches, key = { it.id }) { branch ->
+                        InsuranceBranchItemCard(
+                            branch = branch,
+                            callLabel = callLabel,
+                            onCall = { onCallBranch(branch.dialUri) },
+                        )
+                    }
+                }
+
+                Row(
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    OutlinedButton(onClick = onOpenPortal) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("asf.gov.az", fontWeight = FontWeight.SemiBold)
+                    }
+                    TextButton(onClick = onDismiss) {
+                        Text(closeLabel, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InsuranceBranchItemCard(
+    branch: AqroSigortaBranch,
+    callLabel: String,
+    onCall: () -> Unit,
+) {
+    val extra = LocalAqroColors.current
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, extra.line),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("aqrosigorta_card_${branch.id}"),
+    ) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.padding(14.dp),
+        ) {
+            Text(
+                text = branch.name,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = branch.address,
+                style = MaterialTheme.typography.bodySmall,
+                color = extra.muted,
+            )
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = extra.pale,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable(onClick = onCall)
+                    .testTag("aqrosigorta_call_${branch.id}"),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Call,
+                        contentDescription = callLabel,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Text(
+                        text = branch.phone,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+        }
     }
 }

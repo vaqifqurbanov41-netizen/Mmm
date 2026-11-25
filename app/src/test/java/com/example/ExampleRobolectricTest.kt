@@ -452,7 +452,7 @@ class ExampleRobolectricTest {
                             )
                         ),
                         isStreaming = false,
-                        onSendQuestion = { _, _ -> },
+                        onSendQuestion = { _, _, _ -> },
                         onClearChat = {},
                         onBack = {},
                     )

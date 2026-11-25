@@ -2,6 +2,7 @@ package com.example
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -116,6 +117,14 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (!BuildConfig.PREVIEW_TEXNONEZARET) {
+            configureAppCheck(this, intent)
+        }
+    }
 }
 
 @Composable
@@ -227,6 +236,7 @@ private fun AuthenticatedMainApp(
 ) {
     val context = LocalContext.current
     val localRecordsStore = remember(context) { LocalRecordsStore(context.applicationContext) }
+    val localPhotos by localRecordsStore.photos.collectAsStateWithLifecycle()
     val viewModel: FarmViewModel = viewModel(
         key = currentUserId,
         factory = viewModelFactory {
@@ -487,9 +497,12 @@ private fun AuthenticatedMainApp(
                         language = language,
                         messages = chatMessages,
                         isStreaming = isChatStreaming,
-                        onSendQuestion = viewModel::sendAiQuestion,
+                        onSendQuestion = { q, lang, bmp ->
+                            viewModel.sendAiQuestion(q, lang, bmp)
+                        },
                         onClearChat = viewModel::clearChat,
                         onBack = { navController.popBackStack() },
+                        galleryPhotos = localPhotos,
                     )
                 }
 

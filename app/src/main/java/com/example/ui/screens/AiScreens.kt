@@ -47,6 +47,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Compare
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteSweep
@@ -56,6 +57,7 @@ import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.AlertDialog
@@ -112,6 +114,7 @@ import com.example.data.model.CropProtectionCatalog
 import com.example.i18n.AppLanguage
 import com.example.i18n.LocalStrings
 import com.example.ui.components.AqroCard
+import com.example.ui.components.AqroLauncherIconEmblem
 import com.example.ui.components.DangerBannerBox
 import com.example.ui.components.DiseaseComparisonCandidateRow
 import com.example.ui.components.DiseasePhotoComparisonDialog
@@ -132,17 +135,33 @@ fun ChatScreen(
     language: AppLanguage,
     messages: List<ChatMessageUi>,
     isStreaming: Boolean,
-    onSendQuestion: (String, AppLanguage) -> Unit,
+    onSendQuestion: (String, AppLanguage, Bitmap?) -> Unit,
     onClearChat: () -> Unit,
     onBack: () -> Unit,
     isOfflineOnly: Boolean = false,
+    galleryPhotos: List<LocalGalleryPhoto> = emptyList(),
 ) {
     val strings = LocalStrings.current
     val extra = LocalAqroColors.current
     val isDark = extra.isDark
+    val context = LocalContext.current
     var input by remember { mutableStateOf("") }
+    var attachedBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var showPhotoSourceDialog by remember { mutableStateOf(false) }
+    var showAppGalleryDialog by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
+
+    val phoneGalleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            val decoded = decodeUriToSampledBitmap(context, uri, maxDim = 1280)
+            if (decoded != null) {
+                attachedBitmap = decoded
+            }
+        }
+    }
 
     val hasAppCheckIssue = messages.any { !it.isUser && isAppCheckTokenError(it.text) }
 
@@ -205,21 +224,12 @@ fun ChatScreen(
                 }
 
                 Box(modifier = Modifier.size(40.dp)) {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clip(CircleShape)
-                            .background(Color(0xFF25D366).copy(alpha = 0.22f))
-                            .border(1.5.dp, Color.White.copy(alpha = 0.7f), CircleShape),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.AutoAwesome,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(21.dp),
-                        )
-                    }
+                    AqroLauncherIconEmblem(
+                        size = 40.dp,
+                        shape = CircleShape,
+                        tag = "ai_chat_logo",
+                        modifier = Modifier.border(1.5.dp, Color.White.copy(alpha = 0.8f), CircleShape),
+                    )
                     Box(
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
@@ -346,7 +356,8 @@ fun ChatScreen(
                         isUser = msg.isUser,
                         senderName = if (msg.isUser) null else strings.aiSampleLabel,
                         sourceLabel = null,
-                        text = msg.text.ifBlank { strings.loading },
+                        text = if (msg.isStreaming && msg.text.isBlank()) strings.loading else msg.text,
+                        imageBitmap = msg.imageBitmap,
                         timestamp = timeStr,
                         isStreaming = msg.isStreaming,
                         outgoingBg = outgoingBubbleBg,
@@ -426,6 +437,62 @@ fun ChatScreen(
                 }
             }
 
+            val previewBitmap = attachedBitmap
+            if (previewBitmap != null) {
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = composerBg,
+                    shadowElevation = 2.dp,
+                    border = BorderStroke(1.dp, bubbleMetaColor.copy(alpha = 0.25f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                        .testTag("ai_attachment_preview"),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.padding(8.dp),
+                    ) {
+                        Image(
+                            bitmap = previewBitmap.asImageBitmap(),
+                            contentDescription = strings.aiAttachedPhotoLabel,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .size(54.dp)
+                                .clip(RoundedCornerShape(10.dp)),
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = strings.aiAttachedPhotoLabel,
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = bubbleTextColor,
+                            )
+                            Text(
+                                text = strings.aiDefaultPhotoPrompt,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = bubbleMetaColor,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        IconButton(
+                            onClick = { attachedBitmap = null },
+                            modifier = Modifier
+                                .size(40.dp)
+                                .testTag("ai_remove_attachment_btn"),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Close,
+                                contentDescription = strings.back,
+                                tint = bubbleMetaColor,
+                            )
+                        }
+                    }
+                }
+            }
+
             Row(
                 verticalAlignment = Alignment.Bottom,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -450,13 +517,17 @@ fun ChatScreen(
                                 overflow = TextOverflow.Ellipsis,
                             )
                         },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Filled.AutoAwesome,
-                                contentDescription = null,
-                                tint = bubbleMetaColor,
-                                modifier = Modifier.size(20.dp),
-                            )
+                        trailingIcon = {
+                            IconButton(
+                                onClick = { showPhotoSourceDialog = true },
+                                modifier = Modifier.testTag("ai_attach_photo_btn"),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.AddPhotoAlternate,
+                                    contentDescription = strings.aiAttachPhotoDesc,
+                                    tint = bubbleMetaColor,
+                                )
+                            }
                         },
                         maxLines = 4,
                         colors = TextFieldDefaults.colors(
@@ -477,12 +548,14 @@ fun ChatScreen(
                 FilledIconButton(
                     onClick = {
                         val q = input.trim()
-                        if (q.isNotBlank()) {
+                        val bmp = attachedBitmap
+                        if (q.isNotBlank() || bmp != null) {
                             input = ""
-                            onSendQuestion(q, language)
+                            attachedBitmap = null
+                            onSendQuestion(q, language, bmp)
                         }
                     },
-                    enabled = !isStreaming && input.isNotBlank(),
+                    enabled = !isStreaming && (input.isNotBlank() || attachedBitmap != null),
                     colors = IconButtonDefaults.filledIconButtonColors(
                         containerColor = whatsappFabGreen,
                         contentColor = Color.White,
@@ -509,6 +582,171 @@ fun ChatScreen(
                 }
             }
         }
+    }
+
+    if (showPhotoSourceDialog) {
+        AlertDialog(
+            onDismissRequest = { showPhotoSourceDialog = false },
+            title = {
+                Text(
+                    text = strings.aiPhotoSourceTitle,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(
+                        onClick = {
+                            showPhotoSourceDialog = false
+                            showAppGalleryDialog = true
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("ai_pick_app_gallery_btn"),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.PhotoLibrary,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "${strings.aiPickFromAppGallery} (${galleryPhotos.size})",
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                    Button(
+                        onClick = {
+                            showPhotoSourceDialog = false
+                            phoneGalleryLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("ai_pick_phone_gallery_btn"),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.AddPhotoAlternate,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = strings.aiPickFromPhoneGallery,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showPhotoSourceDialog = false }) {
+                    Text(strings.back)
+                }
+            },
+        )
+    }
+
+    if (showAppGalleryDialog) {
+        AlertDialog(
+            onDismissRequest = { showAppGalleryDialog = false },
+            title = {
+                Text(
+                    text = strings.aiAppGalleryPickerTitle,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+            },
+            text = {
+                if (galleryPhotos.isEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            text = strings.aiAppGalleryEmptyMsg,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = extra.muted,
+                        )
+                        Button(
+                            onClick = {
+                                showAppGalleryDialog = false
+                                phoneGalleryLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(strings.aiPickFromPhoneGallery)
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 360.dp),
+                    ) {
+                        items(galleryPhotos, key = { it.fileName }) { photo ->
+                            val thumb = remember(photo.file.absolutePath) {
+                                decodeFileToSampledBitmap(photo.file, maxDim = 280)
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.surface,
+                                border = BorderStroke(1.dp, extra.line),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .clickable {
+                                        val fullBmp = decodeFileToSampledBitmap(photo.file, maxDim = 1280)
+                                        if (fullBmp != null) {
+                                            attachedBitmap = fullBmp
+                                        }
+                                        showAppGalleryDialog = false
+                                    }
+                                    .testTag("ai_app_gallery_item_${photo.fileName}"),
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    modifier = Modifier.padding(8.dp),
+                                ) {
+                                    if (thumb != null) {
+                                        Image(
+                                            bitmap = thumb.asImageBitmap(),
+                                            contentDescription = photo.caption,
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier
+                                                .size(56.dp)
+                                                .clip(RoundedCornerShape(8.dp)),
+                                        )
+                                    }
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = photo.caption.ifBlank { photo.fileName },
+                                            style = MaterialTheme.typography.labelLarge,
+                                            fontWeight = FontWeight.SemiBold,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Text(
+                                            text = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault())
+                                                .format(Date(photo.capturedAtMillis)),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = extra.muted,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showAppGalleryDialog = false }) {
+                    Text(strings.back)
+                }
+            },
+        )
     }
 }
 
@@ -567,6 +805,7 @@ private fun WhatsAppBubble(
     senderName: String?,
     sourceLabel: String?,
     text: String,
+    imageBitmap: Bitmap? = null,
     timestamp: String,
     isStreaming: Boolean,
     outgoingBg: Color,
@@ -618,12 +857,29 @@ private fun WhatsAppBubble(
                     Spacer(modifier = Modifier.height(3.dp))
                 }
 
-                Text(
-                    text = if (isStreaming) "$text ●" else text,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = textColor,
-                    lineHeight = 20.sp,
-                )
+                if (imageBitmap != null) {
+                    Image(
+                        bitmap = imageBitmap.asImageBitmap(),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 120.dp, max = 240.dp)
+                            .clip(RoundedCornerShape(10.dp)),
+                    )
+                    if (text.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                    }
+                }
+
+                if (text.isNotBlank()) {
+                    Text(
+                        text = if (isStreaming) "$text ●" else text,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = textColor,
+                        lineHeight = 20.sp,
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(3.dp))
 
@@ -728,7 +984,7 @@ private fun AppCheckTroubleCard() {
             value = customTokenInput,
             onValueChange = { customTokenInput = it; appliedNotice = null },
             label = { Text(strings.aiCustomDebugTokenLabel) },
-            placeholder = { Text(deviceUuid) },
+            placeholder = { Text("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth().testTag("appcheck_custom_token_input"),
         )
@@ -1392,4 +1648,24 @@ private fun decodeUriToSampledBitmap(context: Context, uri: Uri, maxDim: Int = 1
     }
 } catch (_: Exception) {
     decodeUriToBitmap(context, uri)
+}
+
+private fun decodeFileToSampledBitmap(file: File, maxDim: Int = 1280): Bitmap? = try {
+    if (!file.exists()) null
+    else {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, bounds)
+        var sampleSize = 1
+        if (bounds.outWidth > maxDim || bounds.outHeight > maxDim) {
+            val halfW = bounds.outWidth / 2
+            val halfH = bounds.outHeight / 2
+            while ((halfW / sampleSize) >= maxDim && (halfH / sampleSize) >= maxDim) {
+                sampleSize *= 2
+            }
+        }
+        val opts = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+        BitmapFactory.decodeFile(file.absolutePath, opts)
+    }
+} catch (_: Exception) {
+    null
 }

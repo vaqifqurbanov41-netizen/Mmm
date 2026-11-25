@@ -107,6 +107,7 @@ data class ChatMessageUi(
     val isUser: Boolean,
     val text: String,
     val isStreaming: Boolean = false,
+    val imageBitmap: Bitmap? = null,
 )
 
 data class DocScanUiState(
@@ -512,17 +513,28 @@ class FarmViewModel(
     }
 
     // AI Chat
-    fun sendAiQuestion(question: String, language: AppLanguage) {
+    fun sendAiQuestion(question: String, language: AppLanguage, imageBitmap: Bitmap? = null) {
         val trimmed = question.trim()
-        if (trimmed.isBlank() || _isChatStreaming.value) return
+        if ((trimmed.isBlank() && imageBitmap == null) || _isChatStreaming.value) return
 
+        val effectivePrompt = trimmed.ifBlank {
+            when (language) {
+                AppLanguage.AZ -> "Bu şəkli aqronom kimi analiz et və tövsiyə ver."
+                AppLanguage.EN -> "Analyze this photo as an agronomist and provide recommendations."
+                AppLanguage.RU -> "Проанализируйте это фото как агроном и дайте рекомендации."
+            }
+        }
         val historySnapshot = _chatMessages.value.map {
-            ChatHistoryTurn(isUser = it.isUser, text = it.text)
+            ChatHistoryTurn(
+                isUser = it.isUser,
+                text = if (it.text.isNotBlank()) it.text else if (it.imageBitmap != null) "[Photo]" else "",
+            )
         }
         val userMsg = ChatMessageUi(
             id = "u_${System.currentTimeMillis()}",
             isUser = true,
             text = trimmed,
+            imageBitmap = imageBitmap,
         )
         val botId = "b_${System.currentTimeMillis() + 1}"
         val placeholderBot = ChatMessageUi(
@@ -546,12 +558,13 @@ class FarmViewModel(
             )
             try {
                 aiRepository.askAgronomistStream(
-                    question = trimmed,
+                    question = effectivePrompt,
                     history = historySnapshot,
                     farmerName = currentProfile?.fullName.orEmpty(),
                     farmerRegion = currentProfile?.place.orEmpty(),
                     language = language,
                     farmContextSummary = farmContextSummary,
+                    bitmap = imageBitmap,
                 ).collect { accumulated ->
                     _chatMessages.value = _chatMessages.value.map { msg ->
                         if (msg.id == botId) msg.copy(text = accumulated, isStreaming = true) else msg
@@ -565,12 +578,21 @@ class FarmViewModel(
             } catch (e: Exception) {
                 Log.e(TAG, "AI chat error", e)
                 val errText = e.localizedMessage ?: e.message ?: "AI error"
-                val offlineAnswer = OfflineAgronomistAdvisor.answerOffline(
-                    question = trimmed,
-                    language = language,
-                    aiFailureNote = errText,
-                    farmContextSummary = farmContextSummary,
-                )
+                val offlineAnswer = if (imageBitmap != null) {
+                    OfflineAgronomistAdvisor.diagnosePlantPhotoOffline(
+                        bitmap = imageBitmap,
+                        note = effectivePrompt,
+                        language = language,
+                        aiFailureNote = errText,
+                    )
+                } else {
+                    OfflineAgronomistAdvisor.answerOffline(
+                        question = effectivePrompt,
+                        language = language,
+                        aiFailureNote = errText,
+                        farmContextSummary = farmContextSummary,
+                    )
+                }
                 _chatMessages.value = _chatMessages.value.map { msg ->
                     if (msg.id == botId) {
                         msg.copy(

@@ -768,6 +768,16 @@ interface AppStrings {
     val aiInputPlaceholderShort: String
     val aiLocalSourceTag: String
     val aiCloudSourceTag: String
+    val aiAttachPhotoDesc: String
+    val aiPhotoSourceTitle: String
+    val aiPickFromAppGallery: String
+    val aiPickFromPhoneGallery: String
+    val aiAppGalleryPickerTitle: String
+    val aiAppGalleryEmptyMsg: String
+    val aiAttachedPhotoLabel: String
+    val aiDefaultPhotoPrompt: String
+    val insuranceBranchesCardTitle: String
+    val insuranceBranchesCardSub: String
 }
 
 val LocalStrings = staticCompositionLocalOf<AppStrings> {
