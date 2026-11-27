@@ -1,0 +1,611 @@
+package com.aistudio.testbaza.core.ui
+
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.ListAlt
+import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import com.aistudio.testbaza.core.domain.AnswerRule
+import com.aistudio.testbaza.core.domain.QuestionMasteryStatus
+import com.aistudio.testbaza.core.domain.QuizBank
+import com.aistudio.testbaza.core.domain.SessionQuestionItem
+import com.aistudio.testbaza.core.domain.TestBazaThemeMode
+import com.aistudio.testbaza.core.ui.theme.LocalVipColors
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+fun ToolsBottomSheet(
+    uiState: TestBazaUiState,
+    onSelectRule: (AnswerRule) -> Unit,
+    onPickFile: () -> Unit,
+    onOpenPasteDialog: () -> Unit,
+    onOpenKeyEditor: () -> Unit,
+    onExportHtml: () -> Unit,
+    onSwitchBank: (Long) -> Unit,
+    onDeleteBank: (QuizBank) -> Unit,
+    onToggleTheme: () -> Unit,
+    onResetProgressConfirmed: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val vip = LocalVipColors.current
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var showResetConfirm by remember { mutableStateOf(false) }
+
+    if (showResetConfirm) {
+        AlertDialog(
+            onDismissRequest = { showResetConfirm = false },
+            title = { Text("İrəliləyişi sıfırla?") },
+            text = {
+                Text("Bütün nəticə və səhv siyahısı sıfırlanacaq. Yüklənmiş suallar və seçilmiş doğru cavablar qalacaq.")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showResetConfirm = false
+                        onResetProgressConfirmed()
+                        onDismiss()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = vip.rose),
+                    modifier = Modifier.testTag("confirm_reset_button"),
+                ) {
+                    Text("Sıfırla")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showResetConfirm = false }) {
+                    Text("Ləğv et")
+                }
+            },
+        )
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = vip.surface,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 24.dp)
+                .navigationBarsPadding(),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column {
+                    Text(
+                        text = "VIP Alətlər və Baza",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = vip.gold,
+                    )
+                    Text(
+                        text = "Fayl yükləmə, cavab açarı və oflayn ixrac",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = vip.textSecondary,
+                    )
+                }
+                IconButton(
+                    onClick = onToggleTheme,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .testTag("tools_theme_toggle_button"),
+                ) {
+                    Icon(
+                        imageVector = if (uiState.themeMode == TestBazaThemeMode.DARK) {
+                            Icons.Default.LightMode
+                        } else {
+                            Icons.Default.DarkMode
+                        },
+                        contentDescription = "Görünüşü dəyiş",
+                        tint = vip.gold,
+                    )
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    text = "Yeni fayl yüklənəndə ilkin doğru cavab qaydası:",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = vip.textSecondary,
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    AnswerRule.entries.forEach { rule ->
+                        FilterChip(
+                            selected = uiState.importRule == rule,
+                            onClick = { onSelectRule(rule) },
+                            label = { Text(rule.label) },
+                            modifier = Modifier.testTag("rule_chip_${rule.name.lowercase()}"),
+                        )
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Button(
+                    onClick = {
+                        onDismiss()
+                        onPickFile()
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 50.dp)
+                        .testTag("tools_pick_file_button"),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = vip.emerald,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                    ),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.FolderOpen,
+                        contentDescription = "Word və ya PDF yüklə",
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.size(6.dp))
+                    Text("Word / PDF")
+                }
+
+                OutlinedButton(
+                    onClick = {
+                        onDismiss()
+                        onOpenPasteDialog()
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 50.dp)
+                        .testTag("tools_paste_text_button"),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, vip.borderStrong),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ContentPaste,
+                        contentDescription = "Mətn yapışdır",
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.size(6.dp))
+                    Text("Mətn Yapışdır")
+                }
+            }
+
+            ToolRowAction(
+                icon = Icons.Default.ListAlt,
+                title = "Cavab Seçimi (${uiState.keyedCount}/${uiState.totalCount})",
+                subtitle = "Bütün sualların doğru cavablarını redaktə et",
+                accentColor = vip.gold,
+                testTag = "tools_key_editor_button",
+                onClick = {
+                    onDismiss()
+                    onOpenKeyEditor()
+                },
+            )
+
+            ToolRowAction(
+                icon = Icons.Default.Download,
+                title = "HTML Saxla",
+                subtitle = "Bu bazanı oflayn işləyən tək HTML faylı kimi ixrac et",
+                accentColor = vip.emerald,
+                testTag = "tools_export_html_button",
+                onClick = {
+                    onDismiss()
+                    onExportHtml()
+                },
+            )
+
+            ToolRowAction(
+                icon = Icons.Default.RestartAlt,
+                title = "İrəliləyişi Sıfırla",
+                subtitle = "Suallar və cavab açarı qalır, nəticə tarixçəsi təmizlənir",
+                accentColor = vip.rose,
+                testTag = "tools_reset_progress_button",
+                onClick = { showResetConfirm = true },
+            )
+
+            if (uiState.banks.isNotEmpty()) {
+                HorizontalDivider(color = vip.border)
+                Text(
+                    text = "Saxlanılan Test Bazaları (${uiState.banks.size})",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = vip.textPrimary,
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    uiState.banks.forEach { bank ->
+                        val isActive = bank.id == uiState.activeBank?.id
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(14.dp))
+                                .clickable {
+                                    onSwitchBank(bank.id)
+                                    onDismiss()
+                                },
+                            shape = RoundedCornerShape(14.dp),
+                            color = if (isActive) vip.emeraldSoft else vip.surfaceElevated,
+                            border = BorderStroke(
+                                1.dp,
+                                if (isActive) vip.emeraldBorder else vip.border,
+                            ),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = bank.title,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = vip.textPrimary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        text = "${bank.questionCount} sual" + if (bank.isDefault) " • Əsas Baza" else "",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = if (isActive) vip.emerald else vip.textSecondary,
+                                    )
+                                }
+                                if (isActive) {
+                                    Icon(
+                                        imageVector = Icons.Default.CheckCircle,
+                                        contentDescription = "Aktiv baza",
+                                        tint = vip.emerald,
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                }
+                                if (!bank.isDefault) {
+                                    IconButton(
+                                        onClick = { onDeleteBank(bank) },
+                                        modifier = Modifier.size(48.dp),
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.DeleteOutline,
+                                            contentDescription = "Bazanı sil",
+                                            tint = vip.rose,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ToolRowAction(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    accentColor: androidx.compose.ui.graphics.Color,
+    testTag: String,
+    onClick: () -> Unit,
+) {
+    val vip = LocalVipColors.current
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 56.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick)
+            .testTag(testTag),
+        shape = RoundedCornerShape(16.dp),
+        color = vip.surfaceElevated,
+        border = BorderStroke(1.dp, vip.border),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(accentColor.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = title,
+                    tint = accentColor,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = vip.textPrimary,
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = vip.textSecondary,
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun PasteTextDialog(
+    selectedRule: AnswerRule,
+    onSelectRule: (AnswerRule) -> Unit,
+    onImportText: (String, String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val vip = LocalVipColors.current
+    var title by remember { mutableStateOf("") }
+    var rawText by remember { mutableStateOf("") }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = vip.surface,
+            border = BorderStroke(1.dp, vip.borderStrong),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "Mətndən Test Yarat",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = vip.textPrimary,
+                    )
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(48.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Bağla",
+                            tint = vip.textSecondary,
+                        )
+                    }
+                }
+
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("Test bazasının adı (istəyə bağlı)") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("paste_title_input"),
+                )
+
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    AnswerRule.entries.forEach { rule ->
+                        FilterChip(
+                            selected = selectedRule == rule,
+                            onClick = { onSelectRule(rule) },
+                            label = { Text(rule.label) },
+                        )
+                    }
+                }
+
+                OutlinedTextField(
+                    value = rawText,
+                    onValueChange = { rawText = it },
+                    label = { Text("1. Sual?\nA) Variant\nB) Variant...") },
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp)
+                        .testTag("paste_body_input"),
+                )
+
+                Button(
+                    onClick = {
+                        onImportText(title, rawText)
+                        onDismiss()
+                    },
+                    enabled = rawText.isNotBlank(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 50.dp)
+                        .testTag("paste_submit_button"),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = vip.emerald,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                    ),
+                ) {
+                    Text("Analiz et və Yüklə")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun QuestionGridDialog(
+    items: List<SessionQuestionItem>,
+    currentIndex: Int,
+    onJumpToIndex: (Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val vip = LocalVipColors.current
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = vip.surface,
+            border = BorderStroke(1.dp, vip.goldBorder),
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 520.dp),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "Suallar Xəritəsi (${items.size})",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = vip.gold,
+                    )
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(48.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Bağla",
+                            tint = vip.textSecondary,
+                        )
+                    }
+                }
+
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(5),
+                    contentPadding = PaddingValues(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.weight(1f, fill = false),
+                ) {
+                    itemsIndexed(items) { idx, item ->
+                        val isCurrent = idx == currentIndex
+                        val bg = when {
+                            isCurrent -> vip.emerald
+                            item.isCorrect == true -> vip.emeraldSoft
+                            item.isCorrect == false -> vip.roseSoft
+                            item.question.masteryStatus == QuestionMasteryStatus.MASTERED -> vip.emeraldSoft.copy(alpha = 0.45f)
+                            item.question.masteryStatus == QuestionMasteryStatus.WEAK -> vip.roseSoft.copy(alpha = 0.45f)
+                            item.question.isExam -> vip.goldSoft
+                            else -> vip.surfaceElevated
+                        }
+                        val border = when {
+                            isCurrent -> vip.emerald
+                            item.isCorrect == true -> vip.emeraldBorder
+                            item.isCorrect == false -> vip.roseBorder
+                            item.question.isExam -> vip.goldBorder
+                            else -> vip.border
+                        }
+                        val txtColor = when {
+                            isCurrent -> MaterialTheme.colorScheme.onPrimary
+                            item.isCorrect == true -> vip.emerald
+                            item.isCorrect == false -> vip.rose
+                            item.question.isExam -> vip.gold
+                            else -> vip.textPrimary
+                        }
+                        Surface(
+                            modifier = Modifier
+                                .heightIn(min = 48.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable {
+                                    onJumpToIndex(idx)
+                                    onDismiss()
+                                },
+                            shape = RoundedCornerShape(12.dp),
+                            color = bg,
+                            border = BorderStroke(1.dp, border),
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = item.question.questionNumber.toString(),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = txtColor,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

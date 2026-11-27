@@ -24,6 +24,7 @@ android {
 
     val activePreviewApp = (project.findProperty("activeApp") as String?) ?: "aqromeslehet"
     buildConfigField("boolean", "PREVIEW_TEXNONEZARET", (activePreviewApp == "texnonezaret").toString())
+    buildConfigField("boolean", "PREVIEW_TESTBAZA", (activePreviewApp == "testbaza").toString())
   }
 
   // Do not remove or modify these signingConfigs. They are necessary for building, installing,
@@ -88,6 +89,7 @@ googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.W
 // This makes it easy to add them back in the future if needed.
 dependencies {
   implementation(project(":texnonezaret_core"))
+  implementation(project(":testbaza_core"))
   implementation(platform(libs.androidx.compose.bom))
   implementation(platform(libs.firebase.bom))
   // implementation(libs.accompanist.permissions)

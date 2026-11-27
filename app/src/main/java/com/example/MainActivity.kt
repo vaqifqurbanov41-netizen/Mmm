@@ -90,6 +90,7 @@ import com.example.ui.screens.WeatherScreen
 import com.example.ui.theme.AqroMeslehetTheme
 import com.example.ui.theme.LocalAqroColors
 import com.aistudio.texnonezaret.ui.TexnonezaretRoot
+import com.aistudio.testbaza.core.ui.TestBazaRoot
 import com.example.ui.theme.ThemePreference
 import com.example.ui.viewmodel.FarmViewModel
 import com.example.ui.viewmodel.SettingsViewModel
@@ -102,7 +103,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        if (BuildConfig.PREVIEW_TEXNONEZARET) {
+        if (BuildConfig.PREVIEW_TESTBAZA) {
+            setContent {
+                TestBazaRoot()
+            }
+        } else if (BuildConfig.PREVIEW_TEXNONEZARET) {
             window.setFlags(
                 WindowManager.LayoutParams.FLAG_SECURE,
                 WindowManager.LayoutParams.FLAG_SECURE,
@@ -121,7 +126,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        if (!BuildConfig.PREVIEW_TEXNONEZARET) {
+        if (!BuildConfig.PREVIEW_TEXNONEZARET && !BuildConfig.PREVIEW_TESTBAZA) {
             configureAppCheck(this, intent)
         }
     }

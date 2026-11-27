@@ -24,4 +24,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "AqroMeslehet"
 
-include(":app", ":texnonezaret", ":texnonezaret_core")
+include(":app", ":texnonezaret", ":texnonezaret_core", ":testbaza", ":testbaza_core")
