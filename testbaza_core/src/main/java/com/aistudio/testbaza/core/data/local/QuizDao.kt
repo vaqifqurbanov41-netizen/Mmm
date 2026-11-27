@@ -57,6 +57,9 @@ interface QuizDao {
     @Query("DELETE FROM quiz_banks WHERE id = :bankId")
     suspend fun deleteBank(bankId: Long)
 
+    @Query("DELETE FROM quiz_banks WHERE isDefault = 1")
+    suspend fun deleteDefaultBanks()
+
     @Query("UPDATE quiz_questions SET isExam = :isExam WHERE rowId = :rowId")
     suspend fun updateExamFlag(rowId: Long, isExam: Boolean)
 

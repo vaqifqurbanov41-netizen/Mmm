@@ -41,6 +41,10 @@ class QuizPreferencesStore(private val context: Context) {
         context.testBazaDataStore.edit { it[Keys.ACTIVE_BANK_ID] = bankId }
     }
 
+    suspend fun clearActiveBankId() {
+        context.testBazaDataStore.edit { it.remove(Keys.ACTIVE_BANK_ID) }
+    }
+
     suspend fun setShuffleEnabled(enabled: Boolean) {
         context.testBazaDataStore.edit { it[Keys.SHUFFLE_ENABLED] = enabled }
     }

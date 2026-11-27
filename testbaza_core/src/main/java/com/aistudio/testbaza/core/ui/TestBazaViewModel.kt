@@ -24,8 +24,9 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -69,6 +70,7 @@ class TestBazaViewModel(application: Application) : AndroidViewModel(application
     private val repository = QuizRepository(application, database.quizDao())
     private val prefs = QuizPreferencesStore(application)
 
+    private val _initialized = MutableStateFlow(false)
     private val _activeBankId = MutableStateFlow<Long?>(null)
     private val _sessionState = MutableStateFlow(SessionState())
     private val _uiState = MutableStateFlow(TestBazaUiState())
@@ -80,66 +82,157 @@ class TestBazaViewModel(application: Application) : AndroidViewModel(application
         initialValue = emptyList(),
     )
 
-    private val questionsFlow = _activeBankId
-        .filterNotNull()
-        .flatMapLatest { bankId -> repository.observeQuestions(bankId) }
+    private val questionsFlow = _activeBankId.flatMapLatest { bankId ->
+        if (bankId == null) flowOf(emptyList())
+        else repository.observeQuestions(bankId)
+    }
 
     init {
         viewModelScope.launch {
-            val defaultBankId = repository.ensureDefaultBankSeeded()
-            prefs.activeBankIdFlow.collect { savedId ->
-                val targetId = savedId ?: defaultBankId
-                if (_activeBankId.value != targetId) {
-                    _activeBankId.value = targetId
+            repository.removeBundledDefaultBank()
+            val currentBanks = repository.banksFlow.first()
+            val savedId = prefs.activeBankIdFlow.first()
+            val validSaved = currentBanks.firstOrNull { it.id == savedId }?.id
+            val initialId = validSaved ?: currentBanks.firstOrNull()?.id
+            if (initialId != null) {
+                prefs.setActiveBankId(initialId)
+            } else {
+                prefs.clearActiveBankId()
+            }
+            _activeBankId.value = initialId
+            _initialized.value = true
+        }
+
+        // Rebuild or refresh session items whenever bank, questions, shuffle, or filter config changes
+        viewModelScope.launch {
+            combine(
+                _initialized,
+                _activeBankId,
+                questionsFlow,
+                prefs.shuffleEnabledFlow,
+            ) { ready, activeId, questions, shuffleEnabled ->
+                SessionSyncInput(ready, activeId, questions, shuffleEnabled)
+            }.collect { input ->
+                if (!input.ready) return@collect
+                if (input.activeId == null) {
+                    _sessionState.update {
+                        it.copy(
+                            builtForBankId = null,
+                            builtForShuffle = input.shuffleEnabled,
+                            forceRebuild = false,
+                            items = emptyList(),
+                            currentIndex = 0,
+                            flashcardIndex = 0,
+                            isFlashcardFlipped = false,
+                            isSessionFinished = false,
+                            correctCount = 0,
+                            incorrectCount = 0,
+                        )
+                    }
+                    return@collect
+                }
+                // Skip stale emissions from previous bank during flatMapLatest switch
+                if (input.questions.isNotEmpty() && input.questions.first().bankId != input.activeId) {
+                    return@collect
+                }
+
+                _sessionState.update { prev ->
+                    val shouldRebuild = prev.builtForBankId != input.activeId ||
+                        prev.builtForShuffle != input.shuffleEnabled ||
+                        prev.forceRebuild
+
+                    if (!shouldRebuild) {
+                        val qMap = input.questions.associateBy { it.rowId }
+                        val updatedItems = prev.items.mapNotNull { item ->
+                            val updatedQ = qMap[item.question.rowId] ?: return@mapNotNull null
+                            item.copy(question = updatedQ)
+                        }
+                        prev.copy(
+                            items = updatedItems,
+                            currentIndex = prev.currentIndex.coerceIn(0, maxOf(0, updatedItems.lastIndex)),
+                            flashcardIndex = prev.flashcardIndex.coerceIn(0, maxOf(0, updatedItems.lastIndex)),
+                        )
+                    } else {
+                        val filtered = QuizEngine.filterBaseQuestions(
+                            allQuestions = input.questions,
+                            mode = prev.mode,
+                            selectedChunkIndex = prev.selectedChunkIndex,
+                        )
+                        val builtItems = QuizEngine.buildSessionItems(
+                            questions = filtered,
+                            shuffle = input.shuffleEnabled,
+                        )
+                        prev.copy(
+                            builtForBankId = input.activeId,
+                            builtForShuffle = input.shuffleEnabled,
+                            forceRebuild = false,
+                            items = builtItems,
+                            currentIndex = 0,
+                            flashcardIndex = 0,
+                            isFlashcardFlipped = false,
+                            isSessionFinished = false,
+                            correctCount = 0,
+                            incorrectCount = 0,
+                        )
+                    }
                 }
             }
         }
 
+        // Pure UI state projection (never mutates _sessionState or _activeBankId)
         viewModelScope.launch {
             combine(
+                _initialized,
                 banksState,
                 _activeBankId,
                 questionsFlow,
                 prefs.themeModeFlow,
                 prefs.shuffleEnabledFlow,
-            ) { banks, activeId, questions, theme, shuffleEnabled ->
-                ObservedBundle(banks, activeId, questions, theme, shuffleEnabled)
-            }.combine(_sessionState) { bundle, session ->
-                val resolvedBank = bundle.banks.firstOrNull { it.id == bundle.activeId }
-                    ?: bundle.banks.firstOrNull()
+                _sessionState,
+            ) { values ->
+                val ready = values[0] as Boolean
+                @Suppress("UNCHECKED_CAST")
+                val banks = values[1] as List<QuizBank>
+                val activeId = values[2] as Long?
+                @Suppress("UNCHECKED_CAST")
+                val rawQuestions = values[3] as List<QuizQuestion>
+                val theme = values[4] as TestBazaThemeMode
+                val shuffleEnabled = values[5] as Boolean
+                val session = values[6] as SessionState
 
-                if (resolvedBank != null && resolvedBank.id != bundle.activeId) {
-                    _activeBankId.value = resolvedBank.id
+                val resolvedBank = if (activeId != null) {
+                    banks.firstOrNull { it.id == activeId }
+                } else {
+                    null
+                }
+                val validQuestions = if (activeId == null) {
+                    emptyList()
+                } else {
+                    rawQuestions.filter { it.bankId == activeId }
                 }
 
-                val mergedSession = syncSessionWithQuestions(
-                    previous = session,
-                    questions = bundle.questions,
-                    shuffleEnabled = bundle.shuffleEnabled,
-                )
-
                 TestBazaUiState(
-                    isLoading = false,
-                    isImporting = mergedSession.isImporting,
-                    themeMode = bundle.theme,
-                    banks = bundle.banks,
+                    isLoading = !ready,
+                    isImporting = session.isImporting,
+                    themeMode = theme,
+                    banks = banks,
                     activeBank = resolvedBank,
-                    rawQuestions = bundle.questions,
-                    mode = mergedSession.mode,
-                    selectedChunkIndex = mergedSession.selectedChunkIndex,
-                    chunkOptions = QuizEngine.buildChunkOptions(bundle.questions.size),
-                    isShuffled = bundle.shuffleEnabled,
-                    sessionItems = mergedSession.items,
-                    currentIndex = mergedSession.currentIndex,
-                    flashcardIndex = mergedSession.flashcardIndex,
-                    isFlashcardFlipped = mergedSession.isFlashcardFlipped,
-                    isSessionFinished = mergedSession.isSessionFinished,
-                    correctCount = mergedSession.correctCount,
-                    incorrectCount = mergedSession.incorrectCount,
-                    streakCount = mergedSession.streakCount,
-                    importRule = mergedSession.importRule,
-                    statusMessage = mergedSession.statusMessage,
-                    isStatusError = mergedSession.isStatusError,
+                    rawQuestions = validQuestions,
+                    mode = session.mode,
+                    selectedChunkIndex = session.selectedChunkIndex,
+                    chunkOptions = QuizEngine.buildChunkOptions(validQuestions.size),
+                    isShuffled = shuffleEnabled,
+                    sessionItems = session.items,
+                    currentIndex = session.currentIndex,
+                    flashcardIndex = session.flashcardIndex,
+                    isFlashcardFlipped = session.isFlashcardFlipped,
+                    isSessionFinished = session.isSessionFinished,
+                    correctCount = session.correctCount,
+                    incorrectCount = session.incorrectCount,
+                    streakCount = session.streakCount,
+                    importRule = session.importRule,
+                    statusMessage = session.statusMessage,
+                    isStatusError = session.isStatusError,
                 )
             }.collect { nextState ->
                 _uiState.value = nextState
@@ -147,80 +240,64 @@ class TestBazaViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    private fun syncSessionWithQuestions(
-        previous: SessionState,
-        questions: List<QuizQuestion>,
-        shuffleEnabled: Boolean,
-    ): SessionState {
-        val activeBankId = questions.firstOrNull()?.bankId
-        val shouldRebuild = previous.builtForBankId != activeBankId ||
-            previous.builtForShuffle != shuffleEnabled ||
-            previous.forceRebuild
-
-        if (!shouldRebuild) {
-            val qMap = questions.associateBy { it.rowId }
-            val updatedItems = previous.items.mapNotNull { item ->
-                val updatedQ = qMap[item.question.rowId] ?: return@mapNotNull null
-                item.copy(question = updatedQ)
-            }
-            return previous.copy(
-                items = updatedItems,
-                currentIndex = previous.currentIndex.coerceIn(0, maxOf(0, updatedItems.lastIndex)),
-                flashcardIndex = previous.flashcardIndex.coerceIn(0, maxOf(0, updatedItems.lastIndex)),
-            )
-        }
-
-        val filtered = QuizEngine.filterBaseQuestions(
-            allQuestions = questions,
-            mode = previous.mode,
-            selectedChunkIndex = previous.selectedChunkIndex,
-        )
-        val builtItems = QuizEngine.buildSessionItems(
-            questions = filtered,
-            shuffle = shuffleEnabled,
-        )
-        val updatedState = previous.copy(
-            builtForBankId = activeBankId,
-            builtForShuffle = shuffleEnabled,
-            forceRebuild = false,
-            items = builtItems,
-            currentIndex = 0,
-            flashcardIndex = 0,
-            isFlashcardFlipped = false,
-            isSessionFinished = false,
-            correctCount = 0,
-            incorrectCount = 0,
-        )
-        _sessionState.value = updatedState
-        return updatedState
-    }
-
     fun switchMode(newMode: StudyMode) {
         val current = _uiState.value
         if (newMode == StudyMode.EXAM && current.examCount == 0) {
-            setStatus("Hələ seçilmiş (ulduzlu) sual yoxdur. Sual kartındakı 'Seç' düyməsi ilə əlavə edin.", isError = true)
+            setStatus("Hələ seçilmiş (ulduzlu) sual yoxdur. Sual kartındakı ulduz işarəsi ilə əlavə edin.", isError = true)
             return
         }
         if (newMode == StudyMode.WEAK && current.weakCount == 0) {
             setStatus("Hazırda təkrar olunacaq səhv cavab yoxdur.", isError = false)
             return
         }
-        _sessionState.update {
-            it.copy(
+        _sessionState.update { state ->
+            val nextChunk = if (newMode == StudyMode.EXAM || newMode == StudyMode.WEAK) null else state.selectedChunkIndex
+            val filtered = QuizEngine.filterBaseQuestions(
+                allQuestions = current.rawQuestions,
                 mode = newMode,
-                selectedChunkIndex = if (newMode == StudyMode.EXAM || newMode == StudyMode.WEAK) null else it.selectedChunkIndex,
-                forceRebuild = true,
+                selectedChunkIndex = nextChunk,
+            )
+            val builtItems = QuizEngine.buildSessionItems(filtered, current.isShuffled)
+            state.copy(
+                mode = newMode,
+                selectedChunkIndex = nextChunk,
+                builtForBankId = current.activeBank?.id,
+                builtForShuffle = current.isShuffled,
+                forceRebuild = false,
+                items = builtItems,
+                currentIndex = 0,
+                flashcardIndex = 0,
+                isFlashcardFlipped = false,
+                isSessionFinished = false,
+                correctCount = 0,
+                incorrectCount = 0,
             )
         }
     }
 
     fun selectChunk(chunkIndex: Int?) {
-        _sessionState.update {
-            val nextMode = if (it.mode == StudyMode.EXAM || it.mode == StudyMode.WEAK) StudyMode.QUIZ else it.mode
-            it.copy(
+        val current = _uiState.value
+        _sessionState.update { state ->
+            val nextMode = if (state.mode == StudyMode.EXAM || state.mode == StudyMode.WEAK) StudyMode.QUIZ else state.mode
+            val filtered = QuizEngine.filterBaseQuestions(
+                allQuestions = current.rawQuestions,
                 mode = nextMode,
                 selectedChunkIndex = chunkIndex,
-                forceRebuild = true,
+            )
+            val builtItems = QuizEngine.buildSessionItems(filtered, current.isShuffled)
+            state.copy(
+                mode = nextMode,
+                selectedChunkIndex = chunkIndex,
+                builtForBankId = current.activeBank?.id,
+                builtForShuffle = current.isShuffled,
+                forceRebuild = false,
+                items = builtItems,
+                currentIndex = 0,
+                flashcardIndex = 0,
+                isFlashcardFlipped = false,
+                isSessionFinished = false,
+                correctCount = 0,
+                incorrectCount = 0,
             )
         }
     }
@@ -338,16 +415,44 @@ class TestBazaViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun restartSession() {
-        _sessionState.update { it.copy(forceRebuild = true, isSessionFinished = false) }
+        val current = _uiState.value
+        _sessionState.update { state ->
+            val filtered = QuizEngine.filterBaseQuestions(
+                allQuestions = current.rawQuestions,
+                mode = state.mode,
+                selectedChunkIndex = state.selectedChunkIndex,
+            )
+            state.copy(
+                builtForBankId = current.activeBank?.id,
+                builtForShuffle = current.isShuffled,
+                forceRebuild = false,
+                items = QuizEngine.buildSessionItems(filtered, current.isShuffled),
+                currentIndex = 0,
+                flashcardIndex = 0,
+                isFlashcardFlipped = false,
+                isSessionFinished = false,
+                correctCount = 0,
+                incorrectCount = 0,
+            )
+        }
     }
 
     fun returnToFullQuiz() {
-        _sessionState.update {
-            it.copy(
+        val current = _uiState.value
+        _sessionState.update { state ->
+            state.copy(
                 mode = StudyMode.QUIZ,
                 selectedChunkIndex = null,
-                forceRebuild = true,
+                builtForBankId = current.activeBank?.id,
+                builtForShuffle = current.isShuffled,
+                forceRebuild = false,
+                items = QuizEngine.buildSessionItems(current.rawQuestions, current.isShuffled),
+                currentIndex = 0,
+                flashcardIndex = 0,
+                isFlashcardFlipped = false,
                 isSessionFinished = false,
+                correctCount = 0,
+                incorrectCount = 0,
             )
         }
     }
@@ -356,25 +461,17 @@ class TestBazaViewModel(application: Application) : AndroidViewModel(application
         _sessionState.update { it.copy(importRule = rule) }
     }
 
-    fun importFileUri(uri: Uri, onOpenKeyEditor: () -> Unit) {
+    fun importFileUri(uri: Uri, onNeedKeyEditor: () -> Unit) {
         viewModelScope.launch {
             _sessionState.update { it.copy(isImporting = true, statusMessage = null) }
             val result = repository.importDocumentUri(uri, _sessionState.value.importRule)
             result.fold(
                 onSuccess = { newBankId ->
-                    prefs.setActiveBankId(newBankId)
-                    _activeBankId.value = newBankId
-                    _sessionState.update {
-                        it.copy(
-                            isImporting = false,
-                            mode = StudyMode.QUIZ,
-                            selectedChunkIndex = null,
-                            forceRebuild = true,
-                            statusMessage = "Yeni test bazası uğurla yükləndi.",
-                            isStatusError = false,
-                        )
-                    }
-                    onOpenKeyEditor()
+                    activateNewlyImportedBank(
+                        newBankId = newBankId,
+                        successPrefix = "Sənəd yükləndi",
+                        onNeedKeyEditor = onNeedKeyEditor,
+                    )
                 },
                 onFailure = { error ->
                     _sessionState.update {
@@ -389,25 +486,17 @@ class TestBazaViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun importRawText(title: String, rawText: String, onSuccessOpenKeyEditor: () -> Unit) {
+    fun importRawText(title: String, rawText: String, onNeedKeyEditor: () -> Unit) {
         viewModelScope.launch {
             _sessionState.update { it.copy(isImporting = true, statusMessage = null) }
             val result = repository.importRawText(rawText, title, _sessionState.value.importRule)
             result.fold(
                 onSuccess = { newBankId ->
-                    prefs.setActiveBankId(newBankId)
-                    _activeBankId.value = newBankId
-                    _sessionState.update {
-                        it.copy(
-                            isImporting = false,
-                            mode = StudyMode.QUIZ,
-                            selectedChunkIndex = null,
-                            forceRebuild = true,
-                            statusMessage = "Mətndən yeni test bazası yaradıldı.",
-                            isStatusError = false,
-                        )
-                    }
-                    onSuccessOpenKeyEditor()
+                    activateNewlyImportedBank(
+                        newBankId = newBankId,
+                        successPrefix = "Mətndən test yaradıldı",
+                        onNeedKeyEditor = onNeedKeyEditor,
+                    )
                 },
                 onFailure = { error ->
                     _sessionState.update {
@@ -419,6 +508,47 @@ class TestBazaViewModel(application: Application) : AndroidViewModel(application
                     }
                 },
             )
+        }
+    }
+
+    private suspend fun activateNewlyImportedBank(
+        newBankId: Long,
+        successPrefix: String,
+        onNeedKeyEditor: () -> Unit,
+    ) {
+        val loadedQuestions = repository.getQuestionsOnce(newBankId)
+        val shuffleEnabled = prefs.shuffleEnabledFlow.first()
+        val hasUnconfirmedKeys = loadedQuestions.any { !it.hasConfirmedKey }
+        val builtItems = QuizEngine.buildSessionItems(loadedQuestions, shuffleEnabled)
+
+        prefs.setActiveBankId(newBankId)
+        _activeBankId.value = newBankId
+        _sessionState.update {
+            it.copy(
+                builtForBankId = newBankId,
+                builtForShuffle = shuffleEnabled,
+                forceRebuild = false,
+                isImporting = false,
+                mode = StudyMode.QUIZ,
+                selectedChunkIndex = null,
+                items = builtItems,
+                currentIndex = 0,
+                flashcardIndex = 0,
+                isFlashcardFlipped = false,
+                isSessionFinished = false,
+                correctCount = 0,
+                incorrectCount = 0,
+                streakCount = 0,
+                statusMessage = if (hasUnconfirmedKeys) {
+                    "$successPrefix (${loadedQuestions.size} sual). Doğru cavabları təsdiqləyin."
+                } else {
+                    "$successPrefix: ${loadedQuestions.size} sual açıldı."
+                },
+                isStatusError = false,
+            )
+        }
+        if (hasUnconfirmedKeys) {
+            onNeedKeyEditor()
         }
     }
 
@@ -480,14 +610,24 @@ class TestBazaViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun deleteBank(bank: QuizBank) {
-        if (bank.isDefault) return
         viewModelScope.launch {
             repository.deleteBank(bank.id)
-            val fallback = banksState.value.firstOrNull { it.id != bank.id }?.id
-                ?: repository.ensureDefaultBankSeeded()
-            prefs.setActiveBankId(fallback)
-            _activeBankId.value = fallback
-            _sessionState.update { it.copy(forceRebuild = true) }
+            val remaining = repository.banksFlow.first()
+            val nextId = remaining.firstOrNull { it.id != bank.id }?.id
+            if (nextId != null) {
+                prefs.setActiveBankId(nextId)
+            } else {
+                prefs.clearActiveBankId()
+            }
+            _activeBankId.value = nextId
+            _sessionState.update {
+                it.copy(
+                    mode = StudyMode.QUIZ,
+                    selectedChunkIndex = null,
+                    forceRebuild = true,
+                    streakCount = 0,
+                )
+            }
         }
     }
 
@@ -519,7 +659,7 @@ class TestBazaViewModel(application: Application) : AndroidViewModel(application
 
     fun exportHtmlToUri(uri: Uri) {
         val state = _uiState.value
-        val bankTitle = state.activeBank?.title ?: "TestBaza"
+        val bankTitle = state.activeBank?.title ?: "Testbaza"
         val questions = state.rawQuestions
         if (questions.isEmpty()) {
             setStatus("İxrac etmək üçün sual bazası boşdur.", isError = true)
@@ -542,7 +682,7 @@ class TestBazaViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun suggestedExportFilename(): String =
-        HtmlExporter.safeExportFileName(_uiState.value.activeBank?.title ?: "TestBaza")
+        HtmlExporter.safeExportFileName(_uiState.value.activeBank?.title ?: "Testbaza")
 
     fun dismissStatusMessage() {
         _sessionState.update { it.copy(statusMessage = null) }
@@ -554,11 +694,10 @@ class TestBazaViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    private data class ObservedBundle(
-        val banks: List<QuizBank>,
+    private data class SessionSyncInput(
+        val ready: Boolean,
         val activeId: Long?,
         val questions: List<QuizQuestion>,
-        val theme: TestBazaThemeMode,
         val shuffleEnabled: Boolean,
     )
 

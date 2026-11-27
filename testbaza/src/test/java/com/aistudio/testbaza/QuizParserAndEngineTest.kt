@@ -8,7 +8,6 @@ import com.aistudio.testbaza.core.domain.QuizEngine
 import com.aistudio.testbaza.core.domain.QuizQuestion
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
-import java.io.File
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlin.random.Random
@@ -20,24 +19,7 @@ import org.junit.Test
 class QuizParserAndEngineTest {
 
     @Test
-    fun bundledDefaultQuestionsJsonContainsAll1000Questions() {
-        val candidates = listOf(
-            File("testbaza_core/src/main/res/raw/default_questions.json"),
-            File("../testbaza_core/src/main/res/raw/default_questions.json"),
-        )
-        val rawFile = candidates.firstOrNull { it.exists() }
-            ?: error("default_questions.json not found in test working dir")
-        val content = rawFile.readText(Charsets.UTF_8)
-        val questionCount = Regex(""""hasConfirmedKey"\s*:""").findAll(content).count()
-        assertEquals(1000, questionCount)
-        val ids = Regex(""""id"\s*:\s*(\d+)""").findAll(content).map { it.groupValues[1].toInt() }.toList()
-        assertEquals(1000, ids.distinct().size)
-        assertEquals((1..1000).toList(), ids)
-        assertTrue(content.contains("torpaq münbitliyi test A variant qiyabi"))
-    }
-
-    @Test
-    fun docxParserExtractsBoldOptionCorrectly() {
+    fun docxParserExtractsBoldOptionAndSoftLineBreaksCorrectly() {
         val documentXml = """
             <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
             <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
@@ -46,6 +28,11 @@ class QuizParserAndEngineTest {
                 <w:p><w:r><w:t>A) Gəncə</w:t></w:r></w:p>
                 <w:p><w:r><w:rPr><w:b/></w:rPr><w:t>B) Bakı</w:t></w:r></w:p>
                 <w:p><w:r><w:t>C) Şəki</w:t></w:r></w:p>
+                <w:p>
+                  <w:r><w:t>2. Hansı rəng göy qurşağında yoxdur?</w:t><w:br/><w:t>A) Qırmızı</w:t><w:br/></w:r>
+                  <w:r><w:rPr><w:bCs/></w:rPr><w:t>B) Qara</w:t></w:r>
+                  <w:r><w:br/><w:t>C) Yaşıl</w:t></w:r>
+                </w:p>
               </w:body>
             </w:document>
         """.trimIndent()
@@ -60,28 +47,94 @@ class QuizParserAndEngineTest {
         val lines = QuizDocumentParser.extractDocxLines(ByteArrayInputStream(baos.toByteArray()))
         val parsed = QuizDocumentParser.parseStructuredLines(lines, "Coğrafiya", AnswerRule.AUTO).getOrThrow()
 
-        assertEquals(1, parsed.questions.size)
-        val q = parsed.questions.first()
-        assertEquals("Bakı", q.correctText)
-        assertTrue(q.hasConfirmedKey)
-        assertEquals(3, q.allOptions.size)
+        assertEquals(2, parsed.questions.size)
+        assertEquals("Bakı", parsed.questions[0].correctText)
+        assertTrue(parsed.questions[0].hasConfirmedKey)
+        assertEquals(3, parsed.questions[0].allOptions.size)
+
+        assertEquals("Qara", parsed.questions[1].correctText)
+        assertTrue(parsed.questions[1].hasConfirmedKey)
+        assertEquals(3, parsed.questions[1].allOptions.size)
     }
 
     @Test
-    fun rawTextParserSupportsBottomAnswerKeysAndInlineOptions() {
+    fun docxParserSupportsAutoNumberedListsFromNumberingXml() {
+        val numberingXml = """
+            <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+            <w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+              <w:abstractNum w:abstractNumId="10">
+                <w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/></w:lvl>
+                <w:lvl w:ilvl="1"><w:start w:val="1"/><w:numFmt w:val="upperLetter"/><w:lvlText w:val="%2)"/></w:lvl>
+              </w:abstractNum>
+              <w:num w:numId="1"><w:abstractNumId w:val="10"/></w:num>
+            </w:numbering>
+        """.trimIndent()
+
+        val documentXml = """
+            <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+            <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+              <w:body>
+                <w:p>
+                  <w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr>
+                  <w:r><w:t>Suyun kimyəvi formulu hansıdır?</w:t></w:r>
+                </w:p>
+                <w:p>
+                  <w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="1"/></w:numPr></w:pPr>
+                  <w:r><w:t>CO2</w:t></w:r>
+                </w:p>
+                <w:p>
+                  <w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="1"/></w:numPr></w:pPr>
+                  <w:r><w:rPr><w:b/></w:rPr><w:t>H2O</w:t></w:r>
+                </w:p>
+                <w:p>
+                  <w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="1"/></w:numPr></w:pPr>
+                  <w:r><w:t>NaCl</w:t></w:r>
+                </w:p>
+              </w:body>
+            </w:document>
+        """.trimIndent()
+
+        val baos = ByteArrayOutputStream()
+        ZipOutputStream(baos).use { zos ->
+            zos.putNextEntry(ZipEntry("word/numbering.xml"))
+            zos.write(numberingXml.toByteArray(Charsets.UTF_8))
+            zos.closeEntry()
+            zos.putNextEntry(ZipEntry("word/document.xml"))
+            zos.write(documentXml.toByteArray(Charsets.UTF_8))
+            zos.closeEntry()
+        }
+
+        val lines = QuizDocumentParser.extractDocxLines(ByteArrayInputStream(baos.toByteArray()))
+        val parsed = QuizDocumentParser.parseStructuredLines(lines, "Kimya", AnswerRule.AUTO).getOrThrow()
+
+        assertEquals(1, parsed.questions.size)
+        val q = parsed.questions.first()
+        assertEquals(1, q.questionNumber)
+        assertEquals("H2O", q.correctText)
+        assertEquals(listOf("CO2", "H2O", "NaCl"), q.allOptions)
+    }
+
+    @Test
+    fun rawTextParserSupportsWrappedOptionsAndSingleLineAnswerKeys() {
         val sample = """
             1. Birinci sual?
-            A) Yanlış 1   B) Doğru 1   C) Yanlış 2
+            A) Birinci variantın
+            davam edən ikinci sətri
+            B) Doğru 1
+            C) Yanlış 2
             2. İkinci sual?
             A) Variant A
             B) Variant B
             C) Variant C
             Cavablar:
-            1. B 2. C 3. A
+            1. B
+            2. C
         """.trimIndent()
 
         val parsed = QuizDocumentParser.parseRawText(sample, "Sınaq", AnswerRule.AUTO).getOrThrow()
         assertEquals(2, parsed.questions.size)
+        assertEquals(3, parsed.questions[0].allOptions.size)
+        assertEquals("Birinci variantın davam edən ikinci sətri", parsed.questions[0].allOptions[0])
         assertEquals("Doğru 1", parsed.questions[0].correctText)
         assertEquals("Variant C", parsed.questions[1].correctText)
         assertTrue(parsed.questions.all { it.hasConfirmedKey })

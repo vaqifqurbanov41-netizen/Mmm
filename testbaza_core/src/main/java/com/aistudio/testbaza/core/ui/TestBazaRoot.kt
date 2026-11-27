@@ -50,13 +50,23 @@ fun TestBazaRoot(
         viewModel.dismissStatusMessage()
     }
 
+    // Use "*/*" so Android OEM file pickers (Samsung/Xiaomi/Telegram/WhatsApp) never grey out .docx/.pdf/.txt files;
+    // QuizRepository inspects magic bytes + extension + MIME type and gives clear messages for unsupported files.
     val launchDocumentPicker = {
+        openDocLauncher.launch(arrayOf("*/*"))
+    }
+
+    val launchPdfPicker = {
+        openDocLauncher.launch(arrayOf("application/pdf", "application/octet-stream", "*/*"))
+    }
+
+    val launchWordPicker = {
         openDocLauncher.launch(
             arrayOf(
-                "application/pdf",
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                "text/plain",
+                "application/msword",
                 "application/octet-stream",
+                "*/*",
             )
         )
     }
@@ -82,7 +92,11 @@ fun TestBazaRoot(
             onOpenSingleKeyDialog = { showSingleKeyDialog = true },
             onOpenGridDialog = { showGridDialog = true },
             onOpenToolsSheet = { showToolsSheet = true },
-            onOpenFilePicker = launchDocumentPicker,
+            onOpenWordPicker = launchWordPicker,
+            onOpenPdfPicker = launchPdfPicker,
+            onOpenTxtPicker = launchDocumentPicker,
+            onOpenPasteDialog = { showPasteDialog = true },
+            onSelectImportRule = viewModel::setImportRule,
         )
 
         if (showToolsSheet) {

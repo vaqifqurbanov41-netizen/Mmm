@@ -3,7 +3,6 @@ package com.aistudio.testbaza.core.data
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
-import com.aistudio.testbaza.core.R
 import com.aistudio.testbaza.core.data.local.QuizBankEntity
 import com.aistudio.testbaza.core.data.local.QuizDao
 import com.aistudio.testbaza.core.data.local.QuizQuestionEntity
@@ -18,69 +17,23 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
 
 class QuizRepository(
     private val context: Context,
     private val dao: QuizDao,
 ) {
-    companion object {
-        const val DEFAULT_BANK_TITLE = "torpaq münbitliyi test A variant qiyabi"
-    }
-
     val banksFlow: Flow<List<QuizBank>> =
         dao.observeBanksWithCounts().map { rows -> rows.map { it.toDomain() } }
 
     fun observeQuestions(bankId: Long): Flow<List<QuizQuestion>> =
         dao.observeQuestionsForBank(bankId).map { rows -> rows.map { it.toDomain() } }
 
-    suspend fun ensureDefaultBankSeeded(): Long = withContext(Dispatchers.IO) {
-        val rawJson = context.resources.openRawResource(R.raw.default_questions)
-            .bufferedReader(Charsets.UTF_8)
-            .use { it.readText() }
-        val jsonArray = JSONArray(rawJson)
-        val existingDefault = dao.getDefaultBank()
+    suspend fun getQuestionsOnce(bankId: Long): List<QuizQuestion> = withContext(Dispatchers.IO) {
+        dao.getQuestionsForBankOnce(bankId).map { it.toDomain() }
+    }
 
-        fun buildEntities(targetBankId: Long): List<QuizQuestionEntity> = buildList(jsonArray.length()) {
-            for (i in 0 until jsonArray.length()) {
-                val obj = jsonArray.getJSONObject(i)
-                val optsJson = obj.getJSONArray("allOptions")
-                val options = List(optsJson.length()) { idx -> optsJson.getString(idx) }
-                add(
-                    QuizQuestionEntity(
-                        bankId = targetBankId,
-                        questionNumber = obj.optInt("id", i + 1),
-                        category = obj.optString("cat", DEFAULT_BANK_TITLE),
-                        isExam = obj.optBoolean("isExam", false),
-                        questionText = obj.optString("q", ""),
-                        allOptions = options,
-                        correctText = obj.optString("correctText", options.firstOrNull().orEmpty()),
-                        hasConfirmedKey = obj.optBoolean("hasConfirmedKey", true),
-                    )
-                )
-            }
-        }
-
-        if (existingDefault != null) {
-            val existingNumbers = dao.getQuestionNumbersForBank(existingDefault.id).toHashSet()
-            if (existingNumbers.size < jsonArray.length()) {
-                val missing = buildEntities(existingDefault.id)
-                    .filter { it.questionNumber !in existingNumbers }
-                if (missing.isNotEmpty()) {
-                    dao.insertQuestions(missing)
-                }
-            }
-            return@withContext existingDefault.id
-        }
-
-        dao.insertBankWithQuestions(
-            bank = QuizBankEntity(
-                title = DEFAULT_BANK_TITLE,
-                createdAtEpochMs = System.currentTimeMillis(),
-                isDefault = true,
-            ),
-            questions = buildEntities(0L),
-        )
+    suspend fun removeBundledDefaultBank() = withContext(Dispatchers.IO) {
+        dao.deleteDefaultBanks()
     }
 
     suspend fun importDocumentUri(
@@ -89,32 +42,53 @@ class QuizRepository(
     ): Result<Long> = withContext(Dispatchers.IO) {
         runCatching {
             val fileName = resolveDisplayName(uri) ?: "Yeni Test Bazası"
+            val mimeType = context.contentResolver.getType(uri)?.lowercase().orEmpty()
             val lower = fileName.lowercase()
-            val cleanTitle = fileName.replace(Regex("""\.(docx|pdf|doc|txt)$""", RegexOption.IGNORE_CASE), "").trim()
+            val cleanTitle = fileName
+                .replace(Regex("""\.(docx|pdf|doc|txt)$""", RegexOption.IGNORE_CASE), "")
+                .trim()
                 .ifEmpty { "Yeni Test Bazası" }
 
-            if (lower.endsWith(".doc") && !lower.endsWith(".docx")) {
+            val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                ?: throw IllegalStateException("Fayl oxuna bilmədi. Zəhmət olmasa yenidən seçin.")
+            if (bytes.size < 4) {
+                throw IllegalArgumentException("Seçilən fayl boşdur.")
+            }
+
+            val isPdf = bytes.size >= 4 &&
+                bytes[0] == 0x25.toByte() &&
+                bytes[1] == 0x50.toByte() &&
+                bytes[2] == 0x44.toByte() &&
+                bytes[3] == 0x46.toByte()
+
+            val isZip = bytes[0] == 0x50.toByte() && bytes[1] == 0x4B.toByte()
+
+            // Legacy binary OLE2 (.doc) signature: D0 CF 11 E0
+            val isLegacyBinaryDoc = bytes.size >= 4 &&
+                bytes[0] == 0xD0.toByte() &&
+                bytes[1] == 0xCF.toByte() &&
+                bytes[2] == 0x11.toByte() &&
+                bytes[3] == 0xE0.toByte()
+
+            if (isLegacyBinaryDoc || (lower.endsWith(".doc") && !lower.endsWith(".docx") && !isZip)) {
                 throw IllegalArgumentException(
                     "Bu fayl köhnə .doc formatındadır. Word-də .docx və ya .pdf kimi saxlayın, yaxud mətni kopyalayıb 'Mətn Yapışdır' hissəsinə atın."
                 )
             }
 
-            val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                ?: throw IllegalStateException("Fayl oxuna bilmədi.")
-            if (bytes.size < 4) {
-                throw IllegalArgumentException("Seçilən fayl boşdur.")
-            }
+            val isDocx = isZip ||
+                lower.endsWith(".docx") ||
+                mimeType.contains("wordprocessingml")
 
-            val isPdf = lower.endsWith(".pdf") || (
-                bytes[0] == 0x25.toByte() &&
-                    bytes[1] == 0x50.toByte() &&
-                    bytes[2] == 0x44.toByte() &&
-                    bytes[3] == 0x46.toByte()
-                )
-            val isZip = bytes[0] == 0x50.toByte() && bytes[1] == 0x4B.toByte()
+            val isTxt = lower.endsWith(".txt") ||
+                mimeType.startsWith("text/") ||
+                (!isPdf && !isZip && looksLikePlainText(bytes))
 
             val lines = when {
-                isPdf -> {
+                isPdf || (lower.endsWith(".pdf") && !isZip) -> {
+                    if (!isPdf) {
+                        throw IllegalArgumentException("Seçilən fayl düzgün PDF formatında deyil.")
+                    }
                     val extracted = bytes.inputStream().use { QuizDocumentParser.extractPdfLines(context, it) }
                     if (extracted.isEmpty()) {
                         throw IllegalArgumentException(
@@ -123,20 +97,22 @@ class QuizRepository(
                     }
                     extracted
                 }
-                lower.endsWith(".txt") -> bytes.inputStream().use { QuizDocumentParser.extractTxtLines(it) }
-                isZip || lower.endsWith(".docx") -> {
+                isDocx -> {
                     if (!isZip) {
-                        throw IllegalArgumentException("Seçilən fayl dəstəklənən .docx, .pdf və ya .txt formatında deyil.")
+                        throw IllegalArgumentException("Seçilən Word (.docx) faylı zədələnib və ya dəstəklənməyən formatdadır.")
                     }
                     val extracted = bytes.inputStream().use { QuizDocumentParser.extractDocxLines(it) }
                     if (extracted.isEmpty()) {
                         throw IllegalArgumentException(
-                            "Word faylının içindən mətn oxuna bilmədi. Zəhmət olmasa sualları kopyalayıb 'Mətn Yapışdır' bölməsinə yapışdırın."
+                            "Word (.docx) faylından mətn oxuna bilmədi. Faylın içi cədvəl/şəkil deyilsə mətni kopyalayıb 'Mətn Yapışdır' bölməsinə əlavə edin."
                         )
                     }
                     extracted
                 }
-                else -> throw IllegalArgumentException("Seçilən fayl dəstəklənən .docx, .pdf və ya .txt formatında deyil.")
+                isTxt -> bytes.inputStream().use { QuizDocumentParser.extractTxtLines(it) }
+                else -> throw IllegalArgumentException(
+                    "Dəstəklənməyən fayl formatı. Zəhmət olmasa .docx (Word), .pdf və ya .txt faylı seçin."
+                )
             }
 
             val parsed = QuizDocumentParser.parseStructuredLines(lines, cleanTitle, rule).getOrThrow()
@@ -225,6 +201,19 @@ class QuizRepository(
 
     suspend fun deleteBank(bankId: Long) = withContext(Dispatchers.IO) {
         dao.deleteBank(bankId)
+    }
+
+    private fun looksLikePlainText(bytes: ByteArray): Boolean {
+        val sampleLen = minOf(bytes.size, 512)
+        var controlCount = 0
+        for (i in 0 until sampleLen) {
+            val b = bytes[i].toInt() and 0xFF
+            if (b == 0) return false
+            if (b < 0x09 || (b in 0x0E..0x1F && b != 0x1B)) {
+                controlCount++
+            }
+        }
+        return controlCount <= sampleLen / 20
     }
 
     private fun resolveDisplayName(uri: Uri): String? {

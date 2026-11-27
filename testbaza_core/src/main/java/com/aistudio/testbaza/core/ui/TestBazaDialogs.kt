@@ -311,7 +311,7 @@ fun ToolsBottomSheet(
                                         overflow = TextOverflow.Ellipsis,
                                     )
                                     Text(
-                                        text = "${bank.questionCount} sual" + if (bank.isDefault) " • Əsas Baza" else "",
+                                        text = "${bank.questionCount} sual",
                                         style = MaterialTheme.typography.labelMedium,
                                         color = if (isActive) vip.emerald else vip.textSecondary,
                                     )
@@ -324,17 +324,15 @@ fun ToolsBottomSheet(
                                         modifier = Modifier.size(20.dp),
                                     )
                                 }
-                                if (!bank.isDefault) {
-                                    IconButton(
-                                        onClick = { onDeleteBank(bank) },
-                                        modifier = Modifier.size(48.dp),
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.DeleteOutline,
-                                            contentDescription = "Bazanı sil",
-                                            tint = vip.rose,
-                                        )
-                                    }
+                                IconButton(
+                                    onClick = { onDeleteBank(bank) },
+                                    modifier = Modifier.size(48.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.DeleteOutline,
+                                        contentDescription = "Bazanı sil",
+                                        tint = vip.rose,
+                                    )
                                 }
                             }
                         }

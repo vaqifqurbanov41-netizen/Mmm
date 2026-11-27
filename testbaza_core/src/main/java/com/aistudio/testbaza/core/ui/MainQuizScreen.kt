@@ -10,6 +10,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -32,16 +35,21 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.LocalFireDepartment
+import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Quiz
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.automirrored.filled.TextSnippet
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material3.Button
@@ -49,6 +57,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -77,6 +86,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.aistudio.testbaza.core.domain.AnswerRule
 import com.aistudio.testbaza.core.domain.QuestionMasteryStatus
 import com.aistudio.testbaza.core.domain.QuizEngine
 import com.aistudio.testbaza.core.domain.SessionQuestionItem
@@ -104,7 +114,11 @@ fun MainQuizScreen(
     onOpenSingleKeyDialog: () -> Unit,
     onOpenGridDialog: () -> Unit,
     onOpenToolsSheet: () -> Unit,
-    onOpenFilePicker: () -> Unit,
+    onOpenWordPicker: () -> Unit,
+    onOpenPdfPicker: () -> Unit,
+    onOpenTxtPicker: () -> Unit,
+    onOpenPasteDialog: () -> Unit,
+    onSelectImportRule: (AnswerRule) -> Unit,
 ) {
     val vip = LocalVipColors.current
 
@@ -129,6 +143,7 @@ fun MainQuizScreen(
         },
         bottomBar = {
             if (!uiState.isLoading &&
+                uiState.rawQuestions.isNotEmpty() &&
                 uiState.mode != StudyMode.FLASHCARD &&
                 !uiState.isSessionFinished &&
                 uiState.currentSessionItem != null
@@ -157,10 +172,12 @@ fun MainQuizScreen(
                     .fillMaxSize()
                     .padding(horizontal = 16.dp),
             ) {
-                StudyModePillBar(
-                    uiState = uiState,
-                    onSwitchMode = onSwitchMode,
-                )
+                if (uiState.rawQuestions.isNotEmpty()) {
+                    StudyModePillBar(
+                        uiState = uiState,
+                        onSwitchMode = onSwitchMode,
+                    )
+                }
 
                 if (uiState.isLoading || uiState.isImporting) {
                     Box(
@@ -173,14 +190,21 @@ fun MainQuizScreen(
                         ) {
                             CircularProgressIndicator(color = vip.gold)
                             Text(
-                                text = if (uiState.isImporting) "Fayl analiz edilir..." else "Test bazası hazırlanır...",
+                                text = if (uiState.isImporting) "Fayl analiz edilir..." else "Testbazaya hazırlanır...",
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = vip.textSecondary,
                             )
                         }
                     }
                 } else if (uiState.rawQuestions.isEmpty()) {
-                    EmptyBankCard(onPickFile = onOpenFilePicker)
+                    InitialImportHomeScreen(
+                        selectedRule = uiState.importRule,
+                        onSelectRule = onSelectImportRule,
+                        onPickWord = onOpenWordPicker,
+                        onPickPdf = onOpenPdfPicker,
+                        onPickTxt = onOpenTxtPicker,
+                        onOpenPaste = onOpenPasteDialog,
+                    )
                 } else {
                     TelemetryAndFilterRow(
                         uiState = uiState,
@@ -470,14 +494,17 @@ private fun TelemetryAndFilterRow(
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Row(
+                modifier = Modifier.weight(1f, fill = false),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
-                    text = if (totalActive > 0) "Sual ${activeIdx + 1} / $totalActive" else "0 / 0",
+                    text = if (totalActive > 0) "Sual ${activeIdx + 1}/$totalActive" else "0/0",
                     style = MaterialTheme.typography.labelSmall,
                     color = vip.gold,
                     fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    softWrap = false,
                 )
                 StatDot(icon = Icons.Default.LocalFireDepartment, value = uiState.streakCount, color = vip.gold)
                 StatDot(icon = Icons.Default.CheckCircle, value = uiState.correctCount, color = vip.emerald)
@@ -503,13 +530,15 @@ private fun TelemetryAndFilterRow(
                         border = BorderStroke(1.dp, vip.border),
                     ) {
                         Box(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 7.dp),
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
                                 text = activeChunkLabel,
                                 style = MaterialTheme.typography.labelMedium,
                                 color = vip.emerald,
+                                maxLines = 1,
+                                softWrap = false,
                             )
                         }
                     }
@@ -542,7 +571,7 @@ private fun TelemetryAndFilterRow(
                     border = BorderStroke(1.dp, if (uiState.isShuffled) vip.emeraldBorder else vip.border),
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 7.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
@@ -556,6 +585,8 @@ private fun TelemetryAndFilterRow(
                             text = if (uiState.isShuffled) "Qarışıq" else "Sıralı",
                             style = MaterialTheme.typography.labelMedium,
                             color = if (uiState.isShuffled) vip.emerald else vip.textSecondary,
+                            maxLines = 1,
+                            softWrap = false,
                         )
                     }
                 }
@@ -836,13 +867,14 @@ private fun QuizBottomDock(
                 modifier = Modifier
                     .widthIn(max = 760.dp)
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 OutlinedButton(
                     onClick = onPrev,
                     enabled = canGoPrev,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                     modifier = Modifier
                         .heightIn(min = 48.dp)
                         .testTag("bottom_prev_button"),
@@ -859,6 +891,7 @@ private fun QuizBottomDock(
                 OutlinedButton(
                     onClick = onJoker,
                     enabled = canUseJoker,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                     modifier = Modifier
                         .heightIn(min = 48.dp)
                         .testTag("bottom_joker_button"),
@@ -872,11 +905,17 @@ private fun QuizBottomDock(
                         modifier = Modifier.size(18.dp),
                     )
                     Spacer(Modifier.size(4.dp))
-                    Text("50:50", color = vip.gold)
+                    Text(
+                        text = "50:50",
+                        color = vip.gold,
+                        maxLines = 1,
+                        softWrap = false,
+                    )
                 }
 
                 OutlinedButton(
                     onClick = onMarkMastered,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                     modifier = Modifier
                         .heightIn(min = 48.dp)
                         .testTag("bottom_mastered_button"),
@@ -893,6 +932,7 @@ private fun QuizBottomDock(
 
                 Button(
                     onClick = onNext,
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                     modifier = Modifier
                         .weight(1f)
                         .heightIn(min = 48.dp)
@@ -903,7 +943,11 @@ private fun QuizBottomDock(
                         contentColor = MaterialTheme.colorScheme.onPrimary,
                     ),
                 ) {
-                    Text(if (isLastQuestion) "Bitir" else "Növbəti")
+                    Text(
+                        text = if (isLastQuestion) "Bitir" else "Növbəti",
+                        maxLines = 1,
+                        softWrap = false,
+                    )
                     Spacer(Modifier.size(6.dp))
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowForward,
@@ -1011,43 +1055,232 @@ private fun SessionCompleteVipCard(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun EmptyBankCard(onPickFile: () -> Unit) {
+private fun InitialImportHomeScreen(
+    selectedRule: AnswerRule,
+    onSelectRule: (AnswerRule) -> Unit,
+    onPickWord: () -> Unit,
+    onPickPdf: () -> Unit,
+    onPickTxt: () -> Unit,
+    onOpenPaste: () -> Unit,
+) {
     val vip = LocalVipColors.current
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center,
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .navigationBarsPadding()
+            .padding(top = 18.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Surface(
             shape = RoundedCornerShape(24.dp),
             color = vip.surface,
-            border = BorderStroke(1.dp, vip.borderStrong),
+            border = BorderStroke(1.dp, vip.goldBorder),
             modifier = Modifier.fillMaxWidth(),
         ) {
             Column(
-                modifier = Modifier.padding(24.dp),
+                modifier = Modifier.padding(20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
+                Box(
+                    modifier = Modifier
+                        .size(58.dp)
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(Brush.linearGradient(listOf(vip.goldSoft, vip.emeraldSoft))),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.UploadFile,
+                        contentDescription = "Sual faylı yüklə",
+                        tint = vip.gold,
+                        modifier = Modifier.size(30.dp),
+                    )
+                }
                 Text(
-                    text = "Test Bazası Yükləyin",
-                    style = MaterialTheme.typography.titleLarge,
+                    text = "Suallarınızı Yükləyin",
+                    style = MaterialTheme.typography.headlineSmall,
                     color = vip.textPrimary,
+                    textAlign = TextAlign.Center,
                 )
                 Text(
-                    text = "Word (.docx), PDF (.pdf) və ya TXT faylı seçərək oflayn test yaradın.",
+                    text = "Word (.docx) və ya PDF sənədinizi seçin — suallar avtomatik analiz olunub testə hazır vəziyyətə gətiriləcək.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = vip.textSecondary,
                     textAlign = TextAlign.Center,
                 )
-                Button(
-                    onClick = onPickFile,
-                    modifier = Modifier.heightIn(min = 50.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = vip.emerald),
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Surface(
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = 126.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .clickable(onClick = onPickWord)
+                    .testTag("home_import_word_button"),
+                shape = RoundedCornerShape(20.dp),
+                color = vip.emeraldSoft,
+                border = BorderStroke(1.2.dp, vip.emeraldBorder),
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalAlignment = Alignment.Start,
                 ) {
-                    Text("Fayl Seç")
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(vip.emerald),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Description,
+                            contentDescription = "Word faylı yüklə",
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+                    Text(
+                        text = "Word (.docx)",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = vip.textPrimary,
+                    )
+                    Text(
+                        text = "Word sənədindən sual əlavə et",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = vip.textSecondary,
+                    )
                 }
+            }
+
+            Surface(
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = 126.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .clickable(onClick = onPickPdf)
+                    .testTag("home_import_pdf_button"),
+                shape = RoundedCornerShape(20.dp),
+                color = vip.goldSoft,
+                border = BorderStroke(1.2.dp, vip.goldBorder),
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalAlignment = Alignment.Start,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(vip.gold),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PictureAsPdf,
+                            contentDescription = "PDF faylı yüklə",
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+                    Text(
+                        text = "PDF (.pdf)",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = vip.textPrimary,
+                    )
+                    Text(
+                        text = "Mətn əsaslı PDF faylını seç",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = vip.textSecondary,
+                    )
+                }
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            OutlinedButton(
+                onClick = onPickTxt,
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = 50.dp)
+                    .testTag("home_import_txt_button"),
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, vip.borderStrong),
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.TextSnippet,
+                    contentDescription = "TXT faylı",
+                    tint = vip.textPrimary,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.size(6.dp))
+                Text("TXT Fayl", maxLines = 1, softWrap = false)
+            }
+
+            OutlinedButton(
+                onClick = onOpenPaste,
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = 50.dp)
+                    .testTag("home_paste_text_button"),
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, vip.borderStrong),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ContentPaste,
+                    contentDescription = "Mətn yapışdır",
+                    tint = vip.gold,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.size(6.dp))
+                Text("Mətn Yapışdır", maxLines = 1, softWrap = false)
+            }
+        }
+
+        Surface(
+            shape = RoundedCornerShape(18.dp),
+            color = vip.surface,
+            border = BorderStroke(1.dp, vip.border),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = "Doğru cavabı tanıma qaydası:",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = vip.gold,
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    AnswerRule.entries.forEach { rule ->
+                        FilterChip(
+                            selected = selectedRule == rule,
+                            onClick = { onSelectRule(rule) },
+                            label = { Text(rule.label) },
+                            modifier = Modifier.testTag("home_rule_chip_${rule.name.lowercase()}"),
+                        )
+                    }
+                }
+                Text(
+                    text = "Format nümunəsi:  1. Sual mətni?   A) Variant 1   B) Variant 2 ...\nSənədin sonunda cavab açarı (1. A  2. B...) varsa avtomatik oxunur.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = vip.textSecondary,
+                )
             }
         }
     }
