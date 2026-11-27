@@ -5,12 +5,15 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import android.os.Build
 import com.aistudio.texnonezaret.data.PersistedSheetData
 import com.aistudio.texnonezaret.data.SpreadsheetParser
 import com.aistudio.texnonezaret.data.TexnonezaretStorage
 import com.aistudio.texnonezaret.data.ThemeMode
 import com.aistudio.texnonezaret.data.TntCapturedPhoto
+import com.aistudio.texnonezaret.data.TntEncryptedJpgCodec
 import com.aistudio.texnonezaret.data.TntLocationHelper
+import com.aistudio.texnonezaret.data.TntPhotoExporter
 import com.aistudio.texnonezaret.data.TntPhotoProcessor
 import com.aistudio.texnonezaret.data.TntPhotoVault
 import com.aistudio.texnonezaret.data.TntPhotoWatermarkFormatter
@@ -31,6 +34,8 @@ import kotlinx.coroutines.delay
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.InputStream
+import java.text.SimpleDateFormat
+import java.util.Locale
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -106,11 +111,36 @@ enum class TntBottomTab {
     GALLERY,
 }
 
+data class DraftImportedPhoto(
+    val tempFile: File,
+    val capturedAtMillis: Long,
+    val timestampText: String,
+    val latitudeText: String,
+    val longitudeText: String,
+    val plateTag: String,
+    val hasExifTime: Boolean = false,
+    val hasExifGps: Boolean = false,
+    val isFetchingGps: Boolean = false,
+)
+
+data class PendingEncryptedJpgImport(
+    val fileBytes: ByteArray,
+    val errorMessage: String? = null,
+)
+
+data class PendingSafExport(
+    val fileName: String,
+    val bytes: ByteArray,
+)
+
 data class PhotoVaultUiState(
     val activeTab: TntBottomTab = TntBottomTab.SEARCH,
     val photos: List<TntCapturedPhoto> = emptyList(),
     val isProcessingPhoto: Boolean = false,
     val selectedPhoto: TntCapturedPhoto? = null,
+    val pendingGalleryImport: DraftImportedPhoto? = null,
+    val pendingEncryptedImportPrompt: PendingEncryptedJpgImport? = null,
+    val pendingSafSaveBytes: PendingSafExport? = null,
     val vaultMessage: String? = null,
     val vaultError: String? = null,
 )
@@ -1003,6 +1033,447 @@ class TexnonezaretViewModel(application: Application) : AndroidViewModel(applica
                 )
             }
         }
+    }
+
+    fun importPhotoFromUri(uri: Uri) {
+        recordUserActivity()
+        isExternalCapturePending = false
+        viewModelScope.launch {
+            _vaultState.update {
+                it.copy(
+                    isProcessingPhoto = true,
+                    vaultError = null,
+                    vaultMessage = null,
+                )
+            }
+            val app = getApplication<Application>()
+            val bytesResult = withContext(Dispatchers.IO) {
+                runCatching {
+                    app.contentResolver.openInputStream(uri)?.use { stream ->
+                        readBoundedBytes(stream, MAX_IMPORT_BYTES)
+                    } ?: throw IllegalStateException("Şəkil faylı açıla bilmədi.")
+                }
+            }
+            val bytes = bytesResult.getOrElse { err ->
+                _vaultState.update {
+                    it.copy(
+                        isProcessingPhoto = false,
+                        vaultError = err.message ?: "Şəkil oxuna bilmədi.",
+                    )
+                }
+                return@launch
+            }
+
+            val encryptedInspection = withContext(Dispatchers.Default) {
+                TntEncryptedJpgCodec.inspectEncryptedJpg(bytes)
+            }
+            if (encryptedInspection != null) {
+                if (encryptedInspection.requiresPassword) {
+                    _vaultState.update {
+                        it.copy(
+                            isProcessingPhoto = false,
+                            pendingEncryptedImportPrompt = PendingEncryptedJpgImport(fileBytes = bytes),
+                        )
+                    }
+                    return@launch
+                } else {
+                    val decoded = withContext(Dispatchers.IO) {
+                        TntEncryptedJpgCodec.decodeEncryptedJpgEnvelope(bytes)
+                    }
+                    if (decoded == null) {
+                        _vaultState.update {
+                            it.copy(
+                                isProcessingPhoto = false,
+                                vaultError = "Bu şifrəli JPG yalnız yaradıldığı cihazın açarı ilə açıla bilər.",
+                            )
+                        }
+                        return@launch
+                    }
+                    val savedResult = withContext(Dispatchers.IO) {
+                        runCatching {
+                            photoVault.saveStampedPhoto(
+                                jpegBytes = decoded.stampedJpegBytes,
+                                capturedAtMillis = decoded.capturedAtMillis,
+                                timestampText = decoded.timestampText,
+                                latitude = decoded.latitude,
+                                longitude = decoded.longitude,
+                                accuracyMeters = decoded.accuracyMeters,
+                                coordinatesText = decoded.coordinatesText,
+                                plateTag = decoded.plateTag,
+                            )
+                        }
+                    }
+                    savedResult.onSuccess {
+                        val updated = photoVault.loadPhotos()
+                        _vaultState.update {
+                            it.copy(
+                                photos = updated,
+                                activeTab = TntBottomTab.GALLERY,
+                                isProcessingPhoto = false,
+                                vaultMessage = "Şifrəli JPG deşifrə edildi və TNT qalereyasına əlavə olundu.",
+                                vaultError = null,
+                            )
+                        }
+                    }.onFailure { err ->
+                        _vaultState.update {
+                            it.copy(
+                                isProcessingPhoto = false,
+                                vaultError = err.message ?: "Şifrəli şəkil qalereyaya yazıla bilmədi.",
+                            )
+                        }
+                    }
+                    return@launch
+                }
+            }
+
+            val draftResult = withContext(Dispatchers.IO) {
+                runCatching {
+                    val importDir = File(app.cacheDir, "import_tmp").apply { mkdirs() }
+                    val tempFile = File(importDir, "tnt_import_${System.currentTimeMillis()}.jpg")
+                    tempFile.writeBytes(bytes)
+                    val exif = TntPhotoProcessor.extractExifHints(tempFile)
+                    val capturedAt = exif.timestampMillis ?: System.currentTimeMillis()
+                    val fix = if (exif.latitude == null || exif.longitude == null) {
+                        TntLocationHelper.acquireBestFix(app, timeoutMs = 1_600L)
+                    } else {
+                        null
+                    }
+                    val lat = exif.latitude ?: fix?.latitude
+                    val lon = exif.longitude ?: fix?.longitude
+                    val activePlate = _searchState.value.plateQuery
+                        .let { TexnonezaretEngine.normPlate(it) }
+                    DraftImportedPhoto(
+                        tempFile = tempFile,
+                        capturedAtMillis = capturedAt,
+                        timestampText = TntPhotoWatermarkFormatter.formatTimestamp(capturedAt),
+                        latitudeText = lat?.let { String.format(Locale.US, "%.5f", it) }.orEmpty(),
+                        longitudeText = lon?.let { String.format(Locale.US, "%.5f", it) }.orEmpty(),
+                        plateTag = activePlate,
+                        hasExifTime = exif.timestampMillis != null,
+                        hasExifGps = exif.latitude != null && exif.longitude != null,
+                    )
+                }
+            }
+
+            draftResult.onSuccess { draft ->
+                val previousDraft = _vaultState.value.pendingGalleryImport
+                if (previousDraft != null && previousDraft.tempFile != draft.tempFile) {
+                    runCatching { previousDraft.tempFile.delete() }
+                }
+                _vaultState.update {
+                    it.copy(
+                        isProcessingPhoto = false,
+                        activeTab = TntBottomTab.GALLERY,
+                        pendingGalleryImport = draft,
+                        vaultError = null,
+                    )
+                }
+            }.onFailure { err ->
+                _vaultState.update {
+                    it.copy(
+                        isProcessingPhoto = false,
+                        vaultError = err.message ?: "Qalereya şəkli hazırlana bilmədi.",
+                    )
+                }
+            }
+        }
+    }
+
+    fun submitEncryptedJpgPassword(password: String) {
+        recordUserActivity()
+        val prompt = _vaultState.value.pendingEncryptedImportPrompt ?: return
+        if (password.isBlank()) {
+            _vaultState.update {
+                it.copy(
+                    pendingEncryptedImportPrompt = prompt.copy(
+                        errorMessage = "Şifrəli şəkli açmaq üçün parolu daxil edin.",
+                    ),
+                )
+            }
+            return
+        }
+        viewModelScope.launch {
+            _vaultState.update { it.copy(isProcessingPhoto = true, vaultError = null) }
+            val decoded = withContext(Dispatchers.IO) {
+                TntEncryptedJpgCodec.decodeEncryptedJpgEnvelope(prompt.fileBytes, password)
+            }
+            if (decoded == null) {
+                _vaultState.update {
+                    it.copy(
+                        isProcessingPhoto = false,
+                        pendingEncryptedImportPrompt = prompt.copy(
+                            errorMessage = "Parol yanlışdır və ya şifrəli fayl zədələnib.",
+                        ),
+                    )
+                }
+                return@launch
+            }
+            val savedResult = withContext(Dispatchers.IO) {
+                runCatching {
+                    photoVault.saveStampedPhoto(
+                        jpegBytes = decoded.stampedJpegBytes,
+                        capturedAtMillis = decoded.capturedAtMillis,
+                        timestampText = decoded.timestampText,
+                        latitude = decoded.latitude,
+                        longitude = decoded.longitude,
+                        accuracyMeters = decoded.accuracyMeters,
+                        coordinatesText = decoded.coordinatesText,
+                        plateTag = decoded.plateTag,
+                    )
+                }
+            }
+            savedResult.onSuccess {
+                val updated = photoVault.loadPhotos()
+                _vaultState.update {
+                    it.copy(
+                        photos = updated,
+                        activeTab = TntBottomTab.GALLERY,
+                        isProcessingPhoto = false,
+                        pendingEncryptedImportPrompt = null,
+                        vaultMessage = "Şifrəli JPG açıldı və qorunan qalereyada saxlanıldı.",
+                        vaultError = null,
+                    )
+                }
+            }.onFailure { err ->
+                _vaultState.update {
+                    it.copy(
+                        isProcessingPhoto = false,
+                        pendingEncryptedImportPrompt = null,
+                        vaultError = err.message ?: "Şəkil qorunan qalereyaya saxlanıla bilmədi.",
+                    )
+                }
+            }
+        }
+    }
+
+    fun cancelEncryptedJpgPasswordPrompt() {
+        recordUserActivity()
+        _vaultState.update { it.copy(pendingEncryptedImportPrompt = null) }
+    }
+
+    fun refreshDraftImportGps() {
+        recordUserActivity()
+        val draft = _vaultState.value.pendingGalleryImport ?: return
+        viewModelScope.launch {
+            _vaultState.update { cur ->
+                cur.copy(pendingGalleryImport = cur.pendingGalleryImport?.copy(isFetchingGps = true))
+            }
+            val fix = withContext(Dispatchers.IO) {
+                TntLocationHelper.acquireBestFix(getApplication(), timeoutMs = 3_000L)
+            }
+            _vaultState.update { cur ->
+                val activeDraft = cur.pendingGalleryImport ?: return@update cur
+                if (fix != null) {
+                    cur.copy(
+                        pendingGalleryImport = activeDraft.copy(
+                            latitudeText = String.format(Locale.US, "%.5f", fix.latitude),
+                            longitudeText = String.format(Locale.US, "%.5f", fix.longitude),
+                            isFetchingGps = false,
+                        ),
+                        vaultError = null,
+                    )
+                } else {
+                    cur.copy(
+                        pendingGalleryImport = activeDraft.copy(isFetchingGps = false),
+                        vaultError = "GPS koordinatı alına bilmədi, əl ilə daxil edə bilərsiniz.",
+                    )
+                }
+            }
+        }
+    }
+
+    fun cancelGalleryPhotoImport() {
+        recordUserActivity()
+        val draft = _vaultState.value.pendingGalleryImport
+        _vaultState.update { it.copy(pendingGalleryImport = null) }
+        if (draft != null) {
+            viewModelScope.launch(Dispatchers.IO) {
+                runCatching { if (draft.tempFile.exists()) draft.tempFile.delete() }
+            }
+        }
+    }
+
+    fun confirmGalleryPhotoImport(
+        timestampText: String,
+        latitudeText: String,
+        longitudeText: String,
+        plateTag: String,
+    ) {
+        recordUserActivity()
+        val draft = _vaultState.value.pendingGalleryImport ?: return
+        viewModelScope.launch {
+            _vaultState.update {
+                it.copy(
+                    isProcessingPhoto = true,
+                    pendingGalleryImport = null,
+                    vaultError = null,
+                    vaultMessage = null,
+                )
+            }
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val cleanTs = timestampText.trim().ifBlank { draft.timestampText }
+                    val parsedEpoch = runCatching {
+                        SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale.US).parse(cleanTs)?.time
+                    }.getOrNull() ?: draft.capturedAtMillis
+
+                    val rawLat = latitudeText.trim().replace(',', '.').toDoubleOrNull()
+                    val rawLon = longitudeText.trim().replace(',', '.').toDoubleOrNull()
+                    val validCoords = rawLat != null && rawLon != null &&
+                        rawLat.isFinite() && rawLon.isFinite() &&
+                        rawLat in -90.0..90.0 && rawLon in -180.0..180.0
+                    val lat = if (validCoords) rawLat else null
+                    val lon = if (validCoords) rawLon else null
+
+                    val stripCoord = TntPhotoWatermarkFormatter.formatCompactCoordinatesForStrip(lat, lon)
+                    val fullCoord = TntPhotoWatermarkFormatter.formatCoordinates(lat, lon, null)
+                    val cleanTag = plateTag.trim().uppercase(Locale.ROOT).take(24)
+
+                    val stampedBytes = TntPhotoProcessor.processAndStampPhoto(
+                        sourceFile = draft.tempFile,
+                        timestampText = cleanTs,
+                        coordinatesStripText = stripCoord,
+                        plateTag = cleanTag,
+                    )
+                    photoVault.saveStampedPhoto(
+                        jpegBytes = stampedBytes,
+                        capturedAtMillis = parsedEpoch,
+                        timestampText = cleanTs,
+                        latitude = lat,
+                        longitude = lon,
+                        accuracyMeters = null,
+                        coordinatesText = fullCoord,
+                        plateTag = cleanTag,
+                    )
+                }.also {
+                    runCatching { if (draft.tempFile.exists()) draft.tempFile.delete() }
+                }
+            }
+
+            result.onSuccess { saved ->
+                val updated = photoVault.loadPhotos()
+                _vaultState.update {
+                    it.copy(
+                        photos = updated,
+                        activeTab = TntBottomTab.GALLERY,
+                        isProcessingPhoto = false,
+                        vaultMessage = "Qalereya şəkli məlumatlarla damğalandı, şifrələndi və saxlanıldı (${saved.timestampText}).",
+                        vaultError = null,
+                    )
+                }
+            }.onFailure { err ->
+                _vaultState.update {
+                    it.copy(
+                        isProcessingPhoto = false,
+                        vaultError = err.message ?: "Qalereya şəkli şifrələnə bilmədi.",
+                    )
+                }
+            }
+        }
+    }
+
+    fun downloadEncryptedJpg(photo: TntCapturedPhoto, optionalPassword: String?) {
+        recordUserActivity()
+        viewModelScope.launch {
+            _vaultState.update { it.copy(isProcessingPhoto = true, vaultError = null, vaultMessage = null) }
+            val app = getApplication<Application>()
+            val password = optionalPassword?.trim()?.takeIf { it.isNotEmpty() }
+            val exportRes = withContext(Dispatchers.IO) {
+                runCatching {
+                    val plainBytes = photoVault.loadDecryptedPhotoBytes(photo)
+                        ?: throw IllegalStateException("Şəkil deşifrə edilə bilmədi.")
+                    val coverBytes = TntPhotoProcessor.createEncryptedShieldCoverJpeg(photo.timestampText)
+                    val encryptedJpg = TntEncryptedJpgCodec.encodeEncryptedJpgEnvelope(
+                        coverJpegBytes = coverBytes,
+                        photo = photo,
+                        stampedJpegBytes = plainBytes,
+                        password = password,
+                    )
+                    val fileName = TntPhotoExporter.buildExportFileName(photo, encrypted = true)
+                    val savedPath = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        TntPhotoExporter.saveEncryptedJpgToDownloadsApi29Plus(app, fileName, encryptedJpg)
+                    } else {
+                        null
+                    }
+                    Triple(fileName, encryptedJpg, savedPath)
+                }
+            }
+            exportRes.onSuccess { (fileName, bytes, savedPath) ->
+                if (savedPath != null) {
+                    _vaultState.update {
+                        it.copy(
+                            isProcessingPhoto = false,
+                            vaultMessage = "Şifrəli JPG yükləndi: $savedPath",
+                            vaultError = null,
+                        )
+                    }
+                } else {
+                    _vaultState.update {
+                        it.copy(
+                            isProcessingPhoto = false,
+                            pendingSafSaveBytes = PendingSafExport(fileName = fileName, bytes = bytes),
+                        )
+                    }
+                }
+            }.onFailure { err ->
+                _vaultState.update {
+                    it.copy(
+                        isProcessingPhoto = false,
+                        vaultError = err.message ?: "Şifrəli JPG yüklənə bilmədi.",
+                    )
+                }
+            }
+        }
+    }
+
+    fun completeSafEncryptedSave(uri: Uri?) {
+        recordUserActivity()
+        isExternalCapturePending = false
+        val pending = _vaultState.value.pendingSafSaveBytes ?: return
+        _vaultState.update { it.copy(pendingSafSaveBytes = null) }
+        if (uri == null) return
+        viewModelScope.launch {
+            val app = getApplication<Application>()
+            val ok = withContext(Dispatchers.IO) {
+                runCatching {
+                    app.contentResolver.openOutputStream(uri)?.use { out ->
+                        out.write(pending.bytes)
+                    } ?: throw IllegalStateException("Fayl yazıla bilmədi.")
+                    true
+                }.getOrDefault(false)
+            }
+            _vaultState.update {
+                if (ok) {
+                    it.copy(vaultMessage = "Şifrəli JPG seçilmiş qovluğa yükləndi (${pending.fileName}).", vaultError = null)
+                } else {
+                    it.copy(vaultError = "Şifrəli JPG faylı yazıla bilmədi.")
+                }
+            }
+        }
+    }
+
+    suspend fun prepareShareJpgFile(
+        photo: TntCapturedPhoto,
+        encrypted: Boolean,
+        optionalPassword: String?,
+    ): File? = withContext(Dispatchers.IO) {
+        runCatching {
+            val app = getApplication<Application>()
+            val plainBytes = photoVault.loadDecryptedPhotoBytes(photo) ?: return@runCatching null
+            val outBytes = if (encrypted) {
+                val coverBytes = TntPhotoProcessor.createEncryptedShieldCoverJpeg(photo.timestampText)
+                TntEncryptedJpgCodec.encodeEncryptedJpgEnvelope(
+                    coverJpegBytes = coverBytes,
+                    photo = photo,
+                    stampedJpegBytes = plainBytes,
+                    password = optionalPassword?.trim()?.takeIf { it.isNotEmpty() },
+                )
+            } else {
+                plainBytes
+            }
+            val fileName = TntPhotoExporter.buildExportFileName(photo, encrypted = encrypted)
+            TntPhotoExporter.writeShareTempJpg(app, fileName, outBytes)
+        }.getOrNull()
     }
 
     private fun readBoundedBytes(stream: InputStream, maxBytes: Int): ByteArray {

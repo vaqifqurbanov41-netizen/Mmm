@@ -27,14 +27,17 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.EnhancedEncryption
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -82,14 +85,25 @@ import kotlinx.coroutines.withContext
 fun TntPhotoGalleryScreen(
     vaultState: PhotoVaultUiState,
     onRequestCapturePhoto: () -> Unit,
+    onRequestImportGalleryPhoto: () -> Unit,
+    onRequestImportEncryptedJpg: () -> Unit,
     onOpenPhoto: (TntCapturedPhoto) -> Unit,
     onClosePhoto: () -> Unit,
     onDeletePhoto: (String) -> Unit,
+    onDownloadEncryptedJpg: (TntCapturedPhoto, String?) -> Unit,
+    onSharePhoto: (photo: TntCapturedPhoto, encrypted: Boolean, optionalPassword: String?) -> Unit,
+    onRequestRefreshDraftGps: () -> Unit,
+    onConfirmGalleryImport: (timestampText: String, latText: String, lonText: String, plateTag: String) -> Unit,
+    onCancelGalleryImport: () -> Unit,
+    onSubmitEncryptedImportPassword: (String) -> Unit,
+    onCancelEncryptedImportPassword: () -> Unit,
     onLoadPhotoBytes: suspend (TntCapturedPhoto) -> ByteArray?,
     modifier: Modifier = Modifier,
 ) {
     val extra = LocalTexnoColors.current
     var pendingDeletePhoto by remember { mutableStateOf<TntCapturedPhoto?>(null) }
+    var pendingDownloadPhoto by remember { mutableStateOf<TntCapturedPhoto?>(null) }
+    var pendingSharePhoto by remember { mutableStateOf<TntCapturedPhoto?>(null) }
 
     if (pendingDeletePhoto != null) {
         val target = pendingDeletePhoto!!
@@ -122,11 +136,56 @@ fun TntPhotoGalleryScreen(
         )
     }
 
+    val downloadTarget = pendingDownloadPhoto
+    if (downloadTarget != null) {
+        TntEncryptedDownloadDialog(
+            photo = downloadTarget,
+            onConfirmDownload = { password ->
+                pendingDownloadPhoto = null
+                onDownloadEncryptedJpg(downloadTarget, password)
+            },
+            onDismiss = { pendingDownloadPhoto = null },
+        )
+    }
+
+    val shareTarget = pendingSharePhoto
+    if (shareTarget != null) {
+        TntSharePhotoDialog(
+            photo = shareTarget,
+            onConfirmShare = { encrypted, password ->
+                pendingSharePhoto = null
+                onSharePhoto(shareTarget, encrypted, password)
+            },
+            onDismiss = { pendingSharePhoto = null },
+        )
+    }
+
+    val importDraft = vaultState.pendingGalleryImport
+    if (importDraft != null) {
+        TntGalleryImportMetadataDialog(
+            draft = importDraft,
+            onRequestGpsRefresh = onRequestRefreshDraftGps,
+            onConfirm = onConfirmGalleryImport,
+            onDismiss = onCancelGalleryImport,
+        )
+    }
+
+    val unlockPrompt = vaultState.pendingEncryptedImportPrompt
+    if (unlockPrompt != null) {
+        TntEncryptedJpgUnlockDialog(
+            prompt = unlockPrompt,
+            onSubmitPassword = onSubmitEncryptedImportPassword,
+            onDismiss = onCancelEncryptedImportPassword,
+        )
+    }
+
     val previewPhoto = vaultState.selectedPhoto
     if (previewPhoto != null) {
         TntPhotoLightboxDialog(
             photo = previewPhoto,
             onLoadPhotoBytes = onLoadPhotoBytes,
+            onRequestDownload = { pendingDownloadPhoto = previewPhoto },
+            onRequestShare = { pendingSharePhoto = previewPhoto },
             onRequestDelete = { pendingDeletePhoto = previewPhoto },
             onDismiss = onClosePhoto,
         )
@@ -186,6 +245,64 @@ fun TntPhotoGalleryScreen(
                                     color = extra.muted,
                                 )
                             }
+                        }
+                    }
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Button(
+                            onClick = onRequestImportGalleryPhoto,
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = extra.brand,
+                                contentColor = extra.brandInk,
+                            ),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp)
+                                .testTag("gallery_import_photo_btn"),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.AddPhotoAlternate,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Qalereyadan əlavə et",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+
+                        OutlinedButton(
+                            onClick = onRequestImportEncryptedJpg,
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, extra.line),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp)
+                                .testTag("gallery_import_encrypted_jpg_btn"),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.EnhancedEncryption,
+                                contentDescription = null,
+                                tint = extra.okText,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Şifrəli JPG aç",
+                                color = extra.ink,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                fontWeight = FontWeight.SemiBold,
+                            )
                         }
                     }
 
@@ -291,24 +408,48 @@ fun TntPhotoGalleryScreen(
                             color = extra.muted,
                             textAlign = TextAlign.Center,
                         )
-                        Button(
-                            onClick = onRequestCapturePhoto,
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = extra.brand,
-                                contentColor = extra.brandInk,
-                            ),
-                            modifier = Modifier
-                                .heightIn(min = 48.dp)
-                                .testTag("gallery_empty_capture_btn"),
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Icon(
-                                imageVector = Icons.Filled.PhotoCamera,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp),
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Şəkil çək", fontWeight = FontWeight.SemiBold)
+                            Button(
+                                onClick = onRequestCapturePhoto,
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = extra.brand,
+                                    contentColor = extra.brandInk,
+                                ),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .heightIn(min = 48.dp)
+                                    .testTag("gallery_empty_capture_btn"),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.PhotoCamera,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Şəkil çək", fontWeight = FontWeight.SemiBold, maxLines = 1)
+                            }
+                            OutlinedButton(
+                                onClick = onRequestImportGalleryPhoto,
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, extra.line),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .heightIn(min = 48.dp)
+                                    .testTag("gallery_empty_import_btn"),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.AddPhotoAlternate,
+                                    contentDescription = null,
+                                    tint = extra.brand,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Qalereyadan", color = extra.ink, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                            }
                         }
                     }
                 }
@@ -319,6 +460,8 @@ fun TntPhotoGalleryScreen(
                     photo = photo,
                     onLoadPhotoBytes = onLoadPhotoBytes,
                     onOpen = { onOpenPhoto(photo) },
+                    onRequestDownload = { pendingDownloadPhoto = photo },
+                    onRequestShare = { pendingSharePhoto = photo },
                     onRequestDelete = { pendingDeletePhoto = photo },
                 )
             }
@@ -331,6 +474,8 @@ private fun TntVaultPhotoCard(
     photo: TntCapturedPhoto,
     onLoadPhotoBytes: suspend (TntCapturedPhoto) -> ByteArray?,
     onOpen: () -> Unit,
+    onRequestDownload: () -> Unit,
+    onRequestShare: () -> Unit,
     onRequestDelete: () -> Unit,
 ) {
     val extra = LocalTexnoColors.current
@@ -460,17 +605,43 @@ private fun TntVaultPhotoCard(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
-                    IconButton(
-                        onClick = onRequestDelete,
-                        modifier = Modifier
-                            .size(48.dp)
-                            .testTag("delete_vault_photo_${photo.id}"),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.DeleteOutline,
-                            contentDescription = "Şəkli sil",
-                            tint = extra.badText,
-                        )
+                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                        IconButton(
+                            onClick = onRequestDownload,
+                            modifier = Modifier
+                                .size(48.dp)
+                                .testTag("download_vault_photo_${photo.id}"),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Download,
+                                contentDescription = "Şifrəli JPG yüklə",
+                                tint = extra.brand,
+                            )
+                        }
+                        IconButton(
+                            onClick = onRequestShare,
+                            modifier = Modifier
+                                .size(48.dp)
+                                .testTag("share_vault_photo_${photo.id}"),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Share,
+                                contentDescription = "Şəkli paylaş",
+                                tint = extra.okText,
+                            )
+                        }
+                        IconButton(
+                            onClick = onRequestDelete,
+                            modifier = Modifier
+                                .size(48.dp)
+                                .testTag("delete_vault_photo_${photo.id}"),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.DeleteOutline,
+                                contentDescription = "Şəkli sil",
+                                tint = extra.badText,
+                            )
+                        }
                     }
                 }
             }
@@ -482,6 +653,8 @@ private fun TntVaultPhotoCard(
 private fun TntPhotoLightboxDialog(
     photo: TntCapturedPhoto,
     onLoadPhotoBytes: suspend (TntCapturedPhoto) -> ByteArray?,
+    onRequestDownload: () -> Unit,
+    onRequestShare: () -> Unit,
     onRequestDelete: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -571,7 +744,31 @@ private fun TntPhotoLightboxDialog(
                         fontSize = 12.sp,
                     )
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    IconButton(
+                        onClick = onRequestDownload,
+                        modifier = Modifier
+                            .size(48.dp)
+                            .testTag("lightbox_download_photo_btn"),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Download,
+                            contentDescription = "Şifrəli JPG yüklə",
+                            tint = Color.White,
+                        )
+                    }
+                    IconButton(
+                        onClick = onRequestShare,
+                        modifier = Modifier
+                            .size(48.dp)
+                            .testTag("lightbox_share_photo_btn"),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Share,
+                            contentDescription = "Şəkli paylaş",
+                            tint = Color.White,
+                        )
+                    }
                     IconButton(
                         onClick = onRequestDelete,
                         modifier = Modifier.size(48.dp),

@@ -198,6 +198,59 @@ object SecurityGuard {
         }.getOrNull()
     }
 
+    fun encryptBytesWithPassword(
+        plainBytes: ByteArray,
+        password: String,
+        salt: ByteArray,
+        contextAad: String = "",
+    ): ByteArray {
+        val derived = pbkdf2HmacSha256(
+            password = password.toByteArray(StandardCharsets.UTF_8),
+            salt = salt,
+            iterations = INTERVENTION_ITERATIONS,
+            dkLen = 32,
+        )
+        val key = SecretKeySpec(derived, "AES")
+        val iv = ByteArray(GCM_IV_BYTES)
+        SecureRandom().nextBytes(iv)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, key, GCMParameterSpec(GCM_TAG_BITS, iv))
+        if (contextAad.isNotEmpty()) {
+            cipher.updateAAD(contextAad.toByteArray(StandardCharsets.UTF_8))
+        }
+        val encrypted = cipher.doFinal(plainBytes)
+        val out = ByteArray(GCM_IV_BYTES + encrypted.size)
+        System.arraycopy(iv, 0, out, 0, GCM_IV_BYTES)
+        System.arraycopy(encrypted, 0, out, GCM_IV_BYTES, encrypted.size)
+        return out
+    }
+
+    fun decryptBytesWithPassword(
+        cipherWithIv: ByteArray,
+        password: String,
+        salt: ByteArray,
+        contextAad: String = "",
+    ): ByteArray? {
+        if (password.isEmpty() || cipherWithIv.size <= GCM_IV_BYTES) return null
+        val iv = cipherWithIv.copyOfRange(0, GCM_IV_BYTES)
+        val ct = cipherWithIv.copyOfRange(GCM_IV_BYTES, cipherWithIv.size)
+        return runCatching {
+            val derived = pbkdf2HmacSha256(
+                password = password.toByteArray(StandardCharsets.UTF_8),
+                salt = salt,
+                iterations = INTERVENTION_ITERATIONS,
+                dkLen = 32,
+            )
+            val key = SecretKeySpec(derived, "AES")
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(GCM_TAG_BITS, iv))
+            if (contextAad.isNotEmpty()) {
+                cipher.updateAAD(contextAad.toByteArray(StandardCharsets.UTF_8))
+            }
+            cipher.doFinal(ct)
+        }.getOrNull()
+    }
+
     fun isHardwareKeyStoreActive(): Boolean {
         return runCatching {
             val ks = KeyStore.getInstance(KEYSTORE_PROVIDER).apply { load(null) }

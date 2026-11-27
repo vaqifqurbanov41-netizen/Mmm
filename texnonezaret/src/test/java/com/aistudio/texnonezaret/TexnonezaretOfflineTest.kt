@@ -1,6 +1,8 @@
 package com.aistudio.texnonezaret
 
 import com.aistudio.texnonezaret.data.SpreadsheetParser
+import com.aistudio.texnonezaret.data.TntCapturedPhoto
+import com.aistudio.texnonezaret.data.TntEncryptedJpgCodec
 import com.aistudio.texnonezaret.data.TntPhotoWatermarkFormatter
 import com.aistudio.texnonezaret.domain.InspectionStatusKind
 import com.aistudio.texnonezaret.domain.SearchMode
@@ -222,7 +224,82 @@ class TexnonezaretOfflineTest {
             TntPhotoWatermarkFormatter.formatCoordinates(null, null, null),
         )
         assertTrue(TntPhotoWatermarkFormatter.isSafeChildFileName("tnt_photo_123abc.tntimg"))
+        assertTrue(TntPhotoWatermarkFormatter.isSafeChildFileName("tnt_photo_123abc.jpg"))
         assertFalse(TntPhotoWatermarkFormatter.isSafeChildFileName("../secret.txt"))
         assertFalse(TntPhotoWatermarkFormatter.isSafeChildFileName("sub/photo.tntimg"))
+    }
+
+    @Test
+    fun encryptedJpgEnvelopeRoundTripAndTamperProtectionWork() {
+        val coverJpeg = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xE0.toByte(), 1, 2, 3, 0xFF.toByte(), 0xD9.toByte())
+        val stampedJpeg = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xDB.toByte(), 11, 22, 33, 44, 55, 0xFF.toByte(), 0xD9.toByte())
+        val sampleMeta = TntCapturedPhoto(
+            id = "p1234567890",
+            fileName = "tnt_photo_p1234567890.jpg",
+            capturedAtMillis = 1764240000_000L,
+            timestampText = "27/11/2025 10:40:00",
+            latitude = 40.40926,
+            longitude = 49.86709,
+            accuracyMeters = 7.5f,
+            coordinatesText = "40.40926, 49.86709 (±8m)",
+            plateTag = "04BA172",
+            sha256Hex = "abc",
+        )
+
+        // Plain JPEG without TNT trailer must inspect as null
+        assertNull(TntEncryptedJpgCodec.inspectEncryptedJpg(coverJpeg))
+
+        // 1) Device KeyStore mode (no password)
+        val keyStoreJpg = TntEncryptedJpgCodec.encodeEncryptedJpgEnvelope(
+            coverJpegBytes = coverJpeg,
+            photo = sampleMeta,
+            stampedJpegBytes = stampedJpeg,
+            password = null,
+        )
+        assertTrue(keyStoreJpg.size > coverJpeg.size + stampedJpeg.size)
+        // Starts with valid JPEG SOI marker so system treats it as a valid .jpg
+        assertEquals(0xFF.toByte(), keyStoreJpg[0])
+        assertEquals(0xD8.toByte(), keyStoreJpg[1])
+
+        val ksInspection = TntEncryptedJpgCodec.inspectEncryptedJpg(keyStoreJpg)
+        assertNotNull(ksInspection)
+        assertFalse(ksInspection!!.requiresPassword)
+
+        val ksDecoded = TntEncryptedJpgCodec.decodeEncryptedJpgEnvelope(keyStoreJpg)
+        assertNotNull(ksDecoded)
+        assertTrue(stampedJpeg.contentEquals(ksDecoded!!.stampedJpegBytes))
+        assertEquals(sampleMeta.capturedAtMillis, ksDecoded.capturedAtMillis)
+        assertEquals(sampleMeta.timestampText, ksDecoded.timestampText)
+        assertEquals(sampleMeta.latitude!!, ksDecoded.latitude!!, 0.00001)
+        assertEquals(sampleMeta.longitude!!, ksDecoded.longitude!!, 0.00001)
+        assertEquals(sampleMeta.accuracyMeters!!, ksDecoded.accuracyMeters!!, 0.01f)
+        assertEquals(sampleMeta.coordinatesText, ksDecoded.coordinatesText)
+        assertEquals(sampleMeta.plateTag, ksDecoded.plateTag)
+
+        // 2) Cross-device password mode
+        val pwJpg = TntEncryptedJpgCodec.encodeEncryptedJpgEnvelope(
+            coverJpegBytes = coverJpeg,
+            photo = sampleMeta,
+            stampedJpegBytes = stampedJpeg,
+            password = "TntExport#2026",
+        )
+        val pwInspection = TntEncryptedJpgCodec.inspectEncryptedJpg(pwJpg)
+        assertNotNull(pwInspection)
+        assertTrue(pwInspection!!.requiresPassword)
+
+        assertNull(TntEncryptedJpgCodec.decodeEncryptedJpgEnvelope(pwJpg, null))
+        assertNull(TntEncryptedJpgCodec.decodeEncryptedJpgEnvelope(pwJpg, ""))
+        assertNull(TntEncryptedJpgCodec.decodeEncryptedJpgEnvelope(pwJpg, "wrong-password"))
+
+        val pwDecoded = TntEncryptedJpgCodec.decodeEncryptedJpgEnvelope(pwJpg, "TntExport#2026")
+        assertNotNull(pwDecoded)
+        assertTrue(stampedJpeg.contentEquals(pwDecoded!!.stampedJpegBytes))
+        assertEquals("04BA172", pwDecoded.plateTag)
+
+        // 3) Tampering ciphertext inside envelope must fail GCM verification
+        val tampered = pwJpg.copyOf()
+        val payloadByteIdx = tampered.size - 16
+        tampered[payloadByteIdx] = (tampered[payloadByteIdx].toInt() xor 0xFF).toByte()
+        assertNull(TntEncryptedJpgCodec.decodeEncryptedJpgEnvelope(tampered, "TntExport#2026"))
     }
 }

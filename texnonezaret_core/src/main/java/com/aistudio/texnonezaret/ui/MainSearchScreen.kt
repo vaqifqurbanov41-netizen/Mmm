@@ -8,6 +8,7 @@ import android.net.Uri
 import android.speech.RecognizerIntent
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
@@ -142,6 +143,15 @@ fun MainSearchScreen(
     onClosePhotoPreview: () -> Unit,
     onDeleteVaultPhoto: (String) -> Unit,
     onLoadPhotoBytes: suspend (TntCapturedPhoto) -> ByteArray?,
+    onImportPhotoUri: (Uri) -> Unit,
+    onDownloadEncryptedJpg: (TntCapturedPhoto, String?) -> Unit,
+    onCompleteSafEncryptedSave: (Uri?) -> Unit,
+    onPrepareShareJpgFile: suspend (TntCapturedPhoto, Boolean, String?) -> File?,
+    onRefreshDraftImportGps: () -> Unit,
+    onConfirmGalleryImport: (String, String, String, String) -> Unit,
+    onCancelGalleryImport: () -> Unit,
+    onSubmitEncryptedImportPassword: (String) -> Unit,
+    onCancelEncryptedImportPassword: () -> Unit,
 ) {
     val extra = LocalTexnoColors.current
     val context = LocalContext.current
@@ -278,6 +288,117 @@ fun MainSearchScreen(
         }
     }
 
+    val galleryPhotoPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        onMarkExternalCapturePending(false)
+        if (uri != null) {
+            localMessage = null
+            onImportPhotoUri(uri)
+        }
+    }
+
+    val encryptedJpgFilePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        onMarkExternalCapturePending(false)
+        if (uri != null) {
+            localMessage = null
+            onImportPhotoUri(uri)
+        }
+    }
+
+    val safEncryptedSaveLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("image/jpeg")
+    ) { uri ->
+        onMarkExternalCapturePending(false)
+        onCompleteSafEncryptedSave(uri)
+    }
+
+    LaunchedEffect(vaultState.pendingSafSaveBytes) {
+        val pending = vaultState.pendingSafSaveBytes
+        if (pending != null) {
+            onMarkExternalCapturePending(true)
+            safEncryptedSaveLauncher.launch(pending.fileName)
+        }
+    }
+
+    val shareIntentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) {
+        onMarkExternalCapturePending(false)
+    }
+
+    val gpsOnlyPermLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        val fine = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true
+        val coarse = grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        if (fine || coarse) {
+            onRefreshDraftImportGps()
+        } else {
+            localMessage = "GPS koordinatını almaq üçün məkan icazəsi verilmədi."
+        }
+    }
+
+    fun requestDraftGpsWithPermission() {
+        val fineGranted = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_FINE_LOCATION,
+        ) == PackageManager.PERMISSION_GRANTED
+        val coarseGranted = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+        ) == PackageManager.PERMISSION_GRANTED
+        if (fineGranted || coarseGranted) {
+            onRefreshDraftImportGps()
+        } else {
+            gpsOnlyPermLauncher.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION,
+                )
+            )
+        }
+    }
+
+    fun launchSharePhoto(
+        photo: TntCapturedPhoto,
+        encrypted: Boolean,
+        optionalPassword: String?,
+    ) {
+        scope.launch {
+            val file = onPrepareShareJpgFile(photo, encrypted, optionalPassword)
+            if (file == null) {
+                localMessage = "Paylaşım üçün şəkil hazırlana bilmədi."
+                return@launch
+            }
+            runCatching {
+                val uri = FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    file,
+                )
+                val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "image/jpeg"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    putExtra(
+                        Intent.EXTRA_SUBJECT,
+                        if (encrypted) "TNT Şifrəli Şəkil (${photo.timestampText})" else "TNT Şəkil (${photo.timestampText})",
+                    )
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                onMarkExternalCapturePending(true)
+                shareIntentLauncher.launch(
+                    Intent.createChooser(sendIntent, "Şəkli paylaş")
+                )
+            }.onFailure {
+                onMarkExternalCapturePending(false)
+                localMessage = "Paylaşım pəncərəsi açıla bilmədi."
+            }
+        }
+    }
+
     LaunchedEffect(effects) {
         effects.collect { effect ->
             when (effect) {
@@ -317,9 +438,26 @@ fun MainSearchScreen(
             TntPhotoGalleryScreen(
                 vaultState = vaultState,
                 onRequestCapturePhoto = ::requestCameraAndCapture,
+                onRequestImportGalleryPhoto = {
+                    onMarkExternalCapturePending(true)
+                    galleryPhotoPicker.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                    )
+                },
+                onRequestImportEncryptedJpg = {
+                    onMarkExternalCapturePending(true)
+                    encryptedJpgFilePicker.launch(arrayOf("image/jpeg", "image/*"))
+                },
                 onOpenPhoto = onOpenPhotoPreview,
                 onClosePhoto = onClosePhotoPreview,
                 onDeletePhoto = onDeleteVaultPhoto,
+                onDownloadEncryptedJpg = onDownloadEncryptedJpg,
+                onSharePhoto = ::launchSharePhoto,
+                onRequestRefreshDraftGps = ::requestDraftGpsWithPermission,
+                onConfirmGalleryImport = onConfirmGalleryImport,
+                onCancelGalleryImport = onCancelGalleryImport,
+                onSubmitEncryptedImportPassword = onSubmitEncryptedImportPassword,
+                onCancelEncryptedImportPassword = onCancelEncryptedImportPassword,
                 onLoadPhotoBytes = onLoadPhotoBytes,
                 modifier = Modifier.weight(1f),
             )

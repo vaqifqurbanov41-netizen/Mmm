@@ -2,6 +2,7 @@ package com.aistudio.texnonezaret.data
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.ContentValues
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -17,7 +18,9 @@ import android.location.LocationManager
 import android.media.ExifInterface
 import android.os.Build
 import android.os.CancellationSignal
+import android.os.Environment
 import android.os.Looper
+import android.provider.MediaStore
 import androidx.core.content.ContextCompat
 import com.aistudio.texnonezaret.security.SecurityGuard
 import kotlinx.coroutines.Dispatchers
@@ -28,6 +31,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.nio.ByteBuffer
+import java.security.SecureRandom
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -222,9 +227,90 @@ object TntLocationHelper {
     }
 }
 
+data class ExifPhotoHints(
+    val timestampMillis: Long? = null,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+)
+
 object TntPhotoProcessor {
 
     private const val MAX_LONG_EDGE_PX = 1920
+
+    fun extractExifHints(sourceFile: File): ExifPhotoHints {
+        return runCatching {
+            val exif = ExifInterface(sourceFile.absolutePath)
+            val rawDate = exif.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL)
+                ?: exif.getAttribute(ExifInterface.TAG_DATETIME)
+            val ts = rawDate?.trim()?.let { txt ->
+                runCatching {
+                    SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.US).parse(txt)?.time
+                }.getOrNull()
+            }
+            val latLon = FloatArray(2)
+            @Suppress("DEPRECATION")
+            val hasGeo = exif.getLatLong(latLon)
+            ExifPhotoHints(
+                timestampMillis = ts,
+                latitude = if (hasGeo) latLon[0].toDouble() else null,
+                longitude = if (hasGeo) latLon[1].toDouble() else null,
+            )
+        }.getOrDefault(ExifPhotoHints())
+    }
+
+    fun createEncryptedShieldCoverJpeg(timestampText: String): ByteArray {
+        val w = 720
+        val h = 480
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        canvas.drawColor(Color.rgb(18, 25, 19))
+
+        val borderPaint = Paint().apply {
+            color = Color.rgb(47, 93, 52)
+            style = Paint.Style.STROKE
+            strokeWidth = 6f
+        }
+        canvas.drawRect(24f, 24f, w - 24f, h - 24f, borderPaint)
+
+        val badgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(47, 93, 52)
+            style = Paint.Style.FILL
+        }
+        canvas.drawRoundRect(w / 2f - 70f, 90f, w / 2f + 70f, 146f, 16f, 16f, badgePaint)
+
+        val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            textAlign = Paint.Align.CENTER
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+            textSize = 30f
+        }
+        canvas.drawText("TNT", w / 2f, 129f, titlePaint)
+
+        titlePaint.textSize = 28f
+        canvas.drawText("ŞİFRƏLİ ŞƏKİL (AES-256)", w / 2f, 224f, titlePaint)
+
+        val subPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(182, 196, 180)
+            textAlign = Paint.Align.CENTER
+            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL)
+            textSize = 20f
+        }
+        canvas.drawText("Məzmun şifrələnib. Açmaq üçün TNT proqramından istifadə edin.", w / 2f, 274f, subPaint)
+
+        val timePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(143, 214, 155)
+            textAlign = Paint.Align.CENTER
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+            textSize = 20f
+        }
+        canvas.drawText(timestampText, w / 2f, 350f, timePaint)
+
+        return ByteArrayOutputStream().use { baos ->
+            bmp.compress(Bitmap.CompressFormat.JPEG, 88, baos)
+            bmp.recycle()
+            baos.toByteArray()
+        }
+    }
 
     fun processAndStampPhoto(
         sourceFile: File,
@@ -439,7 +525,7 @@ class TntPhotoVault(context: Context) {
         plateTag: String,
     ): TntCapturedPhoto = withContext(Dispatchers.IO) {
         val id = UUID.randomUUID().toString().replace("-", "").take(16)
-        val fileName = "tnt_photo_$id.tntimg"
+        val fileName = "tnt_photo_$id.jpg"
         val targetFile = resolveConstrainedVaultFile(fileName)
             ?: throw SecurityException("Qorunan qalereya yolu etibarsızdır")
 
@@ -549,3 +635,239 @@ class TntPhotoVault(context: Context) {
         }.getOrNull()
     }
 }
+
+data class EncryptedJpgInspection(
+    val requiresPassword: Boolean,
+)
+
+data class DecodedEncryptedJpg(
+    val stampedJpegBytes: ByteArray,
+    val capturedAtMillis: Long,
+    val timestampText: String,
+    val latitude: Double?,
+    val longitude: Double?,
+    val accuracyMeters: Float?,
+    val coordinatesText: String,
+    val plateTag: String,
+)
+
+object TntEncryptedJpgCodec {
+
+    private val START_MAGIC = "TNTJENC2".toByteArray(Charsets.US_ASCII)
+    private val END_MAGIC = "ENDTNTJ2".toByteArray(Charsets.US_ASCII)
+    private const val MODE_KEYSTORE: Byte = 0
+    private const val MODE_PASSWORD: Byte = 1
+    private const val SALT_BYTES = 16
+    private const val AAD_EXPORT = "tnt_export_jpg_v2"
+
+    fun encodeEncryptedJpgEnvelope(
+        coverJpegBytes: ByteArray,
+        photo: TntCapturedPhoto,
+        stampedJpegBytes: ByteArray,
+        password: String? = null,
+    ): ByteArray {
+        val metaBytes = ByteArrayOutputStream().use { metaOut ->
+            java.io.DataOutputStream(metaOut).use { dos ->
+                dos.writeLong(photo.capturedAtMillis)
+                dos.writeUTF(photo.timestampText)
+                dos.writeBoolean(photo.latitude != null)
+                if (photo.latitude != null) dos.writeDouble(photo.latitude)
+                dos.writeBoolean(photo.longitude != null)
+                if (photo.longitude != null) dos.writeDouble(photo.longitude)
+                dos.writeBoolean(photo.accuracyMeters != null)
+                if (photo.accuracyMeters != null) dos.writeFloat(photo.accuracyMeters)
+                dos.writeUTF(photo.coordinatesText)
+                dos.writeUTF(photo.plateTag)
+            }
+            metaOut.toByteArray()
+        }
+
+        val bundle = ByteArray(4 + metaBytes.size + stampedJpegBytes.size)
+        ByteBuffer.wrap(bundle, 0, 4).putInt(metaBytes.size)
+        System.arraycopy(metaBytes, 0, bundle, 4, metaBytes.size)
+        System.arraycopy(stampedJpegBytes, 0, bundle, 4 + metaBytes.size, stampedJpegBytes.size)
+
+        val salt = ByteArray(SALT_BYTES)
+        val usePassword = !password.isNullOrBlank()
+        val mode = if (usePassword) MODE_PASSWORD else MODE_KEYSTORE
+        val encrypted = if (usePassword) {
+            SecureRandom().nextBytes(salt)
+            SecurityGuard.encryptBytesWithPassword(bundle, password!!, salt, AAD_EXPORT)
+        } else {
+            SecurityGuard.encryptBytes(bundle, AAD_EXPORT)
+        }
+
+        val footerLen = START_MAGIC.size + 1 + SALT_BYTES + 4 + encrypted.size + END_MAGIC.size
+        val out = ByteArray(coverJpegBytes.size + footerLen)
+        var pos = 0
+        System.arraycopy(coverJpegBytes, 0, out, pos, coverJpegBytes.size)
+        pos += coverJpegBytes.size
+        System.arraycopy(START_MAGIC, 0, out, pos, START_MAGIC.size)
+        pos += START_MAGIC.size
+        out[pos++] = mode
+        System.arraycopy(salt, 0, out, pos, SALT_BYTES)
+        pos += SALT_BYTES
+        ByteBuffer.wrap(out, pos, 4).putInt(encrypted.size)
+        pos += 4
+        System.arraycopy(encrypted, 0, out, pos, encrypted.size)
+        pos += encrypted.size
+        System.arraycopy(END_MAGIC, 0, out, pos, END_MAGIC.size)
+        return out
+    }
+
+    fun inspectEncryptedJpg(fileBytes: ByteArray): EncryptedJpgInspection? {
+        val header = parseTrailerBounds(fileBytes) ?: return null
+        return EncryptedJpgInspection(requiresPassword = header.mode == MODE_PASSWORD)
+    }
+
+    fun decodeEncryptedJpgEnvelope(
+        fileBytes: ByteArray,
+        password: String? = null,
+    ): DecodedEncryptedJpg? {
+        val bounds = parseTrailerBounds(fileBytes) ?: return null
+        val cipherSlice = fileBytes.copyOfRange(bounds.payloadStart, bounds.payloadEnd)
+        val bundle = when (bounds.mode) {
+            MODE_KEYSTORE -> SecurityGuard.decryptBytes(cipherSlice, AAD_EXPORT)
+            MODE_PASSWORD -> {
+                if (password.isNullOrBlank()) return null
+                SecurityGuard.decryptBytesWithPassword(cipherSlice, password, bounds.salt, AAD_EXPORT)
+            }
+            else -> null
+        } ?: return null
+
+        if (bundle.size <= 4) return null
+        val metaLen = ByteBuffer.wrap(bundle, 0, 4).int
+        if (metaLen <= 0 || 4 + metaLen >= bundle.size) return null
+        val jpegBytes = bundle.copyOfRange(4 + metaLen, bundle.size)
+
+        return runCatching {
+            java.io.DataInputStream(java.io.ByteArrayInputStream(bundle, 4, metaLen)).use { dis ->
+                val capturedAtMillis = dis.readLong()
+                val timestampText = dis.readUTF()
+                val lat = if (dis.readBoolean()) dis.readDouble() else null
+                val lon = if (dis.readBoolean()) dis.readDouble() else null
+                val acc = if (dis.readBoolean()) dis.readFloat() else null
+                val coordinatesText = dis.readUTF()
+                val plateTag = dis.readUTF()
+                DecodedEncryptedJpg(
+                    stampedJpegBytes = jpegBytes,
+                    capturedAtMillis = capturedAtMillis,
+                    timestampText = timestampText,
+                    latitude = lat,
+                    longitude = lon,
+                    accuracyMeters = acc,
+                    coordinatesText = coordinatesText,
+                    plateTag = plateTag,
+                )
+            }
+        }.getOrNull()
+    }
+
+    private data class TrailerBounds(
+        val mode: Byte,
+        val salt: ByteArray,
+        val payloadStart: Int,
+        val payloadEnd: Int,
+    )
+
+    private fun parseTrailerBounds(bytes: ByteArray): TrailerBounds? {
+        val minHeader = START_MAGIC.size + 1 + SALT_BYTES + 4 + END_MAGIC.size
+        if (bytes.size <= minHeader) return null
+        val endPos = bytes.size - END_MAGIC.size
+        for (i in END_MAGIC.indices) {
+            if (bytes[endPos + i] != END_MAGIC[i]) return null
+        }
+        // Scan backwards from end for START_MAGIC within valid length
+        for (idx in bytes.size - minHeader downTo 0) {
+            var match = true
+            for (j in START_MAGIC.indices) {
+                if (bytes[idx + j] != START_MAGIC[j]) {
+                    match = false
+                    break
+                }
+            }
+            if (match) {
+                val modePos = idx + START_MAGIC.size
+                val mode = bytes[modePos]
+                val saltPos = modePos + 1
+                val salt = bytes.copyOfRange(saltPos, saltPos + SALT_BYTES)
+                val lenPos = saltPos + SALT_BYTES
+                val payloadLen = ByteBuffer.wrap(bytes, lenPos, 4).int
+                val payloadStart = lenPos + 4
+                val payloadEnd = payloadStart + payloadLen
+                if (payloadLen > 0 && payloadEnd == endPos) {
+                    return TrailerBounds(
+                        mode = mode,
+                        salt = salt,
+                        payloadStart = payloadStart,
+                        payloadEnd = payloadEnd,
+                    )
+                }
+            }
+        }
+        return null
+    }
+}
+
+object TntPhotoExporter {
+
+    fun buildExportFileName(photo: TntCapturedPhoto, encrypted: Boolean): String {
+        val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date(photo.capturedAtMillis))
+        val prefix = if (encrypted) "TNT_Sifreli" else "TNT_Foto"
+        return "${prefix}_$stamp.jpg"
+    }
+
+    fun cleanupStaleExportCache(context: Context, maxAgeMs: Long = 10 * 60 * 1000L) {
+        runCatching {
+            val dir = File(context.cacheDir, "exports")
+            if (!dir.exists()) return
+            val cutoff = System.currentTimeMillis() - maxAgeMs
+            dir.listFiles()?.forEach { f ->
+                if (f.lastModified() < cutoff) f.delete()
+            }
+        }
+    }
+
+    fun writeShareTempJpg(context: Context, fileName: String, jpgBytes: ByteArray): File {
+        cleanupStaleExportCache(context)
+        val exportsDir = File(context.cacheDir, "exports").apply { mkdirs() }
+        val safeName = if (TntPhotoWatermarkFormatter.isSafeChildFileName(fileName)) {
+            fileName
+        } else {
+            "TNT_export_${System.currentTimeMillis()}.jpg"
+        }
+        val outFile = File(exportsDir, safeName)
+        outFile.writeBytes(jpgBytes)
+        return outFile
+    }
+
+    fun saveEncryptedJpgToDownloadsApi29Plus(
+        context: Context,
+        fileName: String,
+        encryptedJpgBytes: ByteArray,
+    ): String? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
+        val resolver = context.contentResolver
+        val values = ContentValues().apply {
+            put(MediaStore.Downloads.DISPLAY_NAME, fileName)
+            put(MediaStore.Downloads.MIME_TYPE, "image/jpeg")
+            put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/TNT")
+            put(MediaStore.Downloads.IS_PENDING, 1)
+        }
+        val itemUri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+            ?: return null
+        return try {
+            resolver.openOutputStream(itemUri)?.use { out ->
+                out.write(encryptedJpgBytes)
+            } ?: throw IllegalStateException("Yaddaşa yazıla bilmədi")
+            values.clear()
+            values.put(MediaStore.Downloads.IS_PENDING, 0)
+            resolver.update(itemUri, values, null, null)
+            "Downloads/TNT/$fileName"
+        } catch (e: Throwable) {
+            runCatching { resolver.delete(itemUri, null, null) }
+            throw e
+        }
+    }
+}
+

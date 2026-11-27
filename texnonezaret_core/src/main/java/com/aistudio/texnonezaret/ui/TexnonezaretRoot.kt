@@ -81,6 +81,15 @@ fun TexnonezaretRoot(
                 onClosePhotoPreview = viewModel::closePhotoPreview,
                 onDeleteVaultPhoto = viewModel::deleteVaultPhoto,
                 onLoadPhotoBytes = viewModel::loadDecryptedPhotoBytes,
+                onImportPhotoUri = viewModel::importPhotoFromUri,
+                onDownloadEncryptedJpg = viewModel::downloadEncryptedJpg,
+                onCompleteSafEncryptedSave = viewModel::completeSafEncryptedSave,
+                onPrepareShareJpgFile = viewModel::prepareShareJpgFile,
+                onRefreshDraftImportGps = viewModel::refreshDraftImportGps,
+                onConfirmGalleryImport = viewModel::confirmGalleryPhotoImport,
+                onCancelGalleryImport = viewModel::cancelGalleryPhotoImport,
+                onSubmitEncryptedImportPassword = viewModel::submitEncryptedJpgPassword,
+                onCancelEncryptedImportPassword = viewModel::cancelEncryptedJpgPasswordPrompt,
             )
 
             if (securityState.showInterventionDialog) {
