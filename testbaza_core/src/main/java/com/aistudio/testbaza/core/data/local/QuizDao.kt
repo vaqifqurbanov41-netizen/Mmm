@@ -29,11 +29,14 @@ interface QuizDao {
     @Query("SELECT * FROM quiz_banks WHERE isDefault = 1 LIMIT 1")
     suspend fun getDefaultBank(): QuizBankEntity?
 
-    @Query("SELECT * FROM quiz_questions WHERE bankId = :bankId ORDER BY rowId ASC")
+    @Query("SELECT * FROM quiz_questions WHERE bankId = :bankId ORDER BY questionNumber ASC, rowId ASC")
     fun observeQuestionsForBank(bankId: Long): Flow<List<QuizQuestionEntity>>
 
-    @Query("SELECT * FROM quiz_questions WHERE bankId = :bankId ORDER BY rowId ASC")
+    @Query("SELECT * FROM quiz_questions WHERE bankId = :bankId ORDER BY questionNumber ASC, rowId ASC")
     suspend fun getQuestionsForBankOnce(bankId: Long): List<QuizQuestionEntity>
+
+    @Query("SELECT questionNumber FROM quiz_questions WHERE bankId = :bankId")
+    suspend fun getQuestionNumbersForBank(bankId: Long): List<Int>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertBank(bank: QuizBankEntity): Long

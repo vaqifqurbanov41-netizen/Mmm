@@ -9,7 +9,7 @@ object HtmlExporter {
         val cleaned = title
             .replace(Regex("""[^a-zA-Z0-9ƏəÖöÜüĞğÇçŞşİı_-]+"""), "_")
             .trim('_')
-        return "${cleaned.ifEmpty { "TestBaza_Export" }}.html"
+        return "${cleaned.ifEmpty { "Testbaza_Export" }}.html"
     }
 
     fun buildStandaloneHtml(bankTitle: String, questions: List<QuizQuestion>): String {
@@ -36,7 +36,7 @@ object HtmlExporter {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>$escapedTitle — TestBaza</title>
+<title>$escapedTitle — Testbaza</title>
 <style>
   :root { --bg:#070B12; --card:#101826; --border:#1E2A3D; --text:#F3F5F8; --muted:#9AA5B4; --accent:#10B981; --gold:#E5C158; --danger:#EF4444; }
   * { box-sizing:border-box; }

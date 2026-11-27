@@ -293,7 +293,7 @@ private fun VipTopHeader(
 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = uiState.activeBank?.title ?: "TestBaza",
+                        text = uiState.activeBank?.title ?: "Testbaza",
                         style = MaterialTheme.typography.titleMedium,
                         color = vip.textPrimary,
                         maxLines = 1,
@@ -517,6 +517,7 @@ private fun TelemetryAndFilterRow(
                     DropdownMenu(
                         expanded = chunkMenuOpen,
                         onDismissRequest = { chunkMenuOpen = false },
+                        modifier = Modifier.heightIn(max = 360.dp),
                     ) {
                         uiState.chunkOptions.forEach { opt ->
                             DropdownMenuItem(

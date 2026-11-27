@@ -35,22 +35,20 @@ class QuizRepository(
         dao.observeQuestionsForBank(bankId).map { rows -> rows.map { it.toDomain() } }
 
     suspend fun ensureDefaultBankSeeded(): Long = withContext(Dispatchers.IO) {
-        val existingDefault = dao.getDefaultBank()
-        if (existingDefault != null) {
-            return@withContext existingDefault.id
-        }
         val rawJson = context.resources.openRawResource(R.raw.default_questions)
             .bufferedReader(Charsets.UTF_8)
             .use { it.readText() }
         val jsonArray = JSONArray(rawJson)
-        val entities = buildList(jsonArray.length()) {
+        val existingDefault = dao.getDefaultBank()
+
+        fun buildEntities(targetBankId: Long): List<QuizQuestionEntity> = buildList(jsonArray.length()) {
             for (i in 0 until jsonArray.length()) {
                 val obj = jsonArray.getJSONObject(i)
                 val optsJson = obj.getJSONArray("allOptions")
                 val options = List(optsJson.length()) { idx -> optsJson.getString(idx) }
                 add(
                     QuizQuestionEntity(
-                        bankId = 0L,
+                        bankId = targetBankId,
                         questionNumber = obj.optInt("id", i + 1),
                         category = obj.optString("cat", DEFAULT_BANK_TITLE),
                         isExam = obj.optBoolean("isExam", false),
@@ -62,13 +60,26 @@ class QuizRepository(
                 )
             }
         }
+
+        if (existingDefault != null) {
+            val existingNumbers = dao.getQuestionNumbersForBank(existingDefault.id).toHashSet()
+            if (existingNumbers.size < jsonArray.length()) {
+                val missing = buildEntities(existingDefault.id)
+                    .filter { it.questionNumber !in existingNumbers }
+                if (missing.isNotEmpty()) {
+                    dao.insertQuestions(missing)
+                }
+            }
+            return@withContext existingDefault.id
+        }
+
         dao.insertBankWithQuestions(
             bank = QuizBankEntity(
                 title = DEFAULT_BANK_TITLE,
                 createdAtEpochMs = System.currentTimeMillis(),
                 isDefault = true,
             ),
-            questions = entities,
+            questions = buildEntities(0L),
         )
     }
 

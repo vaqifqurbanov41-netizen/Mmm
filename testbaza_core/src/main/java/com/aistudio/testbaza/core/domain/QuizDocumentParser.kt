@@ -1,7 +1,6 @@
 package com.aistudio.testbaza.core.domain
 
 import android.content.Context
-import android.util.Xml
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.text.PDFTextStripper
@@ -9,8 +8,9 @@ import com.tom_roush.pdfbox.text.TextPosition
 import java.io.ByteArrayInputStream
 import java.io.InputStream
 import java.util.zip.ZipInputStream
+import javax.xml.parsers.DocumentBuilderFactory
 import kotlin.math.abs
-import org.xmlpull.v1.XmlPullParser
+import org.w3c.dom.Element
 
 data class StyledLine(
     val text: String,
@@ -71,87 +71,61 @@ object QuizDocumentParser {
     }
 
     internal fun parseDocxDocumentXml(xmlStream: InputStream): List<StyledLine> {
-        val parser = Xml.newPullParser()
-        parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
-        parser.setInput(xmlStream, "UTF-8")
-
+        val factory = DocumentBuilderFactory.newInstance().apply {
+            isNamespaceAware = false
+            setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+        }
+        val doc = factory.newDocumentBuilder().parse(xmlStream)
+        val paragraphs = doc.getElementsByTagName("w:p")
         val lines = mutableListOf<StyledLine>()
-        var inParagraph = false
-        var inRun = false
-        var inRunProps = false
-        var inText = false
-        var currentParagraphText = StringBuilder()
-        var currentParagraphBoldChars = 0
-        var currentRunText = StringBuilder()
-        var currentRunBold = false
 
-        var eventType = parser.eventType
-        while (eventType != XmlPullParser.END_DOCUMENT) {
-            val tagName = parser.name
-            when (eventType) {
-                XmlPullParser.START_TAG -> when (tagName) {
-                    "w:p" -> {
-                        inParagraph = true
-                        currentParagraphText = StringBuilder()
-                        currentParagraphBoldChars = 0
-                    }
-                    "w:r" -> if (inParagraph) {
-                        inRun = true
-                        currentRunText = StringBuilder()
-                        currentRunBold = false
-                    }
-                    "w:rPr" -> if (inRun) {
-                        inRunProps = true
-                    }
-                    "w:b" -> if (inRunProps) {
-                        val valAttr = parser.getAttributeValue(null, "w:val")
-                        if (valAttr != "0" && valAttr != "false") {
-                            currentRunBold = true
+        for (pIdx in 0 until paragraphs.length) {
+            val pNode = paragraphs.item(pIdx) as? Element ?: continue
+            val runs = pNode.getElementsByTagName("w:r")
+            val fullText = StringBuilder()
+            var boldChars = 0
+
+            for (rIdx in 0 until runs.length) {
+                val runEl = runs.item(rIdx) as? Element ?: continue
+                val tNodes = runEl.getElementsByTagName("w:t")
+                val runText = StringBuilder()
+                for (tIdx in 0 until tNodes.length) {
+                    runText.append(tNodes.item(tIdx).textContent.orEmpty())
+                }
+                if (runEl.getElementsByTagName("w:tab").length > 0 || runEl.getElementsByTagName("w:br").length > 0) {
+                    runText.append(' ')
+                }
+                val runStr = runText.toString()
+                if (runStr.isEmpty()) continue
+
+                var isRunBold = false
+                val rPrList = runEl.getElementsByTagName("w:rPr")
+                if (rPrList.length > 0) {
+                    val rPrEl = rPrList.item(0) as? Element
+                    val bTags = rPrEl?.getElementsByTagName("w:b")
+                    if (bTags != null && bTags.length > 0) {
+                        val bEl = bTags.item(0) as? Element
+                        val valAttr = bEl?.getAttribute("w:val").orEmpty()
+                        if (valAttr != "0" && !valAttr.equals("false", ignoreCase = true)) {
+                            isRunBold = true
                         }
-                    }
-                    "w:t" -> if (inRun) {
-                        inText = true
-                    }
-                    "w:tab" -> if (inRun) {
-                        currentRunText.append(' ')
-                    }
-                    "w:br" -> if (inRun) {
-                        currentRunText.append(' ')
                     }
                 }
 
-                XmlPullParser.TEXT -> if (inText) {
-                    currentRunText.append(parser.text ?: "")
-                }
-
-                XmlPullParser.END_TAG -> when (tagName) {
-                    "w:t" -> inText = false
-                    "w:rPr" -> inRunProps = false
-                    "w:r" -> if (inRun) {
-                        val txt = currentRunText.toString()
-                        if (txt.isNotEmpty()) {
-                            currentParagraphText.append(txt)
-                            if (currentRunBold) {
-                                currentParagraphBoldChars += txt.trim().length
-                            }
-                        }
-                        inRun = false
-                    }
-                    "w:p" -> if (inParagraph) {
-                        val cleanTxt = currentParagraphText.toString()
-                            .replace('\u00A0', ' ')
-                            .replace(Regex("""\s+"""), " ")
-                            .trim()
-                        if (cleanTxt.isNotEmpty()) {
-                            val isBold = currentParagraphBoldChars > 0 &&
-                                (currentParagraphBoldChars.toFloat() / cleanTxt.length.toFloat()) >= 0.45f
-                            lines.add(StyledLine(text = cleanTxt, isBold = isBold))
-                        }
-                        inParagraph = false
-                    }
+                fullText.append(runStr)
+                if (isRunBold) {
+                    boldChars += runStr.trim().length
                 }
             }
-            eventType = parser.next()
+
+            val cleanTxt = fullText.toString()
+                .replace('\u00A0', ' ')
+                .replace(Regex("""\s+"""), " ")
+                .trim()
+            if (cleanTxt.isNotEmpty()) {
+                val isBold = boldChars > 0 && (boldChars.toFloat() / cleanTxt.length.toFloat()) >= 0.45f
+                lines.add(StyledLine(text = cleanTxt, isBold = isBold))
+            }
         }
         return lines
     }
@@ -198,7 +172,7 @@ object QuizDocumentParser {
 
         val answerKeyMap = mutableMapOf<Int, String>()
         var keyStartIdx = cleanLines.size
-        val scanStart = maxOf(0, cleanLines.size - 60)
+        val scanStart = maxOf(0, cleanLines.size - 400)
         for (i in scanStart until cleanLines.size) {
             val matches = KEY_REGEX.findAll(cleanLines[i].text).toList()
             if (matches.size >= 3) {

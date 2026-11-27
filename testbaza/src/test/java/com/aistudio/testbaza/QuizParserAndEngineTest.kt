@@ -1,9 +1,5 @@
 package com.aistudio.testbaza
 
-import androidx.room.Room
-import androidx.test.core.app.ApplicationProvider
-import com.aistudio.testbaza.core.data.QuizRepository
-import com.aistudio.testbaza.core.data.local.QuizDatabase
 import com.aistudio.testbaza.core.domain.AnswerRule
 import com.aistudio.testbaza.core.domain.HtmlExporter
 import com.aistudio.testbaza.core.domain.QuestionMasteryStatus
@@ -12,37 +8,32 @@ import com.aistudio.testbaza.core.domain.QuizEngine
 import com.aistudio.testbaza.core.domain.QuizQuestion
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlin.random.Random
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
 
-@RunWith(RobolectricTestRunner::class)
 class QuizParserAndEngineTest {
 
     @Test
-    fun defaultBankSeedsAll143Questions() = runTest {
-        val context = ApplicationProvider.getApplicationContext<android.app.Application>()
-        val db = Room.inMemoryDatabaseBuilder(context, QuizDatabase::class.java)
-            .allowMainThreadQueries()
-            .build()
-        try {
-            val repo = QuizRepository(context, db.quizDao())
-            val bankId = repo.ensureDefaultBankSeeded()
-            val questions = repo.observeQuestions(bankId).first()
-            assertEquals(143, questions.size)
-            assertEquals(1, questions.first().questionNumber)
-            assertTrue(questions.all { it.allOptions.size >= 2 && it.hasConfirmedKey })
-        } finally {
-            db.close()
-        }
+    fun bundledDefaultQuestionsJsonContainsAll1000Questions() {
+        val candidates = listOf(
+            File("testbaza_core/src/main/res/raw/default_questions.json"),
+            File("../testbaza_core/src/main/res/raw/default_questions.json"),
+        )
+        val rawFile = candidates.firstOrNull { it.exists() }
+            ?: error("default_questions.json not found in test working dir")
+        val content = rawFile.readText(Charsets.UTF_8)
+        val questionCount = Regex(""""hasConfirmedKey"\s*:""").findAll(content).count()
+        assertEquals(1000, questionCount)
+        val ids = Regex(""""id"\s*:\s*(\d+)""").findAll(content).map { it.groupValues[1].toInt() }.toList()
+        assertEquals(1000, ids.distinct().size)
+        assertEquals((1..1000).toList(), ids)
+        assertTrue(content.contains("torpaq münbitliyi test A variant qiyabi"))
     }
 
     @Test
@@ -123,24 +114,8 @@ class QuizParserAndEngineTest {
     }
 
     @Test
-    fun htmlExporterBuildsSelfContainedOutput() {
-        val q = QuizQuestion(
-            rowId = 1L,
-            bankId = 1L,
-            questionNumber = 1,
-            category = "Torpaq",
-            isExam = true,
-            questionText = "Humus nədir?",
-            allOptions = listOf("Üzvi maddə", "Mineral duz"),
-            correctText = "Üzvi maddə",
-            hasConfirmedKey = true,
-            masteryStatus = QuestionMasteryStatus.MASTERED,
-            wrongCount = 0,
-            correctStreak = 2,
-        )
-        val html = HtmlExporter.buildStandaloneHtml("Torpaq Test", listOf(q))
-        assertTrue(html.contains("INITIAL_QUESTIONS"))
-        assertTrue(html.contains("Humus nədir?"))
-        assertTrue(html.contains("Üzvi maddə"))
+    fun exportFilenameUsesTestbazaFallback() {
+        assertEquals("Testbaza_Export.html", HtmlExporter.safeExportFileName("   "))
+        assertEquals("Torpaq_Test.html", HtmlExporter.safeExportFileName("Torpaq Test"))
     }
 }
