@@ -45,11 +45,10 @@ import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.LocalFireDepartment
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PictureAsPdf
-import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Quiz
 import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Timer
@@ -75,7 +74,6 @@ import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -99,6 +97,7 @@ import com.aistudio.testbaza.core.domain.AnswerRule
 import com.aistudio.testbaza.core.domain.QuestionMasteryStatus
 import com.aistudio.testbaza.core.domain.QuizEngine
 import com.aistudio.testbaza.core.domain.SessionQuestionItem
+import com.aistudio.testbaza.core.domain.ShareResultPayload
 import com.aistudio.testbaza.core.domain.StudyMode
 import com.aistudio.testbaza.core.ui.theme.LocalVipColors
 
@@ -130,9 +129,7 @@ fun MainQuizScreen(
     onSelectImportRule: (AnswerRule) -> Unit,
     onFinishExam: () -> Unit,
     onExitExam: () -> Unit,
-    onToggleSharedExamConsent: (Boolean) -> Unit,
-    onRetryUploadAttempt: () -> Unit,
-    onOpenJoinExam: () -> Unit,
+    onOpenShareResult: (ShareResultPayload) -> Unit,
 ) {
     val vip = LocalVipColors.current
     var showExitExamConfirm by remember { mutableStateOf(false) }
@@ -254,8 +251,7 @@ fun MainQuizScreen(
                     if (uiState.isSessionFinished) {
                         ExamCompleteVipCard(
                             uiState = uiState,
-                            onToggleSharedExamConsent = onToggleSharedExamConsent,
-                            onRetryUploadAttempt = onRetryUploadAttempt,
+                            onShareResult = { uiState.latestSharePayload?.let(onOpenShareResult) },
                             onRestart = onRestartSession,
                             onExitExam = onExitExam,
                             modifier = Modifier.weight(1f),
@@ -278,13 +274,11 @@ fun MainQuizScreen(
                 } else if (uiState.rawQuestions.isEmpty()) {
                     InitialImportHomeScreen(
                         selectedRule = uiState.importRule,
-                        isCloudAvailable = uiState.isCloudAvailable,
                         onSelectRule = onSelectImportRule,
                         onPickWord = onOpenWordPicker,
                         onPickPdf = onOpenPdfPicker,
                         onPickTxt = onOpenTxtPicker,
                         onOpenPaste = onOpenPasteDialog,
-                        onOpenJoinExam = onOpenJoinExam,
                     )
                 } else {
                     TelemetryAndFilterRow(
@@ -323,6 +317,9 @@ fun MainQuizScreen(
                             SessionCompleteVipCard(
                                 correctCount = uiState.correctCount,
                                 incorrectCount = uiState.incorrectCount,
+                                elapsedSeconds = uiState.practiceElapsedSeconds,
+                                canShare = uiState.latestSharePayload != null,
+                                onShareResult = { uiState.latestSharePayload?.let(onOpenShareResult) },
                                 onRestart = onRestartSession,
                                 onReturnAll = onReturnToFullQuiz,
                             )
@@ -412,8 +409,7 @@ private fun VipTopHeader(
                     Text(
                         text = when {
                             uiState.isExamActive -> {
-                                val codePrefix = uiState.activeExam.examCode?.let { "Kod: $it • " }.orEmpty()
-                                "$codePrefix${uiState.sessionItems.size} sual • ${uiState.activeExam.durationMinutes} dəq"
+                                "${uiState.sessionItems.size} sual • ${uiState.activeExam.durationMinutes} dəq"
                             }
                             uiState.totalCount > 0 -> {
                                 "${uiState.totalCount} sual • " +
@@ -1194,6 +1190,9 @@ private fun QuizBottomDock(
 private fun SessionCompleteVipCard(
     correctCount: Int,
     incorrectCount: Int,
+    elapsedSeconds: Long,
+    canShare: Boolean,
+    onShareResult: () -> Unit,
     onRestart: () -> Unit,
     onReturnAll: () -> Unit,
 ) {
@@ -1216,7 +1215,7 @@ private fun SessionCompleteVipCard(
             Column(
                 modifier = Modifier.padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Box(
                     modifier = Modifier
@@ -1245,6 +1244,38 @@ private fun SessionCompleteVipCard(
                     color = vip.gold,
                     textAlign = TextAlign.Center,
                 )
+
+                if (elapsedSeconds > 0L) {
+                    Text(
+                        text = "Sərf olunan vaxt: ${QuizEngine.formatDurationHumanAz(elapsedSeconds)}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = vip.textSecondary,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+
+                if (canShare) {
+                    Button(
+                        onClick = onShareResult,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 50.dp)
+                            .testTag("session_share_result_button"),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = vip.gold,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                        ),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = "Nəticəni paylaş",
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.size(8.dp))
+                        Text("Nəticəni Paylaş")
+                    }
+                }
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -1289,8 +1320,7 @@ private fun SessionCompleteVipCard(
 @Composable
 private fun ExamCompleteVipCard(
     uiState: TestBazaUiState,
-    onToggleSharedExamConsent: (Boolean) -> Unit,
-    onRetryUploadAttempt: () -> Unit,
+    onShareResult: () -> Unit,
     onRestart: () -> Unit,
     onExitExam: () -> Unit,
     modifier: Modifier = Modifier,
@@ -1359,98 +1389,28 @@ private fun ExamCompleteVipCard(
                     color = vip.gold,
                     textAlign = TextAlign.Center,
                 )
-            }
-        }
 
-        if (exam.isSharedExam && exam.sharedExam != null) {
-            Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = if (exam.shareConsentGranted) vip.emeraldSoft else vip.surface,
-                border = BorderStroke(
-                    1.dp,
-                    if (exam.shareConsentGranted) vip.emeraldBorder else vip.borderStrong,
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("exam_result_consent_card"),
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                if (summary != null) {
+                    Button(
+                        onClick = onShareResult,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp)
+                            .heightIn(min = 50.dp)
+                            .testTag("exam_share_result_button"),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = vip.gold,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                        ),
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Lock,
-                            contentDescription = "Nəticə paylaşma icazəsi",
-                            tint = if (exam.shareConsentGranted) vip.emerald else vip.gold,
-                            modifier = Modifier.size(22.dp),
+                            imageVector = Icons.Default.Share,
+                            contentDescription = "Nəticəni paylaş",
+                            modifier = Modifier.size(18.dp),
                         )
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Nəticəni paylaşan şəxsə göstər",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = vip.textPrimary,
-                            )
-                            Text(
-                                text = "Paylaşan (${exam.sharedExam.ownerName}) yalnız siz icazə verdikdə nəticənizi, səhvlərinizi və hər sual üzrə vaxtınızı görə bilər.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = vip.textSecondary,
-                            )
-                        }
-                        Switch(
-                            checked = exam.shareConsentGranted,
-                            onCheckedChange = onToggleSharedExamConsent,
-                            enabled = !exam.attemptUploading,
-                            modifier = Modifier.testTag("exam_result_consent_switch"),
-                        )
-                    }
-
-                    when {
-                        exam.attemptUploading -> {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                CircularProgressIndicator(color = vip.emerald, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                                Text(
-                                    text = "Nəticə göndərilir...",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = vip.emerald,
-                                )
-                            }
-                        }
-                        !exam.uploadErrorMessage.isNullOrBlank() -> {
-                            Text(
-                                text = exam.uploadErrorMessage,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = vip.rose,
-                            )
-                            OutlinedButton(
-                                onClick = onRetryUploadAttempt,
-                                modifier = Modifier.heightIn(min = 48.dp),
-                                shape = RoundedCornerShape(12.dp),
-                            ) {
-                                Text("Yenidən göndər")
-                            }
-                        }
-                        exam.shareConsentGranted && exam.attemptUploaded -> {
-                            Text(
-                                text = "✓ Nəticəniz, səhv suallar və sual vaxtları icazənizlə paylaşan şəxsə göndərildi.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = vip.emerald,
-                            )
-                        }
-                        else -> {
-                            Text(
-                                text = "İcazə bağlıdır — nəticəniz yalnız bu cihazda saxlanılır.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = vip.textSecondary,
-                            )
-                        }
+                        Spacer(Modifier.size(8.dp))
+                        Text("Nəticəni Paylaş")
                     }
                 }
             }
@@ -1599,13 +1559,11 @@ private fun ExamCompleteVipCard(
 @Composable
 private fun InitialImportHomeScreen(
     selectedRule: AnswerRule,
-    isCloudAvailable: Boolean,
     onSelectRule: (AnswerRule) -> Unit,
     onPickWord: () -> Unit,
     onPickPdf: () -> Unit,
     onPickTxt: () -> Unit,
     onOpenPaste: () -> Unit,
-    onOpenJoinExam: () -> Unit,
 ) {
     val vip = LocalVipColors.current
     Column(
@@ -1787,31 +1745,6 @@ private fun InitialImportHomeScreen(
                 )
                 Spacer(Modifier.size(6.dp))
                 Text("Mətn Yapışdır", maxLines = 1, softWrap = false)
-            }
-        }
-
-        if (isCloudAvailable) {
-            OutlinedButton(
-                onClick = onOpenJoinExam,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 52.dp)
-                    .testTag("home_join_shared_exam_button"),
-                shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(1.2.dp, vip.goldBorder),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.QrCode2,
-                    contentDescription = "Paylaşılan imtahana qoşul",
-                    tint = vip.gold,
-                    modifier = Modifier.size(20.dp),
-                )
-                Spacer(Modifier.size(8.dp))
-                Text(
-                    text = "Paylaşılan İmtahana Kodu ilə Qoşul",
-                    color = vip.gold,
-                    style = MaterialTheme.typography.titleSmall,
-                )
             }
         }
 

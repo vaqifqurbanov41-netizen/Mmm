@@ -22,7 +22,6 @@ class QuizPreferencesStore(private val context: Context) {
         val SHUFFLE_ENABLED = booleanPreferencesKey("shuffle_enabled")
         val EXAM_QUESTION_COUNT = intPreferencesKey("exam_question_count")
         val EXAM_DURATION_MINUTES = intPreferencesKey("exam_duration_minutes")
-        val PARTICIPANT_DISPLAY_NAME = stringPreferencesKey("participant_display_name")
     }
 
     val themeModeFlow: Flow<TestBazaThemeMode> = context.testBazaDataStore.data.map { prefs ->
@@ -45,10 +44,6 @@ class QuizPreferencesStore(private val context: Context) {
             durationMinutes = (prefs[Keys.EXAM_DURATION_MINUTES] ?: 20)
                 .coerceIn(ExamConfig.MIN_DURATION_MINUTES, ExamConfig.MAX_DURATION_MINUTES),
         )
-    }
-
-    val participantDisplayNameFlow: Flow<String> = context.testBazaDataStore.data.map { prefs ->
-        prefs[Keys.PARTICIPANT_DISPLAY_NAME].orEmpty()
     }
 
     suspend fun setThemeMode(mode: TestBazaThemeMode) {
@@ -75,9 +70,5 @@ class QuizPreferencesStore(private val context: Context) {
     suspend fun setExamDurationMinutes(minutes: Int) {
         val clamped = minutes.coerceIn(ExamConfig.MIN_DURATION_MINUTES, ExamConfig.MAX_DURATION_MINUTES)
         context.testBazaDataStore.edit { it[Keys.EXAM_DURATION_MINUTES] = clamped }
-    }
-
-    suspend fun setParticipantDisplayName(name: String) {
-        context.testBazaDataStore.edit { it[Keys.PARTICIPANT_DISPLAY_NAME] = name.trim().take(80) }
     }
 }

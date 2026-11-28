@@ -25,7 +25,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ListAlt
-import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.CheckCircle
@@ -33,15 +32,13 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.LightMode
-import androidx.compose.material.icons.filled.ListAlt
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.RestartAlt
-import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -75,8 +72,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.aistudio.testbaza.core.domain.AnswerRule
 import com.aistudio.testbaza.core.domain.ExamConfig
+import com.aistudio.testbaza.core.domain.FileStatisticsSummary
 import com.aistudio.testbaza.core.domain.QuestionMasteryStatus
 import com.aistudio.testbaza.core.domain.QuizBank
+import com.aistudio.testbaza.core.domain.QuizEngine
 import com.aistudio.testbaza.core.domain.SessionQuestionItem
 import com.aistudio.testbaza.core.domain.TestBazaThemeMode
 import com.aistudio.testbaza.core.ui.theme.LocalVipColors
@@ -97,16 +96,14 @@ fun ToolsBottomSheet(
     onSetExamQuestionCount: (Int) -> Unit,
     onSetExamDurationMinutes: (Int) -> Unit,
     onStartLocalExam: () -> Unit,
-    onOpenShareExam: () -> Unit,
-    onOpenJoinExam: () -> Unit,
-    onOpenMySharedExams: () -> Unit,
-    onOpenGoogleSignIn: () -> Unit,
-    onSignOut: () -> Unit,
+    onOpenStatistics: () -> Unit,
+    onClearStatisticsConfirmed: (Long) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val vip = LocalVipColors.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showResetConfirm by remember { mutableStateOf(false) }
+    var showClearStatsConfirm by remember { mutableStateOf(false) }
 
     if (showResetConfirm) {
         AlertDialog(
@@ -136,6 +133,34 @@ fun ToolsBottomSheet(
         )
     }
 
+    val activeBank = uiState.activeBank
+    if (showClearStatsConfirm && activeBank != null) {
+        AlertDialog(
+            onDismissRequest = { showClearStatsConfirm = false },
+            title = { Text("Statistika təmizlənsin?") },
+            text = {
+                Text("\"${activeBank.title}\" faylı üzrə hər suala sərf olunan vaxt, səhv sayı və imtahan tarixçəsi təmizlənəcək. Suallar və cavab açarı qalacaq.")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showClearStatsConfirm = false
+                        onClearStatisticsConfirmed(activeBank.id)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = vip.rose),
+                    modifier = Modifier.testTag("tools_confirm_clear_stats_button"),
+                ) {
+                    Text("Təmizlə")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearStatsConfirm = false }) {
+                    Text("Ləğv et")
+                }
+            },
+        )
+    }
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -157,12 +182,12 @@ fun ToolsBottomSheet(
             ) {
                 Column {
                     Text(
-                        text = "VIP Alətlər və Baza",
+                        text = "VIP Alətlər və Tənzimləmələr",
                         style = MaterialTheme.typography.titleLarge,
                         color = vip.gold,
                     )
                     Text(
-                        text = "Fayl yükləmə, cavab açarı və oflayn ixrac",
+                        text = "İmtahan, statistika, fayl yükləmə və oflayn ixrac",
                         style = MaterialTheme.typography.bodyMedium,
                         color = vip.textSecondary,
                     )
@@ -193,23 +218,16 @@ fun ToolsBottomSheet(
                     onDismiss()
                     onStartLocalExam()
                 },
-                onShareExam = {
+            )
+
+            StatisticsSettingsSection(
+                stats = uiState.activeBankStatistics,
+                hasBanks = uiState.banks.isNotEmpty(),
+                onOpenStatistics = {
                     onDismiss()
-                    onOpenShareExam()
+                    onOpenStatistics()
                 },
-                onJoinExam = {
-                    onDismiss()
-                    onOpenJoinExam()
-                },
-                onOpenMySharedExams = {
-                    onDismiss()
-                    onOpenMySharedExams()
-                },
-                onOpenGoogleSignIn = {
-                    onDismiss()
-                    onOpenGoogleSignIn()
-                },
-                onSignOut = onSignOut,
+                onRequestClearStatistics = { showClearStatsConfirm = true },
             )
 
             HorizontalDivider(color = vip.border)
@@ -396,11 +414,6 @@ private fun ExamSettingsSection(
     onSetQuestionCount: (Int) -> Unit,
     onSetDurationMinutes: (Int) -> Unit,
     onStartLocalExam: () -> Unit,
-    onShareExam: () -> Unit,
-    onJoinExam: () -> Unit,
-    onOpenMySharedExams: () -> Unit,
-    onOpenGoogleSignIn: () -> Unit,
-    onSignOut: () -> Unit,
 ) {
     val vip = LocalVipColors.current
     val bankMax = uiState.totalCount.takeIf { it > 0 }?.let { minOf(it, ExamConfig.MAX_QUESTIONS) }
@@ -419,60 +432,20 @@ private fun ExamSettingsSection(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Timer,
-                        contentDescription = "İmtahan Bölməsi",
-                        tint = vip.gold,
-                        modifier = Modifier.size(20.dp),
-                    )
-                    Text(
-                        text = "İmtahan Bölməsi",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = vip.gold,
-                    )
-                }
-                if (uiState.isCloudAvailable) {
-                    if (uiState.isSignedIn) {
-                        TextButton(
-                            onClick = onSignOut,
-                            modifier = Modifier.testTag("exam_sign_out_button"),
-                        ) {
-                            Text(
-                                text = (uiState.cloudUserName ?: uiState.cloudUserEmail ?: "Hesab") + " • Çıx",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = vip.emerald,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    } else {
-                        TextButton(
-                            onClick = onOpenGoogleSignIn,
-                            modifier = Modifier.testTag("exam_sign_in_prompt_button"),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.AccountCircle,
-                                contentDescription = null,
-                                tint = vip.gold,
-                                modifier = Modifier.size(16.dp),
-                            )
-                            Spacer(Modifier.size(4.dp))
-                            Text(
-                                text = "Google Giriş",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = vip.gold,
-                            )
-                        }
-                    }
-                }
+                Icon(
+                    imageVector = Icons.Default.Timer,
+                    contentDescription = "İmtahan Bölməsi",
+                    tint = vip.gold,
+                    modifier = Modifier.size(20.dp),
+                )
+                Text(
+                    text = "İmtahan Bölməsi",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = vip.gold,
+                )
             }
 
             // Question count setting
@@ -493,7 +466,7 @@ private fun ExamSettingsSection(
                     ) {
                         IconButton(
                             onClick = { onSetQuestionCount((effectiveQuestions - 5).coerceAtLeast(1)) },
-                            modifier = Modifier.size(40.dp).testTag("exam_questions_minus_button"),
+                            modifier = Modifier.size(48.dp).testTag("exam_questions_minus_button"),
                         ) {
                             Icon(Icons.Default.Remove, contentDescription = "Azalt", tint = vip.textSecondary)
                         }
@@ -505,7 +478,7 @@ private fun ExamSettingsSection(
                         )
                         IconButton(
                             onClick = { onSetQuestionCount((effectiveQuestions + 5).coerceAtMost(ExamConfig.MAX_QUESTIONS)) },
-                            modifier = Modifier.size(40.dp).testTag("exam_questions_plus_button"),
+                            modifier = Modifier.size(48.dp).testTag("exam_questions_plus_button"),
                         ) {
                             Icon(Icons.Default.Add, contentDescription = "Artır", tint = vip.emerald)
                         }
@@ -544,7 +517,7 @@ private fun ExamSettingsSection(
                     ) {
                         IconButton(
                             onClick = { onSetDurationMinutes((durationMin - 5).coerceAtLeast(1)) },
-                            modifier = Modifier.size(40.dp).testTag("exam_minutes_minus_button"),
+                            modifier = Modifier.size(48.dp).testTag("exam_minutes_minus_button"),
                         ) {
                             Icon(Icons.Default.Remove, contentDescription = "Vaxtı azalt", tint = vip.textSecondary)
                         }
@@ -556,7 +529,7 @@ private fun ExamSettingsSection(
                         )
                         IconButton(
                             onClick = { onSetDurationMinutes((durationMin + 5).coerceAtMost(ExamConfig.MAX_DURATION_MINUTES)) },
-                            modifier = Modifier.size(40.dp).testTag("exam_minutes_plus_button"),
+                            modifier = Modifier.size(48.dp).testTag("exam_minutes_plus_button"),
                         ) {
                             Icon(Icons.Default.Add, contentDescription = "Vaxtı artır", tint = vip.emerald)
                         }
@@ -577,84 +550,145 @@ private fun ExamSettingsSection(
                 }
             }
 
+            Button(
+                onClick = onStartLocalExam,
+                enabled = uiState.totalCount > 0,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 50.dp)
+                    .testTag("exam_start_local_button"),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = vip.emerald,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                ),
+            ) {
+                Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.size(6.dp))
+                Text("İmtahana Başla")
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatisticsSettingsSection(
+    stats: FileStatisticsSummary?,
+    hasBanks: Boolean,
+    onOpenStatistics: () -> Unit,
+    onRequestClearStatistics: () -> Unit,
+) {
+    val vip = LocalVipColors.current
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = vip.surfaceElevated,
+        border = BorderStroke(1.dp, vip.emeraldBorder),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Button(
-                    onClick = onStartLocalExam,
-                    enabled = uiState.totalCount > 0,
-                    modifier = Modifier
-                        .weight(1f)
-                        .heightIn(min = 48.dp)
-                        .testTag("exam_start_local_button"),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = vip.emerald,
-                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                    ),
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f),
                 ) {
-                    Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.size(4.dp))
-                    Text("İmtahana Başla", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Icon(
+                        imageVector = Icons.Default.Assessment,
+                        contentDescription = "Statistika Bölməsi",
+                        tint = vip.emerald,
+                        modifier = Modifier.size(20.dp),
+                    )
+                    Column {
+                        Text(
+                            text = "Statistika Bölməsi",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = vip.emerald,
+                        )
+                        Text(
+                            text = stats?.bankTitle ?: "Fayl seçilməyib",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = vip.textSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
+                if (stats != null && stats.totalAttempts > 0) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = vip.emeraldSoft,
+                        border = BorderStroke(1.dp, vip.emeraldBorder),
+                    ) {
+                        Text(
+                            text = "${stats.accuracyPercent}% dəqiqlik",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = vip.emerald,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        )
+                    }
+                }
+            }
 
-                OutlinedButton(
-                    onClick = onShareExam,
-                    enabled = uiState.totalCount > 0 && uiState.isCloudAvailable,
-                    modifier = Modifier
-                        .weight(1f)
-                        .heightIn(min = 48.dp)
-                        .testTag("exam_share_button"),
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, vip.goldBorder),
-                ) {
-                    Icon(Icons.Default.Share, contentDescription = null, tint = vip.gold, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.size(4.dp))
-                    Text("Paylaş", color = vip.gold, maxLines = 1)
-                }
+            if (stats != null) {
+                Text(
+                    text = "Orta sual vaxtı: ${stats.avgSecondsPerTimedQuestion} san • Səhv sual: ${stats.weakCount} • Ümumi vaxt: ${QuizEngine.formatDurationHumanAz(stats.totalTimeSeconds)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = vip.textPrimary,
+                )
+            } else {
+                Text(
+                    text = "Yüklənən fayl üzrə hər sualın vaxtı, səhvlər və imtahan hazırlığı göstəriciləri burada görünəcək.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = vip.textSecondary,
+                )
             }
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                OutlinedButton(
-                    onClick = onJoinExam,
-                    enabled = uiState.isCloudAvailable,
+                Button(
+                    onClick = onOpenStatistics,
+                    enabled = hasBanks,
                     modifier = Modifier
                         .weight(1f)
                         .heightIn(min = 48.dp)
-                        .testTag("exam_join_code_button"),
+                        .testTag("tools_open_statistics_button"),
                     shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, vip.emeraldBorder),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = vip.gold,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                    ),
                 ) {
-                    Icon(Icons.Default.QrCode2, contentDescription = null, tint = vip.emerald, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.size(4.dp))
-                    Text("Kodu ilə Qoşul", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Icon(Icons.Default.Assessment, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.size(6.dp))
+                    Text("Statistikaya Bax", maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
 
                 OutlinedButton(
-                    onClick = onOpenMySharedExams,
-                    enabled = uiState.isCloudAvailable,
+                    onClick = onRequestClearStatistics,
+                    enabled = stats != null && (stats.totalAttempts > 0 || stats.totalTimeSeconds > 0L || stats.weakCount > 0),
                     modifier = Modifier
-                        .weight(1f)
                         .heightIn(min = 48.dp)
-                        .testTag("exam_my_results_button"),
+                        .testTag("tools_clear_statistics_button"),
                     shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, vip.borderStrong),
+                    border = BorderStroke(1.dp, vip.roseBorder),
                 ) {
-                    Icon(Icons.Default.Assessment, contentDescription = null, tint = vip.gold, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.size(4.dp))
-                    Text(
-                        text = if (uiState.mySharedExams.isNotEmpty()) {
-                            "Nəticələr (${uiState.mySharedExams.size})"
-                        } else {
-                            "Nəticələr"
-                        },
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                    Icon(
+                        imageVector = Icons.Default.DeleteSweep,
+                        contentDescription = "Statistikanı təmizlə",
+                        tint = vip.rose,
+                        modifier = Modifier.size(18.dp),
                     )
+                    Spacer(Modifier.size(4.dp))
+                    Text("Təmizlə", color = vip.rose)
                 }
             }
         }

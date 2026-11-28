@@ -3,16 +3,21 @@ package com.aistudio.testbaza.core.data
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
+import com.aistudio.testbaza.core.data.local.ExamAttemptHistoryEntity
 import com.aistudio.testbaza.core.data.local.QuizBankEntity
 import com.aistudio.testbaza.core.data.local.QuizDao
 import com.aistudio.testbaza.core.data.local.QuizQuestionEntity
+import com.aistudio.testbaza.core.data.local.QuizSerializationHelpers
 import com.aistudio.testbaza.core.data.local.toDomain
 import com.aistudio.testbaza.core.domain.AnswerRule
+import com.aistudio.testbaza.core.domain.ExamAttemptHistoryItem
+import com.aistudio.testbaza.core.domain.ExamEvaluationSummary
 import com.aistudio.testbaza.core.domain.ParsedQuizResult
 import com.aistudio.testbaza.core.domain.QuestionMasteryStatus
 import com.aistudio.testbaza.core.domain.QuizBank
 import com.aistudio.testbaza.core.domain.QuizDocumentParser
 import com.aistudio.testbaza.core.domain.QuizQuestion
+import com.aistudio.testbaza.core.domain.SessionQuestionItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -27,6 +32,9 @@ class QuizRepository(
 
     fun observeQuestions(bankId: Long): Flow<List<QuizQuestion>> =
         dao.observeQuestionsForBank(bankId).map { rows -> rows.map { it.toDomain() } }
+
+    fun observeExamHistory(bankId: Long): Flow<List<ExamAttemptHistoryItem>> =
+        dao.observeExamHistoryForBank(bankId).map { rows -> rows.map { it.toDomain() } }
 
     suspend fun getQuestionsOnce(bankId: Long): List<QuizQuestion> = withContext(Dispatchers.IO) {
         dao.getQuestionsForBankOnce(bankId).map { it.toDomain() }
@@ -174,15 +182,63 @@ class QuizRepository(
         }
     }
 
-    suspend fun recordAnswerOutcome(question: QuizQuestion, isCorrect: Boolean) = withContext(Dispatchers.IO) {
+    suspend fun recordAnswerOutcome(
+        question: QuizQuestion,
+        isCorrect: Boolean,
+        spentSeconds: Long? = null,
+    ) = withContext(Dispatchers.IO) {
         val newStatus = if (isCorrect) QuestionMasteryStatus.MASTERED else QuestionMasteryStatus.WEAK
         val newWrongCount = if (isCorrect) question.wrongCount else question.wrongCount + 1
         val newStreak = if (isCorrect) question.correctStreak + 1 else 0
-        dao.updateMastery(
+        dao.recordAttemptOutcome(
             rowId = question.rowId,
             status = newStatus,
             wrongCount = newWrongCount,
             correctStreak = newStreak,
+            correctIncrement = if (isCorrect) 1 else 0,
+        )
+        if (spentSeconds != null && spentSeconds > 0L) {
+            dao.addQuestionTiming(rowId = question.rowId, spentSeconds = spentSeconds)
+        }
+    }
+
+    suspend fun recordBatchQuestionTimings(
+        items: List<SessionQuestionItem>,
+        perQuestionSeconds: List<Long>,
+    ) = withContext(Dispatchers.IO) {
+        items.forEachIndexed { idx, item ->
+            val sec = perQuestionSeconds.getOrElse(idx) { 0L }
+            if (item.question.rowId > 0L && sec > 0L) {
+                dao.addQuestionTiming(rowId = item.question.rowId, spentSeconds = sec)
+            }
+        }
+    }
+
+    suspend fun saveExamHistoryRecord(
+        bankId: Long,
+        bankTitle: String,
+        isTimedExam: Boolean,
+        summary: ExamEvaluationSummary,
+        totalElapsedSeconds: Long,
+        durationLimitMinutes: Int,
+        timedOut: Boolean,
+    ) = withContext(Dispatchers.IO) {
+        dao.insertExamHistory(
+            ExamAttemptHistoryEntity(
+                bankId = bankId,
+                bankTitle = bankTitle.ifBlank { "Testbaza" },
+                createdAtEpochMs = System.currentTimeMillis(),
+                isTimedExam = isTimedExam,
+                totalQuestions = summary.totalQuestions,
+                correctCount = summary.correctCount,
+                wrongCount = summary.wrongCount,
+                unansweredCount = summary.unansweredCount,
+                totalElapsedSeconds = totalElapsedSeconds.coerceAtLeast(0L),
+                durationLimitMinutes = durationLimitMinutes.coerceAtLeast(0),
+                timedOut = timedOut,
+                wrongDetailsJson = QuizSerializationHelpers.encodeWrongDetails(summary.wrongDetails),
+                questionTimingsJson = QuizSerializationHelpers.encodeQuestionTimings(summary.questionTimings),
+            )
         )
     }
 
@@ -197,6 +253,11 @@ class QuizRepository(
 
     suspend fun resetMastery(bankId: Long) = withContext(Dispatchers.IO) {
         dao.resetMasteryForBank(bankId)
+    }
+
+    suspend fun clearBankStatistics(bankId: Long) = withContext(Dispatchers.IO) {
+        dao.resetStatisticsForBank(bankId)
+        dao.deleteExamHistoryForBank(bankId)
     }
 
     suspend fun deleteBank(bankId: Long) = withContext(Dispatchers.IO) {

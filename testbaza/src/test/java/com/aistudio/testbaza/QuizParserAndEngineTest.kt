@@ -252,25 +252,7 @@ class QuizParserAndEngineTest {
         assertEquals(4, picked.size)
         assertEquals(4, picked.map { it.questionNumber }.toSet().size)
 
-        val sharedExam = com.aistudio.testbaza.core.domain.SharedExam(
-            id = "TBTEST12",
-            ownerId = "owner-1",
-            ownerName = "Müəllim",
-            title = "Sınaq",
-            sourceBankTitle = "İnformatika",
-            questionCount = 3L,
-            durationMinutes = 15L,
-            shuffleOptions = false,
-            questions = picked.take(3).map {
-                com.aistudio.testbaza.core.domain.SharedExamQuestionSnapshot(
-                    qNum = it.questionNumber.toLong(),
-                    text = it.questionText,
-                    options = it.allOptions,
-                    correct = it.correctText,
-                )
-            },
-        )
-        val session = QuizEngine.buildSessionItemsFromSharedExam(sharedExam, random = Random(7))
+        val session = QuizEngine.buildSessionItems(picked.take(3), shuffle = false, random = Random(7))
         assertEquals(3, session.size)
 
         val answeredSession = listOf(
@@ -290,8 +272,80 @@ class QuizParserAndEngineTest {
         assertEquals(listOf("CORRECT", "WRONG", "SKIPPED"), summary.questionTimings.map { it.status })
         assertEquals(listOf(12L, 35L, 8L), summary.questionTimings.map { it.timeSpentSeconds })
 
+        val payload = com.aistudio.testbaza.core.domain.ShareResultPayload(
+            title = "İnformatika Sınağı",
+            summary = summary,
+            totalElapsedSeconds = 55L,
+            durationLimitMinutes = 20,
+            timedOut = false,
+        )
+        val compactText = QuizEngine.formatResultShareText(payload, includeDetails = false)
+        assertTrue(compactText.contains("İnformatika Sınağı"))
+        assertTrue(compactText.contains("1/3 düzgün"))
+        assertFalse(compactText.contains("Statistik Məlumatlar"))
+        assertFalse(compactText.contains("Yanlış A"))
+
+        val detailedText = QuizEngine.formatResultShareText(payload, includeDetails = true)
+        assertTrue(detailedText.contains("Statistik Məlumatlar"))
+        assertTrue(detailedText.contains("Yanlış A"))
+        assertTrue(detailedText.contains("Hər sual üzrə vaxt:"))
+
         assertEquals("02:05", QuizEngine.formatTimerMmSs(125))
         assertEquals("1 dəq 15 san", QuizEngine.formatDurationHumanAz(75L))
+    }
+
+    @Test
+    fun fileStatisticsComputesAccuracyTimingsAndWrongRanking() {
+        val questions = listOf(
+            QuizQuestion(
+                rowId = 1L,
+                bankId = 9L,
+                questionNumber = 1,
+                category = "Ümumi",
+                isExam = false,
+                questionText = "Yavaş və səhv sual",
+                allOptions = listOf("A", "B"),
+                correctText = "A",
+                hasConfirmedKey = true,
+                masteryStatus = QuestionMasteryStatus.WEAK,
+                wrongCount = 3,
+                correctStreak = 0,
+                attemptCount = 4,
+                correctCount = 1,
+                totalTimeSeconds = 120L,
+                lastTimeSeconds = 40L,
+                timedCount = 4,
+            ),
+            QuizQuestion(
+                rowId = 2L,
+                bankId = 9L,
+                questionNumber = 2,
+                category = "Ümumi",
+                isExam = false,
+                questionText = "Sürətli və düzgün sual",
+                allOptions = listOf("X", "Y"),
+                correctText = "X",
+                hasConfirmedKey = true,
+                masteryStatus = QuestionMasteryStatus.MASTERED,
+                wrongCount = 0,
+                correctStreak = 2,
+                attemptCount = 2,
+                correctCount = 2,
+                totalTimeSeconds = 20L,
+                lastTimeSeconds = 10L,
+                timedCount = 2,
+            ),
+        )
+
+        val stats = QuizEngine.computeFileStatistics(bankId = 9L, bankTitle = "Torpaq.docx", questions = questions)
+        assertEquals(2, stats.totalQuestions)
+        assertEquals(1, stats.masteredCount)
+        assertEquals(1, stats.weakCount)
+        assertEquals(140L, stats.totalTimeSeconds)
+        assertEquals(23L, stats.avgSecondsPerTimedQuestion)
+        assertEquals(50, stats.accuracyPercent)
+        assertEquals(1L, stats.mostWrongQuestions.first().rowId)
+        assertEquals(1L, stats.slowestQuestions.first().rowId)
     }
 
     private fun buildTwoPagePdfWithCorruptFirstStream(): ByteArray {

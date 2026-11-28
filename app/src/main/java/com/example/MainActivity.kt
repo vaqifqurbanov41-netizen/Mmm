@@ -104,16 +104,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         if (BuildConfig.PREVIEW_TESTBAZA) {
-            val databaseId = resolveFirestoreDatabaseId(applicationContext)
-            val webClientId = runCatching {
-                val id = resources.getIdentifier("default_web_client_id", "string", packageName)
-                if (id != 0) getString(id) else ""
-            }.getOrDefault("")
             setContent {
-                TestBazaRoot(
-                    firestoreDatabaseId = databaseId,
-                    defaultWebClientId = webClientId,
-                )
+                TestBazaRoot()
             }
         } else if (BuildConfig.PREVIEW_TEXNONEZARET) {
             window.setFlags(

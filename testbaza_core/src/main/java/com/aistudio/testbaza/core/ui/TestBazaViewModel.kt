@@ -3,34 +3,27 @@ package com.aistudio.testbaza.core.ui
 import android.app.Application
 import android.net.Uri
 import android.os.SystemClock
-import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.aistudio.testbaza.core.data.QuizRepository
 import com.aistudio.testbaza.core.data.local.QuizDatabase
 import com.aistudio.testbaza.core.data.local.QuizPreferencesStore
-import com.aistudio.testbaza.core.data.remote.SharedExamRepository
-import com.aistudio.testbaza.core.data.remote.TestBazaAuthHelper
-import com.aistudio.testbaza.core.data.remote.testBazaAuthStateFlow
 import com.aistudio.testbaza.core.domain.ActiveExamUiState
 import com.aistudio.testbaza.core.domain.AnswerRule
 import com.aistudio.testbaza.core.domain.ChunkOption
+import com.aistudio.testbaza.core.domain.ExamAttemptHistoryItem
 import com.aistudio.testbaza.core.domain.ExamConfig
+import com.aistudio.testbaza.core.domain.ExamEvaluationSummary
+import com.aistudio.testbaza.core.domain.FileStatisticsSummary
 import com.aistudio.testbaza.core.domain.HtmlExporter
 import com.aistudio.testbaza.core.domain.QuestionMasteryStatus
 import com.aistudio.testbaza.core.domain.QuizBank
 import com.aistudio.testbaza.core.domain.QuizEngine
 import com.aistudio.testbaza.core.domain.QuizQuestion
 import com.aistudio.testbaza.core.domain.SessionQuestionItem
-import com.aistudio.testbaza.core.domain.SharedExam
-import com.aistudio.testbaza.core.domain.SharedExamAttempt
+import com.aistudio.testbaza.core.domain.ShareResultPayload
 import com.aistudio.testbaza.core.domain.StudyMode
 import com.aistudio.testbaza.core.domain.TestBazaThemeMode
-import com.google.firebase.Firebase
-import com.google.firebase.auth.auth
-import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.FirebaseFirestoreException
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -39,7 +32,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
@@ -73,18 +65,12 @@ data class TestBazaUiState(
     val isStatusError: Boolean = false,
     val examConfig: ExamConfig = ExamConfig(),
     val activeExam: ActiveExamUiState = ActiveExamUiState(),
-    val participantDisplayName: String = "",
-    val isCloudAvailable: Boolean = false,
-    val cloudUserUid: String? = null,
-    val cloudUserName: String? = null,
-    val cloudUserEmail: String? = null,
-    val isCloudBusy: Boolean = false,
-    val mySharedExams: List<SharedExam> = emptyList(),
-    val inspectedSharedExamId: String? = null,
-    val inspectedAttempts: List<SharedExamAttempt> = emptyList(),
-    val attemptsErrorMessage: String? = null,
-    val fetchedPreviewExam: SharedExam? = null,
-    val latestPublishedExam: SharedExam? = null,
+    val practiceSummary: ExamEvaluationSummary? = null,
+    val practiceElapsedSeconds: Long = 0L,
+    val activeBankStatistics: FileStatisticsSummary? = null,
+    val selectedStatsBankId: Long? = null,
+    val selectedBankStatistics: FileStatisticsSummary? = null,
+    val selectedBankExamHistory: List<ExamAttemptHistoryItem> = emptyList(),
 ) {
     val totalCount: Int get() = rawQuestions.size
     val examCount: Int get() = rawQuestions.count { it.isExam }
@@ -93,39 +79,40 @@ data class TestBazaUiState(
     val currentSessionItem: SessionQuestionItem? get() = sessionItems.getOrNull(currentIndex)
     val currentFlashcardItem: SessionQuestionItem? get() = sessionItems.getOrNull(flashcardIndex)
     val isExamActive: Boolean get() = activeExam.active
-    val isSignedIn: Boolean get() = !cloudUserUid.isNullOrBlank()
+    val latestSharePayload: ShareResultPayload?
+        get() = when {
+            isExamActive && activeExam.evaluationSummary != null -> ShareResultPayload(
+                title = activeExam.title.ifBlank { activeBank?.title ?: "Sınaq İmtahanı" },
+                summary = activeExam.evaluationSummary,
+                totalElapsedSeconds = activeExam.totalElapsedSeconds,
+                durationLimitMinutes = activeExam.durationMinutes,
+                timedOut = activeExam.timedOut,
+            )
+            isSessionFinished && practiceSummary != null -> ShareResultPayload(
+                title = activeBank?.title ?: "Testbaza",
+                summary = practiceSummary,
+                totalElapsedSeconds = practiceElapsedSeconds,
+                durationLimitMinutes = null,
+                timedOut = false,
+            )
+            else -> null
+        }
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class TestBazaViewModel(
     application: Application,
-    private val firestoreDatabaseId: String = "",
 ) : AndroidViewModel(application) {
 
     private val database = QuizDatabase.getInstance(application)
     private val repository = QuizRepository(application, database.quizDao())
     private val prefs = QuizPreferencesStore(application)
 
-    private val firebaseReady = TestBazaAuthHelper.isFirebaseReady(application) && firestoreDatabaseId.isNotBlank()
-    private val sharedExamRepo: SharedExamRepository? = if (firebaseReady) {
-        runCatching {
-            SharedExamRepository(
-                db = FirebaseFirestore.getInstance(firestoreDatabaseId),
-                auth = Firebase.auth,
-            )
-        }.onFailure { err ->
-            Log.w(TAG, "SharedExamRepository init skipped: ${err.message}")
-        }.getOrNull()
-    } else {
-        null
-    }
-
     private val _initialized = MutableStateFlow(false)
     private val _activeBankId = MutableStateFlow<Long?>(null)
+    private val _selectedStatsBankId = MutableStateFlow<Long?>(null)
     private val _sessionState = MutableStateFlow(SessionState())
-    private val _cloudState = MutableStateFlow(CloudUiInternalState(isCloudAvailable = sharedExamRepo != null))
-    private val _inspectedExamId = MutableStateFlow<String?>(null)
-    private val _uiState = MutableStateFlow(TestBazaUiState(isCloudAvailable = sharedExamRepo != null))
+    private val _uiState = MutableStateFlow(TestBazaUiState())
     val uiState: StateFlow<TestBazaUiState> = _uiState.asStateFlow()
 
     private val banksState = repository.banksFlow.stateIn(
@@ -137,6 +124,21 @@ class TestBazaViewModel(
     private val questionsFlow = _activeBankId.flatMapLatest { bankId ->
         if (bankId == null) flowOf(emptyList())
         else repository.observeQuestions(bankId)
+    }
+
+    private val effectiveStatsBankIdFlow = combine(_selectedStatsBankId, _activeBankId, banksState) { selectedId, activeId, banks ->
+        val validSelected = selectedId?.takeIf { id -> banks.any { it.id == id } }
+        validSelected ?: activeId ?: banks.firstOrNull()?.id
+    }
+
+    private val statsQuestionsFlow = effectiveStatsBankIdFlow.flatMapLatest { bankId ->
+        if (bankId == null) flowOf(emptyList())
+        else repository.observeQuestions(bankId)
+    }
+
+    private val statsHistoryFlow = effectiveStatsBankIdFlow.flatMapLatest { bankId ->
+        if (bankId == null) flowOf(emptyList())
+        else repository.observeExamHistory(bankId)
     }
 
     private var examTickerJob: Job? = null
@@ -152,84 +154,8 @@ class TestBazaViewModel(
             val initialId = validSaved ?: currentBanks.firstOrNull()?.id
             if (initialId != null) prefs.setActiveBankId(initialId) else prefs.clearActiveBankId()
             _activeBankId.value = initialId
+            _selectedStatsBankId.value = initialId
             _initialized.value = true
-        }
-
-        if (sharedExamRepo != null) {
-            viewModelScope.launch {
-                Firebase.auth.testBazaAuthStateFlow().collect { user ->
-                    val uid = user?.uid?.takeIf { it.isNotBlank() }
-                    _cloudState.update {
-                        it.copy(
-                            uid = uid,
-                            displayName = user?.displayName,
-                            email = user?.email,
-                        )
-                    }
-                    if (uid == null) {
-                        _inspectedExamId.value = null
-                    }
-                }
-            }
-
-            viewModelScope.launch {
-                _cloudState
-                    .flatMapLatest { cloud ->
-                        val uid = cloud.uid
-                        if (uid.isNullOrBlank()) {
-                            flowOf(emptyList())
-                        } else {
-                            sharedExamRepo.observeMySharedExams(uid)
-                                .catch { error ->
-                                    val fsErr = generateSequence(error) { it.cause }
-                                        .filterIsInstance<FirebaseFirestoreException>()
-                                        .firstOrNull()
-                                    if (fsErr == null && error is CancellationException) throw error
-                                    Log.w(TAG, "observeMySharedExams error", fsErr ?: error)
-                                    emit(emptyList())
-                                }
-                        }
-                    }
-                    .collect { exams ->
-                        _cloudState.update { it.copy(mySharedExams = exams) }
-                    }
-            }
-
-            viewModelScope.launch {
-                combine(_cloudState, _inspectedExamId) { cloud, examId ->
-                    Pair(cloud.uid, examId)
-                }.flatMapLatest { (uid, examId) ->
-                    if (uid.isNullOrBlank() || examId.isNullOrBlank()) {
-                        flowOf(AttemptStreamResult(emptyList(), null))
-                    } else {
-                        sharedExamRepo.observeConsentedAttempts(examId, uid)
-                            .catch { error ->
-                                val fsErr = generateSequence(error) { it.cause }
-                                    .filterIsInstance<FirebaseFirestoreException>()
-                                    .firstOrNull()
-                                if (fsErr == null && error is CancellationException) throw error
-                                val root = fsErr ?: error
-                                Log.w(TAG, "observeConsentedAttempts error", root)
-                                _cloudState.update {
-                                    it.copy(attemptsErrorMessage = root.localizedMessage ?: "Nəticələr oxuna bilmədi.")
-                                }
-                                emit(emptyList())
-                            }
-                            .let { flow ->
-                                combine(flow, flowOf(examId)) { list, _ ->
-                                    AttemptStreamResult(list, null)
-                                }
-                            }
-                    }
-                }.collect { res ->
-                    _cloudState.update {
-                        it.copy(
-                            inspectedAttempts = res.attempts,
-                            attemptsErrorMessage = res.error ?: it.attemptsErrorMessage,
-                        )
-                    }
-                }
-            }
         }
 
         // Sync practice session items when not in an active timed exam
@@ -245,6 +171,7 @@ class TestBazaViewModel(
                 if (!input.ready) return@collect
                 if (_sessionState.value.exam.active) return@collect
                 if (input.activeId == null) {
+                    resetPerQuestionClocks(0)
                     _sessionState.update {
                         it.copy(
                             builtForBankId = null,
@@ -257,6 +184,8 @@ class TestBazaViewModel(
                             isSessionFinished = false,
                             correctCount = 0,
                             incorrectCount = 0,
+                            practiceSummary = null,
+                            practiceElapsedSeconds = 0L,
                         )
                     }
                     return@collect
@@ -265,6 +194,7 @@ class TestBazaViewModel(
                     return@collect
                 }
 
+                var rebuiltSize: Int? = null
                 _sessionState.update { prev ->
                     val shouldRebuild = prev.builtForBankId != input.activeId ||
                         prev.builtForShuffle != input.shuffleEnabled ||
@@ -287,6 +217,7 @@ class TestBazaViewModel(
                             selectedChunkIndex = prev.selectedChunkIndex,
                         )
                         val builtItems = QuizEngine.buildSessionItems(filtered, input.shuffleEnabled)
+                        rebuiltSize = builtItems.size
                         prev.copy(
                             builtForBankId = input.activeId,
                             builtForShuffle = input.shuffleEnabled,
@@ -298,9 +229,12 @@ class TestBazaViewModel(
                             isSessionFinished = false,
                             correctCount = 0,
                             incorrectCount = 0,
+                            practiceSummary = null,
+                            practiceElapsedSeconds = 0L,
                         )
                     }
                 }
+                rebuiltSize?.let { resetPerQuestionClocks(it) }
             }
         }
 
@@ -314,10 +248,10 @@ class TestBazaViewModel(
                 prefs.themeModeFlow,
                 prefs.shuffleEnabledFlow,
                 prefs.examConfigFlow,
-                prefs.participantDisplayNameFlow,
                 _sessionState,
-                _cloudState,
-                _inspectedExamId,
+                effectiveStatsBankIdFlow,
+                statsQuestionsFlow,
+                statsHistoryFlow,
             ) { values ->
                 val ready = values[0] as Boolean
                 @Suppress("UNCHECKED_CAST")
@@ -328,13 +262,33 @@ class TestBazaViewModel(
                 val theme = values[4] as TestBazaThemeMode
                 val shuffleEnabled = values[5] as Boolean
                 val examConfig = values[6] as ExamConfig
-                val participantName = values[7] as String
-                val session = values[8] as SessionState
-                val cloud = values[9] as CloudUiInternalState
-                val inspectedId = values[10] as String?
+                val session = values[7] as SessionState
+                val statsBankId = values[8] as Long?
+                @Suppress("UNCHECKED_CAST")
+                val statsQuestions = values[9] as List<QuizQuestion>
+                @Suppress("UNCHECKED_CAST")
+                val statsHistory = values[10] as List<ExamAttemptHistoryItem>
 
                 val resolvedBank = if (activeId != null) banks.firstOrNull { it.id == activeId } else null
                 val validQuestions = if (activeId == null) emptyList() else rawQuestions.filter { it.bankId == activeId }
+
+                val activeStats = if (resolvedBank != null) {
+                    QuizEngine.computeFileStatistics(
+                        bankId = resolvedBank.id,
+                        bankTitle = resolvedBank.title,
+                        questions = validQuestions,
+                    )
+                } else null
+
+                val resolvedStatsBank = if (statsBankId != null) banks.firstOrNull { it.id == statsBankId } else null
+                val validStatsQuestions = if (statsBankId == null) emptyList() else statsQuestions.filter { it.bankId == statsBankId }
+                val selectedStats = if (resolvedStatsBank != null) {
+                    QuizEngine.computeFileStatistics(
+                        bankId = resolvedStatsBank.id,
+                        bankTitle = resolvedStatsBank.title,
+                        questions = validStatsQuestions,
+                    )
+                } else null
 
                 TestBazaUiState(
                     isLoading = !ready,
@@ -360,18 +314,12 @@ class TestBazaViewModel(
                     isStatusError = session.isStatusError,
                     examConfig = examConfig,
                     activeExam = session.exam,
-                    participantDisplayName = participantName,
-                    isCloudAvailable = cloud.isCloudAvailable,
-                    cloudUserUid = cloud.uid,
-                    cloudUserName = cloud.displayName,
-                    cloudUserEmail = cloud.email,
-                    isCloudBusy = cloud.isBusy,
-                    mySharedExams = cloud.mySharedExams,
-                    inspectedSharedExamId = inspectedId,
-                    inspectedAttempts = cloud.inspectedAttempts,
-                    attemptsErrorMessage = cloud.attemptsErrorMessage,
-                    fetchedPreviewExam = cloud.fetchedPreviewExam,
-                    latestPublishedExam = cloud.latestPublishedExam,
+                    practiceSummary = session.practiceSummary,
+                    practiceElapsedSeconds = session.practiceElapsedSeconds,
+                    activeBankStatistics = activeStats,
+                    selectedStatsBankId = statsBankId,
+                    selectedBankStatistics = selectedStats,
+                    selectedBankExamHistory = statsHistory,
                 )
             }.collect { nextState ->
                 _uiState.value = nextState
@@ -389,11 +337,7 @@ class TestBazaViewModel(
         viewModelScope.launch { prefs.setExamDurationMinutes(minutes) }
     }
 
-    fun setParticipantDisplayName(name: String) {
-        viewModelScope.launch { prefs.setParticipantDisplayName(name) }
-    }
-
-    // --- Local & Shared Timed Exam Engine ---
+    // --- Local Timed Exam Engine ---
 
     fun startLocalTimedExam() {
         val current = _uiState.value
@@ -407,64 +351,19 @@ class TestBazaViewModel(
             shuffle = current.isShuffled,
         )
         val builtItems = QuizEngine.buildSessionItems(selected, shuffle = current.isShuffled)
-        startTimedExamInternal(
-            title = current.activeBank?.title ?: "Sınaq İmtahanı",
-            examCode = null,
-            durationMinutes = current.examConfig.durationMinutes,
-            items = builtItems,
-            sharedExam = null,
-            participantName = "",
-            consentGranted = false,
-        )
-    }
-
-    fun startSharedExamSession(
-        sharedExam: SharedExam,
-        participantName: String,
-        consentGranted: Boolean,
-    ) {
-        if (sharedExam.questions.isEmpty()) {
-            setStatus("Bu paylaşılan imtahanda sual tapılmadı.", isError = true)
-            return
-        }
-        viewModelScope.launch {
-            if (participantName.isNotBlank()) prefs.setParticipantDisplayName(participantName)
-        }
-        val builtItems = QuizEngine.buildSessionItemsFromSharedExam(sharedExam)
-        val duration = sharedExam.durationMinutes.toInt().coerceIn(
+        examTickerJob?.cancel()
+        resetPerQuestionClocks(builtItems.size)
+        val durationMinutes = current.examConfig.durationMinutes.coerceIn(
             ExamConfig.MIN_DURATION_MINUTES,
             ExamConfig.MAX_DURATION_MINUTES,
         )
-        startTimedExamInternal(
-            title = sharedExam.title,
-            examCode = sharedExam.id,
-            durationMinutes = duration,
-            items = builtItems,
-            sharedExam = sharedExam,
-            participantName = participantName.trim(),
-            consentGranted = consentGranted,
-        )
-    }
-
-    private fun startTimedExamInternal(
-        title: String,
-        examCode: String?,
-        durationMinutes: Int,
-        items: List<SessionQuestionItem>,
-        sharedExam: SharedExam?,
-        participantName: String,
-        consentGranted: Boolean,
-    ) {
-        examTickerJob?.cancel()
-        perQuestionElapsedMs = LongArray(items.size) { 0L }
-        activeQuestionStartedAtMs = SystemClock.elapsedRealtime()
-        val limitSeconds = durationMinutes.coerceIn(1, 180) * 60
+        val limitSeconds = durationMinutes * 60
 
         _sessionState.update {
             it.copy(
                 mode = StudyMode.QUIZ,
                 selectedChunkIndex = null,
-                items = items,
+                items = builtItems,
                 currentIndex = 0,
                 flashcardIndex = 0,
                 isFlashcardFlipped = false,
@@ -472,19 +371,17 @@ class TestBazaViewModel(
                 correctCount = 0,
                 incorrectCount = 0,
                 streakCount = 0,
+                practiceSummary = null,
+                practiceElapsedSeconds = 0L,
                 exam = ActiveExamUiState(
                     active = true,
-                    title = title,
-                    examCode = examCode,
+                    title = current.activeBank?.title ?: "Sınaq İmtahanı",
                     durationMinutes = durationMinutes,
                     remainingSeconds = limitSeconds,
                     currentQuestionElapsedSeconds = 0L,
                     totalElapsedSeconds = 0L,
                     timedOut = false,
-                    sharedExam = sharedExam,
-                    participantName = participantName,
-                    shareConsentGranted = consentGranted,
-                    perQuestionSeconds = List(items.size) { 0L },
+                    perQuestionSeconds = List(builtItems.size) { 0L },
                 ),
             )
         }
@@ -520,9 +417,14 @@ class TestBazaViewModel(
         }
     }
 
+    private fun resetPerQuestionClocks(itemCount: Int) {
+        perQuestionElapsedMs = LongArray(itemCount.coerceAtLeast(0)) { 0L }
+        activeQuestionStartedAtMs = if (itemCount > 0) SystemClock.elapsedRealtime() else 0L
+    }
+
     private fun flushCurrentQuestionElapsedTime() {
         val session = _sessionState.value
-        if (!session.exam.active || session.isSessionFinished) return
+        if (session.isSessionFinished || session.items.isEmpty()) return
         val idx = session.currentIndex
         if (idx in perQuestionElapsedMs.indices && activeQuestionStartedAtMs > 0L) {
             val now = SystemClock.elapsedRealtime()
@@ -541,6 +443,11 @@ class TestBazaViewModel(
         }
     }
 
+    private fun buildCurrentPerQuestionSeconds(): List<Long> =
+        perQuestionElapsedMs.map { ms ->
+            if (ms <= 0L) 0L else maxOf(1L, (ms + 500L) / 1000L)
+        }
+
     fun finishActiveExam(timedOut: Boolean = false) {
         val session = _sessionState.value
         if (!session.exam.active || session.isSessionFinished) return
@@ -548,11 +455,11 @@ class TestBazaViewModel(
         examTickerJob?.cancel()
         examTickerJob = null
 
-        val perQuestionSeconds = perQuestionElapsedMs.map { ms ->
-            if (ms <= 0L) 0L else maxOf(1L, (ms + 500L) / 1000L)
-        }
+        val perQuestionSeconds = buildCurrentPerQuestionSeconds()
         val summary = QuizEngine.buildExamEvaluationSummary(session.items, perQuestionSeconds)
         val totalElapsed = maxOf(session.exam.totalElapsedSeconds, perQuestionSeconds.sum())
+        val bankId = _uiState.value.activeBank?.id
+        val bankTitle = session.exam.title.ifBlank { _uiState.value.activeBank?.title ?: "Sınaq İmtahanı" }
 
         _sessionState.update { s ->
             s.copy(
@@ -566,200 +473,94 @@ class TestBazaViewModel(
             )
         }
 
-        val updatedExamState = _sessionState.value.exam
-        if (updatedExamState.sharedExam != null && updatedExamState.shareConsentGranted) {
-            uploadConsentedAttemptIfAllowed()
-        }
-    }
-
-    fun setSharedExamConsentAndUpload(consentGranted: Boolean) {
-        val currentExam = _sessionState.value.exam
-        if (currentExam.sharedExam == null) return
-        if (!consentGranted) {
-            val attemptId = currentExam.uploadedAttemptId
-            val examId = currentExam.sharedExam.id
-            _sessionState.update {
-                it.copy(
-                    exam = it.exam.copy(
-                        shareConsentGranted = false,
-                        attemptUploaded = false,
-                        uploadedAttemptId = null,
-                        uploadErrorMessage = null,
-                    )
+        viewModelScope.launch {
+            repository.recordBatchQuestionTimings(session.items, perQuestionSeconds)
+            if (bankId != null) {
+                repository.saveExamHistoryRecord(
+                    bankId = bankId,
+                    bankTitle = bankTitle,
+                    isTimedExam = true,
+                    summary = summary,
+                    totalElapsedSeconds = totalElapsed,
+                    durationLimitMinutes = session.exam.durationMinutes,
+                    timedOut = timedOut,
                 )
             }
-            if (!attemptId.isNullOrBlank()) {
-                viewModelScope.launch {
-                    sharedExamRepo?.deleteAttempt(examId, attemptId)
-                }
-            }
-            return
-        }
-        _sessionState.update {
-            it.copy(exam = it.exam.copy(shareConsentGranted = true, uploadErrorMessage = null))
-        }
-        if (_sessionState.value.isSessionFinished) {
-            uploadConsentedAttemptIfAllowed()
-        }
-    }
-
-    fun uploadConsentedAttemptIfAllowed() {
-        val repo = sharedExamRepo ?: return
-        val session = _sessionState.value
-        val examState = session.exam
-        val sharedExam = examState.sharedExam ?: return
-        val summary = examState.evaluationSummary ?: return
-        if (!examState.shareConsentGranted || examState.attemptUploaded || examState.attemptUploading) return
-
-        viewModelScope.launch {
-            _sessionState.update {
-                it.copy(exam = it.exam.copy(attemptUploading = true, uploadErrorMessage = null))
-            }
-            val result = repo.submitConsentedAttempt(
-                exam = sharedExam,
-                participantName = examState.participantName,
-                summary = summary,
-                totalElapsedSeconds = examState.totalElapsedSeconds,
-                durationLimitSeconds = (examState.durationMinutes * 60L).coerceIn(60L, 10800L),
-                timedOut = examState.timedOut,
-                consentGranted = true,
-            )
-            result.fold(
-                onSuccess = { attemptId ->
-                    _sessionState.update {
-                        it.copy(
-                            exam = it.exam.copy(
-                                attemptUploading = false,
-                                attemptUploaded = true,
-                                uploadedAttemptId = attemptId,
-                                uploadErrorMessage = null,
-                            ),
-                            statusMessage = "Nəticəniz icazənizlə paylaşan şəxsə göndərildi.",
-                            isStatusError = false,
-                        )
-                    }
-                },
-                onFailure = { err ->
-                    _sessionState.update {
-                        it.copy(
-                            exam = it.exam.copy(
-                                attemptUploading = false,
-                                uploadErrorMessage = err.message ?: "Nəticə göndərilə bilmədi.",
-                            ),
-                        )
-                    }
-                },
-            )
         }
     }
 
     fun exitExamMode() {
         examTickerJob?.cancel()
         examTickerJob = null
-        perQuestionElapsedMs = LongArray(0)
-        activeQuestionStartedAtMs = 0L
         returnToFullQuiz()
     }
 
-    // --- Cloud Exam Sharing & Results Inspection ---
+    // --- Statistics Actions ---
 
-    fun publishActiveBankAsSharedExam(
-        examTitle: String,
-        ownerDisplayName: String,
-        onPublished: (SharedExam) -> Unit,
-    ) {
-        val repo = sharedExamRepo
-        if (repo == null) {
-            setStatus("Bulud paylaşımı bu quruluşda aktiv deyil.", isError = true)
-            return
-        }
-        val state = _uiState.value
-        if (!state.isSignedIn) {
-            setStatus("İmtahanı paylaşmaq üçün Google hesabına daxil olun.", isError = true)
-            return
-        }
-        val selectedQuestions = QuizEngine.selectExamQuestions(
-            allQuestions = state.rawQuestions,
-            requestedCount = state.examConfig.questionCount,
-            shuffle = state.isShuffled,
-        )
-        if (selectedQuestions.isEmpty()) {
-            setStatus("Paylaşmaq üçün əvvəlcə sual bazası yükləyin.", isError = true)
-            return
-        }
+    fun selectStatisticsBank(bankId: Long) {
+        _selectedStatsBankId.value = bankId
+    }
+
+    fun clearBankStatistics(bankId: Long) {
         viewModelScope.launch {
-            _cloudState.update { it.copy(isBusy = true) }
-            val result = repo.publishSharedExam(
-                title = examTitle,
-                sourceBankTitle = state.activeBank?.title.orEmpty(),
-                ownerName = ownerDisplayName,
-                questions = selectedQuestions,
-                durationMinutes = state.examConfig.durationMinutes,
-                shuffleOptions = state.isShuffled,
-            )
-            _cloudState.update { it.copy(isBusy = false) }
-            result.fold(
-                onSuccess = { sharedExam ->
-                    _cloudState.update { it.copy(latestPublishedExam = sharedExam) }
-                    onPublished(sharedExam)
-                },
-                onFailure = { err ->
-                    setStatus(err.message ?: "İmtahan paylaşıla bilmədi.", isError = true)
-                },
-            )
+            repository.clearBankStatistics(bankId)
+            val currentActive = _activeBankId.value
+            if (currentActive == bankId && !_sessionState.value.exam.active) {
+                _sessionState.update {
+                    it.copy(
+                        forceRebuild = true,
+                        streakCount = 0,
+                        statusMessage = "Fayl üzrə statistika və səhvlər təmizləndi.",
+                        isStatusError = false,
+                    )
+                }
+            } else {
+                setStatus("Fayl üzrə statistika və səhvlər təmizləndi.", isError = false)
+            }
         }
     }
 
-    fun lookupSharedExamByCode(code: String) {
-        val repo = sharedExamRepo ?: run {
-            setStatus("Bulud xidməti aktiv deyil.", isError = true)
-            return
-        }
+    fun practiceWeakQuestionsForBank(bankId: Long) {
         viewModelScope.launch {
-            _cloudState.update { it.copy(isBusy = true, fetchedPreviewExam = null) }
-            val result = repo.fetchSharedExamByCode(code)
-            _cloudState.update { it.copy(isBusy = false) }
-            result.fold(
-                onSuccess = { exam ->
-                    _cloudState.update { it.copy(fetchedPreviewExam = exam) }
-                },
-                onFailure = { err ->
-                    setStatus(err.message ?: "İmtahan kodu tapılmadı.", isError = true)
-                },
-            )
-        }
-    }
-
-    fun clearFetchedPreviewExam() {
-        _cloudState.update { it.copy(fetchedPreviewExam = null) }
-    }
-
-    fun clearLatestPublishedExam() {
-        _cloudState.update { it.copy(latestPublishedExam = null) }
-    }
-
-    fun inspectSharedExamAttempts(examId: String?) {
-        _cloudState.update { it.copy(attemptsErrorMessage = null) }
-        _inspectedExamId.value = examId
-    }
-
-    fun deleteSharedExam(examId: String) {
-        val repo = sharedExamRepo ?: return
-        viewModelScope.launch {
-            _cloudState.update { it.copy(isBusy = true) }
-            val res = repo.deleteSharedExam(examId)
-            _cloudState.update { it.copy(isBusy = false) }
-            res.fold(
-                onSuccess = {
-                    if (_inspectedExamId.value == examId) {
-                        _inspectedExamId.value = null
-                    }
-                    setStatus("Paylaşılan imtahan silindi.", isError = false)
-                },
-                onFailure = { err ->
-                    setStatus(err.message ?: "İmtahan silinə bilmədi.", isError = true)
-                },
-            )
+            val targetBankId = bankId
+            val questions = if (targetBankId == _activeBankId.value) {
+                _uiState.value.rawQuestions
+            } else {
+                repository.getQuestionsOnce(targetBankId)
+            }
+            val weakQuestions = questions.filter { it.masteryStatus == QuestionMasteryStatus.WEAK }
+            if (weakQuestions.isEmpty()) {
+                setStatus("Bu faylda təkrar olunacaq səhv sual yoxdur.", isError = false)
+                return@launch
+            }
+            examTickerJob?.cancel()
+            examTickerJob = null
+            if (targetBankId != _activeBankId.value) {
+                prefs.setActiveBankId(targetBankId)
+                _activeBankId.value = targetBankId
+            }
+            val shuffle = _uiState.value.isShuffled
+            val builtItems = QuizEngine.buildSessionItems(weakQuestions, shuffle)
+            resetPerQuestionClocks(builtItems.size)
+            _sessionState.update {
+                it.copy(
+                    mode = StudyMode.WEAK,
+                    selectedChunkIndex = null,
+                    builtForBankId = targetBankId,
+                    builtForShuffle = shuffle,
+                    forceRebuild = false,
+                    items = builtItems,
+                    currentIndex = 0,
+                    flashcardIndex = 0,
+                    isFlashcardFlipped = false,
+                    isSessionFinished = false,
+                    correctCount = 0,
+                    incorrectCount = 0,
+                    practiceSummary = null,
+                    practiceElapsedSeconds = 0L,
+                    exam = ActiveExamUiState(),
+                )
+            }
         }
     }
 
@@ -778,14 +579,15 @@ class TestBazaViewModel(
             setStatus("Hazırda təkrar olunacaq səhv cavab yoxdur.", isError = false)
             return
         }
+        val nextChunk = if (newMode == StudyMode.EXAM || newMode == StudyMode.WEAK) null else _sessionState.value.selectedChunkIndex
+        val filtered = QuizEngine.filterBaseQuestions(
+            allQuestions = current.rawQuestions,
+            mode = newMode,
+            selectedChunkIndex = nextChunk,
+        )
+        val builtItems = QuizEngine.buildSessionItems(filtered, current.isShuffled)
+        resetPerQuestionClocks(builtItems.size)
         _sessionState.update { state ->
-            val nextChunk = if (newMode == StudyMode.EXAM || newMode == StudyMode.WEAK) null else state.selectedChunkIndex
-            val filtered = QuizEngine.filterBaseQuestions(
-                allQuestions = current.rawQuestions,
-                mode = newMode,
-                selectedChunkIndex = nextChunk,
-            )
-            val builtItems = QuizEngine.buildSessionItems(filtered, current.isShuffled)
             state.copy(
                 mode = newMode,
                 selectedChunkIndex = nextChunk,
@@ -799,6 +601,8 @@ class TestBazaViewModel(
                 isSessionFinished = false,
                 correctCount = 0,
                 incorrectCount = 0,
+                practiceSummary = null,
+                practiceElapsedSeconds = 0L,
                 exam = ActiveExamUiState(),
             )
         }
@@ -807,14 +611,19 @@ class TestBazaViewModel(
     fun selectChunk(chunkIndex: Int?) {
         if (_sessionState.value.exam.active) return
         val current = _uiState.value
+        val nextMode = if (_sessionState.value.mode == StudyMode.EXAM || _sessionState.value.mode == StudyMode.WEAK) {
+            StudyMode.QUIZ
+        } else {
+            _sessionState.value.mode
+        }
+        val filtered = QuizEngine.filterBaseQuestions(
+            allQuestions = current.rawQuestions,
+            mode = nextMode,
+            selectedChunkIndex = chunkIndex,
+        )
+        val builtItems = QuizEngine.buildSessionItems(filtered, current.isShuffled)
+        resetPerQuestionClocks(builtItems.size)
         _sessionState.update { state ->
-            val nextMode = if (state.mode == StudyMode.EXAM || state.mode == StudyMode.WEAK) StudyMode.QUIZ else state.mode
-            val filtered = QuizEngine.filterBaseQuestions(
-                allQuestions = current.rawQuestions,
-                mode = nextMode,
-                selectedChunkIndex = chunkIndex,
-            )
-            val builtItems = QuizEngine.buildSessionItems(filtered, current.isShuffled)
             state.copy(
                 mode = nextMode,
                 selectedChunkIndex = chunkIndex,
@@ -828,6 +637,8 @@ class TestBazaViewModel(
                 isSessionFinished = false,
                 correctCount = 0,
                 incorrectCount = 0,
+                practiceSummary = null,
+                practiceElapsedSeconds = 0L,
             )
         }
     }
@@ -846,6 +657,13 @@ class TestBazaViewModel(
         val item = currentSession.items.getOrNull(currentSession.currentIndex) ?: return
         if (item.isAnswered || optionIndex in item.disabledOptions) return
 
+        var practiceSpentSeconds: Long? = null
+        if (!currentSession.exam.active) {
+            flushCurrentQuestionElapsedTime()
+            val ms = perQuestionElapsedMs.getOrElse(currentSession.currentIndex) { 0L }
+            practiceSpentSeconds = if (ms <= 0L) 1L else maxOf(1L, (ms + 500L) / 1000L)
+        }
+
         val isCorrect = optionIndex == item.correctIdx
         val updatedItems = currentSession.items.toMutableList()
         updatedItems[currentSession.currentIndex] = item.copy(
@@ -862,9 +680,13 @@ class TestBazaViewModel(
             )
         }
 
-        if (!currentSession.exam.isSharedExam && item.question.rowId > 0L) {
+        if (item.question.rowId > 0L) {
             viewModelScope.launch {
-                repository.recordAnswerOutcome(item.question, isCorrect)
+                repository.recordAnswerOutcome(
+                    question = item.question,
+                    isCorrect = isCorrect,
+                    spentSeconds = practiceSpentSeconds,
+                )
             }
         }
     }
@@ -910,12 +732,45 @@ class TestBazaViewModel(
                 finishActiveExam(timedOut = false)
             }
         } else {
-            _sessionState.update { state ->
-                if (state.currentIndex < state.items.lastIndex) {
-                    state.copy(currentIndex = state.currentIndex + 1)
-                } else {
-                    state.copy(isSessionFinished = true)
-                }
+            if (current.currentIndex < current.items.lastIndex) {
+                flushCurrentQuestionElapsedTime()
+                val nextIdx = current.currentIndex + 1
+                _sessionState.update { it.copy(currentIndex = nextIdx) }
+                resetQuestionClockForIndex(nextIdx)
+            } else {
+                finishPracticeSession()
+            }
+        }
+    }
+
+    private fun finishPracticeSession() {
+        val session = _sessionState.value
+        if (session.isSessionFinished) return
+        flushCurrentQuestionElapsedTime()
+        val perQuestionSeconds = buildCurrentPerQuestionSeconds()
+        val summary = QuizEngine.buildExamEvaluationSummary(session.items, perQuestionSeconds)
+        val totalElapsed = perQuestionSeconds.sum()
+        val bank = _uiState.value.activeBank
+
+        _sessionState.update {
+            it.copy(
+                isSessionFinished = true,
+                practiceSummary = summary,
+                practiceElapsedSeconds = totalElapsed,
+            )
+        }
+
+        if (bank != null && summary.answeredCount > 0) {
+            viewModelScope.launch {
+                repository.saveExamHistoryRecord(
+                    bankId = bank.id,
+                    bankTitle = bank.title,
+                    isTimedExam = false,
+                    summary = summary,
+                    totalElapsedSeconds = totalElapsed,
+                    durationLimitMinutes = 0,
+                    timedOut = false,
+                )
             }
         }
     }
@@ -923,16 +778,10 @@ class TestBazaViewModel(
     fun prevQuestion() {
         val current = _sessionState.value
         if (current.currentIndex <= 0) return
-        if (current.exam.active) {
-            flushCurrentQuestionElapsedTime()
-            val prevIdx = current.currentIndex - 1
-            _sessionState.update { it.copy(currentIndex = prevIdx) }
-            resetQuestionClockForIndex(prevIdx)
-        } else {
-            _sessionState.update { state ->
-                state.copy(currentIndex = state.currentIndex - 1)
-            }
-        }
+        flushCurrentQuestionElapsedTime()
+        val prevIdx = current.currentIndex - 1
+        _sessionState.update { it.copy(currentIndex = prevIdx) }
+        resetQuestionClockForIndex(prevIdx)
     }
 
     fun jumpToQuestionIndex(index: Int) {
@@ -949,7 +798,9 @@ class TestBazaViewModel(
                 resetQuestionClockForIndex(clamped)
             }
         } else {
+            flushCurrentQuestionElapsedTime()
             _sessionState.update { it.copy(currentIndex = clamped, isSessionFinished = false) }
+            resetQuestionClockForIndex(clamped)
         }
     }
 
@@ -976,36 +827,31 @@ class TestBazaViewModel(
     fun restartSession() {
         val currentState = _sessionState.value
         if (currentState.exam.active) {
-            val sharedExam = currentState.exam.sharedExam
-            if (sharedExam != null) {
-                startSharedExamSession(
-                    sharedExam = sharedExam,
-                    participantName = currentState.exam.participantName,
-                    consentGranted = currentState.exam.shareConsentGranted,
-                )
-            } else {
-                startLocalTimedExam()
-            }
+            startLocalTimedExam()
             return
         }
         val current = _uiState.value
+        val filtered = QuizEngine.filterBaseQuestions(
+            allQuestions = current.rawQuestions,
+            mode = currentState.mode,
+            selectedChunkIndex = currentState.selectedChunkIndex,
+        )
+        val builtItems = QuizEngine.buildSessionItems(filtered, current.isShuffled)
+        resetPerQuestionClocks(builtItems.size)
         _sessionState.update { state ->
-            val filtered = QuizEngine.filterBaseQuestions(
-                allQuestions = current.rawQuestions,
-                mode = state.mode,
-                selectedChunkIndex = state.selectedChunkIndex,
-            )
             state.copy(
                 builtForBankId = current.activeBank?.id,
                 builtForShuffle = current.isShuffled,
                 forceRebuild = false,
-                items = QuizEngine.buildSessionItems(filtered, current.isShuffled),
+                items = builtItems,
                 currentIndex = 0,
                 flashcardIndex = 0,
                 isFlashcardFlipped = false,
                 isSessionFinished = false,
                 correctCount = 0,
                 incorrectCount = 0,
+                practiceSummary = null,
+                practiceElapsedSeconds = 0L,
             )
         }
     }
@@ -1013,9 +859,9 @@ class TestBazaViewModel(
     fun returnToFullQuiz() {
         examTickerJob?.cancel()
         examTickerJob = null
-        perQuestionElapsedMs = LongArray(0)
-        activeQuestionStartedAtMs = 0L
         val current = _uiState.value
+        val builtItems = QuizEngine.buildSessionItems(current.rawQuestions, current.isShuffled)
+        resetPerQuestionClocks(builtItems.size)
         _sessionState.update { state ->
             state.copy(
                 mode = StudyMode.QUIZ,
@@ -1023,13 +869,15 @@ class TestBazaViewModel(
                 builtForBankId = current.activeBank?.id,
                 builtForShuffle = current.isShuffled,
                 forceRebuild = false,
-                items = QuizEngine.buildSessionItems(current.rawQuestions, current.isShuffled),
+                items = builtItems,
                 currentIndex = 0,
                 flashcardIndex = 0,
                 isFlashcardFlipped = false,
                 isSessionFinished = false,
                 correctCount = 0,
                 incorrectCount = 0,
+                practiceSummary = null,
+                practiceElapsedSeconds = 0L,
                 exam = ActiveExamUiState(),
             )
         }
@@ -1102,6 +950,8 @@ class TestBazaViewModel(
 
         prefs.setActiveBankId(newBankId)
         _activeBankId.value = newBankId
+        _selectedStatsBankId.value = newBankId
+        resetPerQuestionClocks(builtItems.size)
         _sessionState.update {
             it.copy(
                 builtForBankId = newBankId,
@@ -1118,6 +968,8 @@ class TestBazaViewModel(
                 correctCount = 0,
                 incorrectCount = 0,
                 streakCount = 0,
+                practiceSummary = null,
+                practiceElapsedSeconds = 0L,
                 exam = ActiveExamUiState(),
                 statusMessage = if (hasUnconfirmedKeys) {
                     "$successPrefix (${loadedQuestions.size} sual). Doğru cavabları təsdiqləyin."
@@ -1180,12 +1032,15 @@ class TestBazaViewModel(
         viewModelScope.launch {
             prefs.setActiveBankId(bankId)
             _activeBankId.value = bankId
+            _selectedStatsBankId.value = bankId
             _sessionState.update {
                 it.copy(
                     mode = StudyMode.QUIZ,
                     selectedChunkIndex = null,
                     forceRebuild = true,
                     streakCount = 0,
+                    practiceSummary = null,
+                    practiceElapsedSeconds = 0L,
                     exam = ActiveExamUiState(),
                 )
             }
@@ -1199,12 +1054,17 @@ class TestBazaViewModel(
             val nextId = remaining.firstOrNull { it.id != bank.id }?.id
             if (nextId != null) prefs.setActiveBankId(nextId) else prefs.clearActiveBankId()
             _activeBankId.value = nextId
+            if (_selectedStatsBankId.value == bank.id) {
+                _selectedStatsBankId.value = nextId
+            }
             _sessionState.update {
                 it.copy(
                     mode = StudyMode.QUIZ,
                     selectedChunkIndex = null,
                     forceRebuild = true,
                     streakCount = 0,
+                    practiceSummary = null,
+                    practiceElapsedSeconds = 0L,
                     exam = ActiveExamUiState(),
                 )
             }
@@ -1288,24 +1148,6 @@ class TestBazaViewModel(
         val shuffleEnabled: Boolean,
     )
 
-    private data class AttemptStreamResult(
-        val attempts: List<SharedExamAttempt>,
-        val error: String?,
-    )
-
-    private data class CloudUiInternalState(
-        val isCloudAvailable: Boolean = false,
-        val uid: String? = null,
-        val displayName: String? = null,
-        val email: String? = null,
-        val isBusy: Boolean = false,
-        val mySharedExams: List<SharedExam> = emptyList(),
-        val inspectedAttempts: List<SharedExamAttempt> = emptyList(),
-        val attemptsErrorMessage: String? = null,
-        val fetchedPreviewExam: SharedExam? = null,
-        val latestPublishedExam: SharedExam? = null,
-    )
-
     private data class SessionState(
         val builtForBankId: Long? = null,
         val builtForShuffle: Boolean? = null,
@@ -1324,10 +1166,8 @@ class TestBazaViewModel(
         val importRule: AnswerRule = AnswerRule.AUTO,
         val statusMessage: String? = null,
         val isStatusError: Boolean = false,
+        val practiceSummary: ExamEvaluationSummary? = null,
+        val practiceElapsedSeconds: Long = 0L,
         val exam: ActiveExamUiState = ActiveExamUiState(),
     )
-
-    private companion object {
-        const val TAG = "TestBazaVM"
-    }
 }

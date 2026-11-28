@@ -66,6 +66,36 @@ interface QuizDao {
     @Query("UPDATE quiz_questions SET correctText = :correctText, hasConfirmedKey = 1 WHERE rowId = :rowId")
     suspend fun updateAnswerKey(rowId: Long, correctText: String)
 
+    @Query(
+        """
+        UPDATE quiz_questions
+        SET masteryStatus = :status,
+            wrongCount = :wrongCount,
+            correctStreak = :correctStreak,
+            attemptCount = attemptCount + 1,
+            correctCount = correctCount + :correctIncrement
+        WHERE rowId = :rowId
+        """
+    )
+    suspend fun recordAttemptOutcome(
+        rowId: Long,
+        status: QuestionMasteryStatus,
+        wrongCount: Int,
+        correctStreak: Int,
+        correctIncrement: Int,
+    )
+
+    @Query(
+        """
+        UPDATE quiz_questions
+        SET totalTimeSeconds = totalTimeSeconds + :spentSeconds,
+            lastTimeSeconds = :spentSeconds,
+            timedCount = timedCount + 1
+        WHERE rowId = :rowId
+        """
+    )
+    suspend fun addQuestionTiming(rowId: Long, spentSeconds: Long)
+
     @Query("UPDATE quiz_questions SET masteryStatus = :status, wrongCount = :wrongCount, correctStreak = :correctStreak WHERE rowId = :rowId")
     suspend fun updateMastery(
         rowId: Long,
@@ -76,4 +106,29 @@ interface QuizDao {
 
     @Query("UPDATE quiz_questions SET masteryStatus = 'NEW', wrongCount = 0, correctStreak = 0 WHERE bankId = :bankId")
     suspend fun resetMasteryForBank(bankId: Long)
+
+    @Query(
+        """
+        UPDATE quiz_questions
+        SET masteryStatus = 'NEW',
+            wrongCount = 0,
+            correctStreak = 0,
+            attemptCount = 0,
+            correctCount = 0,
+            totalTimeSeconds = 0,
+            lastTimeSeconds = 0,
+            timedCount = 0
+        WHERE bankId = :bankId
+        """
+    )
+    suspend fun resetStatisticsForBank(bankId: Long)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertExamHistory(record: ExamAttemptHistoryEntity): Long
+
+    @Query("SELECT * FROM exam_history WHERE bankId = :bankId ORDER BY createdAtEpochMs DESC LIMIT 30")
+    fun observeExamHistoryForBank(bankId: Long): Flow<List<ExamAttemptHistoryEntity>>
+
+    @Query("DELETE FROM exam_history WHERE bankId = :bankId")
+    suspend fun deleteExamHistoryForBank(bankId: Long)
 }

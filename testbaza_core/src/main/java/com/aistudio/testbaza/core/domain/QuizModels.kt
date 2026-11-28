@@ -1,11 +1,5 @@
 package com.aistudio.testbaza.core.domain
 
-import androidx.annotation.Keep
-import com.google.firebase.Timestamp
-import com.google.firebase.firestore.DocumentId
-import com.google.firebase.firestore.IgnoreExtraProperties
-import com.google.firebase.firestore.ServerTimestamp
-
 enum class StudyMode(val label: String) {
     QUIZ("Hamısı"),
     FLASHCARD("Kartlar"),
@@ -52,7 +46,15 @@ data class QuizQuestion(
     val masteryStatus: QuestionMasteryStatus,
     val wrongCount: Int,
     val correctStreak: Int,
-)
+    val attemptCount: Int = 0,
+    val correctCount: Int = 0,
+    val totalTimeSeconds: Long = 0L,
+    val lastTimeSeconds: Long = 0L,
+    val timedCount: Int = 0,
+) {
+    val averageTimeSeconds: Long
+        get() = if (timedCount > 0) (totalTimeSeconds + timedCount / 2) / timedCount else lastTimeSeconds
+}
 
 data class SessionQuestionItem(
     val question: QuizQuestion,
@@ -82,71 +84,19 @@ data class ExamConfig(
     }
 }
 
-@Keep
-@IgnoreExtraProperties
-data class SharedExamQuestionSnapshot(
-    val qNum: Long = 0L,
-    val text: String = "",
-    val options: List<String> = emptyList(),
-    val correct: String = "",
-)
-
-@Keep
-@IgnoreExtraProperties
-data class SharedExam(
-    @DocumentId val id: String = "",
-    val ownerId: String = "",
-    val ownerName: String = "",
-    val title: String = "",
-    val sourceBankTitle: String = "",
-    val questionCount: Long = 0L,
-    val durationMinutes: Long = 0L,
-    val shuffleOptions: Boolean = true,
-    val questions: List<SharedExamQuestionSnapshot> = emptyList(),
-    @ServerTimestamp val createdAt: Timestamp? = null,
-    @ServerTimestamp val updatedAt: Timestamp? = null,
-)
-
-@Keep
-@IgnoreExtraProperties
 data class ExamWrongDetail(
-    val questionNumber: Long = 0L,
+    val questionNumber: Int = 0,
     val questionText: String = "",
     val selectedAnswer: String = "",
     val correctAnswer: String = "",
     val timeSpentSeconds: Long = 0L,
 )
 
-@Keep
-@IgnoreExtraProperties
 data class QuestionTimingDetail(
-    val questionNumber: Long = 0L,
+    val questionNumber: Int = 0,
     val questionText: String = "",
     val status: String = "SKIPPED",
     val timeSpentSeconds: Long = 0L,
-)
-
-@Keep
-@IgnoreExtraProperties
-data class SharedExamAttempt(
-    @DocumentId val id: String = "",
-    val examId: String = "",
-    val examOwnerId: String = "",
-    val participantId: String = "",
-    val participantName: String = "",
-    val shareConsentGranted: Boolean = false,
-    val totalQuestions: Long = 0L,
-    val answeredCount: Long = 0L,
-    val correctCount: Long = 0L,
-    val wrongCount: Long = 0L,
-    val unansweredCount: Long = 0L,
-    val totalElapsedSeconds: Long = 0L,
-    val durationLimitSeconds: Long = 0L,
-    val timedOut: Boolean = false,
-    val wrongDetails: List<ExamWrongDetail> = emptyList(),
-    val questionTimings: List<QuestionTimingDetail> = emptyList(),
-    @ServerTimestamp val createdAt: Timestamp? = null,
-    @ServerTimestamp val updatedAt: Timestamp? = null,
 )
 
 data class ExamEvaluationSummary(
@@ -159,24 +109,69 @@ data class ExamEvaluationSummary(
     val questionTimings: List<QuestionTimingDetail>,
 )
 
+data class ExamAttemptHistoryItem(
+    val id: Long,
+    val bankId: Long,
+    val bankTitle: String,
+    val createdAtEpochMs: Long,
+    val isTimedExam: Boolean,
+    val totalQuestions: Int,
+    val correctCount: Int,
+    val wrongCount: Int,
+    val unansweredCount: Int,
+    val totalElapsedSeconds: Long,
+    val durationLimitMinutes: Int,
+    val timedOut: Boolean,
+    val wrongDetails: List<ExamWrongDetail>,
+    val questionTimings: List<QuestionTimingDetail>,
+) {
+    fun toEvaluationSummary(): ExamEvaluationSummary = ExamEvaluationSummary(
+        totalQuestions = totalQuestions,
+        answeredCount = correctCount + wrongCount,
+        correctCount = correctCount,
+        wrongCount = wrongCount,
+        unansweredCount = unansweredCount,
+        wrongDetails = wrongDetails,
+        questionTimings = questionTimings,
+    )
+}
+
+data class FileStatisticsSummary(
+    val bankId: Long,
+    val bankTitle: String,
+    val totalQuestions: Int,
+    val answeredQuestionsCount: Int,
+    val masteredCount: Int,
+    val weakCount: Int,
+    val newCount: Int,
+    val totalAttempts: Int,
+    val totalCorrectAttempts: Int,
+    val totalWrongAttempts: Int,
+    val accuracyPercent: Int,
+    val totalTimeSeconds: Long,
+    val avgSecondsPerTimedQuestion: Long,
+    val slowestQuestions: List<QuizQuestion>,
+    val mostWrongQuestions: List<QuizQuestion>,
+    val timedQuestions: List<QuizQuestion>,
+    val estimated50QuestionSeconds: Long,
+)
+
 data class ActiveExamUiState(
     val active: Boolean = false,
     val title: String = "",
-    val examCode: String? = null,
     val durationMinutes: Int = 20,
     val remainingSeconds: Int = 0,
     val currentQuestionElapsedSeconds: Long = 0L,
     val totalElapsedSeconds: Long = 0L,
     val timedOut: Boolean = false,
-    val sharedExam: SharedExam? = null,
-    val participantName: String = "",
-    val shareConsentGranted: Boolean = false,
-    val attemptUploaded: Boolean = false,
-    val attemptUploading: Boolean = false,
-    val uploadedAttemptId: String? = null,
-    val uploadErrorMessage: String? = null,
     val perQuestionSeconds: List<Long> = emptyList(),
     val evaluationSummary: ExamEvaluationSummary? = null,
-) {
-    val isSharedExam: Boolean get() = sharedExam != null
-}
+)
+
+data class ShareResultPayload(
+    val title: String,
+    val summary: ExamEvaluationSummary,
+    val totalElapsedSeconds: Long,
+    val durationLimitMinutes: Int? = null,
+    val timedOut: Boolean = false,
+)

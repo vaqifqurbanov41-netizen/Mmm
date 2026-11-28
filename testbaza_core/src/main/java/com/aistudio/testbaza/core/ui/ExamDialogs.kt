@@ -12,41 +12,43 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -57,79 +59,88 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import com.aistudio.testbaza.core.domain.ExamAttemptHistoryItem
+import com.aistudio.testbaza.core.domain.FileStatisticsSummary
+import com.aistudio.testbaza.core.domain.QuizBank
 import com.aistudio.testbaza.core.domain.QuizEngine
-import com.aistudio.testbaza.core.domain.SharedExam
-import com.aistudio.testbaza.core.domain.SharedExamAttempt
+import com.aistudio.testbaza.core.domain.ShareResultPayload
 import com.aistudio.testbaza.core.ui.theme.LocalVipColors
 import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 
+private enum class StatsTab(val label: String) {
+    SUMMARY("Ümumi"),
+    ERRORS("Səhvlər"),
+    TIMINGS("Sual Vaxtları"),
+    HISTORY("Tarixçə"),
+}
+
 @Composable
-fun GoogleAuthPromptDialog(
-    isBusy: Boolean,
-    errorMessage: String?,
-    onGoogleSignInClick: () -> Unit,
-    onBrowserSignInClick: () -> Unit,
+fun ShareResultDialog(
+    payload: ShareResultPayload,
+    onCopySuccess: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val vip = LocalVipColors.current
-    Dialog(onDismissRequest = { if (!isBusy) onDismiss() }) {
+    val context = LocalContext.current
+    var includeDetails by remember { mutableStateOf(true) }
+
+    val formattedText = remember(payload, includeDetails) {
+        QuizEngine.formatResultShareText(payload, includeDetails = includeDetails)
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
         Surface(
             shape = RoundedCornerShape(24.dp),
             color = vip.surface,
             border = BorderStroke(1.2.dp, vip.goldBorder),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .padding(horizontal = 16.dp, vertical = 20.dp)
+                .widthIn(max = 540.dp)
+                .fillMaxWidth(),
         ) {
             Column(
-                modifier = Modifier.padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(vip.goldSoft),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.AccountCircle,
-                                contentDescription = "Google Hesabı",
-                                tint = vip.gold,
-                                modifier = Modifier.size(22.dp),
-                            )
-                        }
-                        Column {
-                            Text(
-                                text = "Google ilə Daxil Olun",
-                                style = MaterialTheme.typography.titleLarge,
-                                color = vip.textPrimary,
-                            )
-                            Text(
-                                text = "İmtahan paylaşmaq və qoşulmaq üçün",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = vip.textSecondary,
-                            )
-                        }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Nəticəni Paylaş",
+                            style = MaterialTheme.typography.titleLarge,
+                            color = vip.gold,
+                        )
+                        Text(
+                            text = payload.title.ifBlank { "Testbaza" },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = vip.textSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
                     IconButton(
                         onClick = onDismiss,
-                        enabled = !isBusy,
-                        modifier = Modifier.size(48.dp),
+                        modifier = Modifier
+                            .size(48.dp)
+                            .testTag("share_result_close_button"),
                     ) {
                         Icon(
                             imageVector = Icons.Default.Close,
@@ -140,446 +151,94 @@ fun GoogleAuthPromptDialog(
                 }
 
                 Text(
-                    text = "Oflayn test və sınaq imtahanı giriş tələb etmir. İmtahanı digər telefonlarla paylaşmaq və iştirakçı nəticələrini görmək üçün Google hesabınızla daxil olun.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = vip.textSecondary,
+                    text = "Paylaşım formatını seçin:",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = vip.textPrimary,
                 )
 
-                if (!errorMessage.isNullOrBlank()) {
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = vip.roseSoft,
-                        border = BorderStroke(1.dp, vip.roseBorder),
-                        modifier = Modifier.fillMaxWidth(),
+                ShareModeOptionCard(
+                    title = "Statistik məlumatlar və səhvlərlə birgə",
+                    subtitle = "Nəticə faizi, orta/ən sürətli/ən yavaş sual, hər sualın vaxtı və səhv edilən sualların tam izahı",
+                    selected = includeDetails,
+                    testTag = "share_mode_detailed_card",
+                    onClick = { includeDetails = true },
+                )
+
+                ShareModeOptionCard(
+                    title = "Sadəcə nəticə olaraq paylaş",
+                    subtitle = "Yalnız test adı, düzgün/səhv/boş sayı, bal faizi və ümumi müddət",
+                    selected = !includeDetails,
+                    testTag = "share_mode_summary_card",
+                    onClick = { includeDetails = false },
+                )
+
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = vip.surfaceElevated,
+                    border = BorderStroke(1.dp, vip.border),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 120.dp, max = 240.dp),
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
+                            .padding(14.dp),
                     ) {
                         Text(
-                            text = errorMessage,
+                            text = formattedText,
                             style = MaterialTheme.typography.bodySmall,
                             color = vip.textPrimary,
-                            modifier = Modifier.padding(12.dp),
+                            modifier = Modifier.testTag("share_result_preview_text"),
                         )
-                    }
-                }
-
-                Button(
-                    onClick = onGoogleSignInClick,
-                    enabled = !isBusy,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 50.dp)
-                        .testTag("google_sign_in_button"),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = vip.emerald,
-                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                    ),
-                ) {
-                    if (isBusy) {
-                        CircularProgressIndicator(
-                            color = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.size(20.dp),
-                            strokeWidth = 2.dp,
-                        )
-                    } else {
-                        Text("Google Hesabı ilə Daxil Ol")
-                    }
-                }
-
-                OutlinedButton(
-                    onClick = onBrowserSignInClick,
-                    enabled = !isBusy,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 48.dp)
-                        .testTag("google_browser_sign_in_button"),
-                    shape = RoundedCornerShape(14.dp),
-                    border = BorderStroke(1.dp, vip.borderStrong),
-                ) {
-                    Text("Brauzer vasitəsilə daxil ol")
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun PublishExamDialog(
-    defaultTitle: String,
-    defaultOwnerName: String,
-    questionCount: Int,
-    durationMinutes: Int,
-    isBusy: Boolean,
-    publishedExam: SharedExam?,
-    onPublish: (title: String, ownerName: String) -> Unit,
-    onCopyCode: (String) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val vip = LocalVipColors.current
-    val context = LocalContext.current
-    var title by remember(defaultTitle) { mutableStateOf(defaultTitle.ifBlank { "Testbaza İmtahanı" }) }
-    var ownerName by remember(defaultOwnerName) { mutableStateOf(defaultOwnerName) }
-
-    Dialog(onDismissRequest = { if (!isBusy) onDismiss() }) {
-        Surface(
-            shape = RoundedCornerShape(24.dp),
-            color = vip.surface,
-            border = BorderStroke(1.2.dp, vip.goldBorder),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-                    .padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = if (publishedExam == null) "İmtahanı Paylaş" else "İmtahan Hazırdır",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = vip.gold,
-                    )
-                    IconButton(
-                        onClick = onDismiss,
-                        enabled = !isBusy,
-                        modifier = Modifier.size(48.dp),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Bağla",
-                            tint = vip.textSecondary,
-                        )
-                    }
-                }
-
-                if (publishedExam == null) {
-                    Surface(
-                        shape = RoundedCornerShape(14.dp),
-                        color = vip.surfaceElevated,
-                        border = BorderStroke(1.dp, vip.border),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(
-                            text = "Bu paylaşıma $questionCount sual və $durationMinutes dəqiqə vaxt limiti daxil ediləcək. İmtahanı alan digər Testbaza istifadəçisi icazə verərsə, nəticəsi, səhvləri və hər sual üzrə vaxtı sizə görünəcək.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = vip.textSecondary,
-                            modifier = Modifier.padding(12.dp),
-                        )
-                    }
-
-                    OutlinedTextField(
-                        value = title,
-                        onValueChange = { title = it },
-                        label = { Text("İmtahanın adı") },
-                        singleLine = true,
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("publish_exam_title_input"),
-                    )
-
-                    OutlinedTextField(
-                        value = ownerName,
-                        onValueChange = { ownerName = it },
-                        label = { Text("Paylaşanın adı") },
-                        singleLine = true,
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("publish_exam_owner_input"),
-                    )
-
-                    Button(
-                        onClick = { onPublish(title, ownerName) },
-                        enabled = !isBusy && title.isNotBlank(),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 50.dp)
-                            .testTag("publish_exam_confirm_button"),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = vip.emerald,
-                            contentColor = MaterialTheme.colorScheme.onPrimary,
-                        ),
-                    ) {
-                        if (isBusy) {
-                            CircularProgressIndicator(
-                                color = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.size(20.dp),
-                                strokeWidth = 2.dp,
-                            )
-                        } else {
-                            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.size(6.dp))
-                            Text("Paylaşım Kodu Yarat")
-                        }
-                    }
-                } else {
-                    Surface(
-                        shape = RoundedCornerShape(18.dp),
-                        color = vip.goldSoft,
-                        border = BorderStroke(1.2.dp, vip.goldBorder),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(16.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Text(
-                                text = "İmtahan Kodu",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = vip.textSecondary,
-                            )
-                            Text(
-                                text = publishedExam.id,
-                                style = MaterialTheme.typography.headlineMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = vip.gold,
-                                modifier = Modifier.testTag("published_exam_code_text"),
-                            )
-                            Text(
-                                text = "${publishedExam.questionCount} sual • ${publishedExam.durationMinutes} dəqiqə",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = vip.textPrimary,
-                            )
-                        }
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        OutlinedButton(
-                            onClick = {
-                                copyCodeToClipboard(context, publishedExam.id)
-                                onCopyCode(publishedExam.id)
-                            },
-                            modifier = Modifier
-                                .weight(1f)
-                                .heightIn(min = 50.dp)
-                                .testTag("copy_exam_code_button"),
-                            shape = RoundedCornerShape(14.dp),
-                        ) {
-                            Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.size(6.dp))
-                            Text("Kopyala")
-                        }
-
-                        Button(
-                            onClick = { shareExamViaIntent(context, publishedExam) },
-                            modifier = Modifier
-                                .weight(1f)
-                                .heightIn(min = 50.dp)
-                                .testTag("android_share_exam_button"),
-                            shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = vip.emerald,
-                                contentColor = MaterialTheme.colorScheme.onPrimary,
-                            ),
-                        ) {
-                            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.size(6.dp))
-                            Text("Paylaş")
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun JoinSharedExamDialog(
-    defaultParticipantName: String,
-    isBusy: Boolean,
-    previewExam: SharedExam?,
-    onLookupCode: (String) -> Unit,
-    onStartExam: (exam: SharedExam, participantName: String, consentGranted: Boolean) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val vip = LocalVipColors.current
-    var codeInput by remember { mutableStateOf("") }
-    var participantName by remember(defaultParticipantName) { mutableStateOf(defaultParticipantName) }
-    var consentGranted by remember { mutableStateOf(false) }
-
-    Dialog(onDismissRequest = { if (!isBusy) onDismiss() }) {
-        Surface(
-            shape = RoundedCornerShape(24.dp),
-            color = vip.surface,
-            border = BorderStroke(1.2.dp, vip.emeraldBorder),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-                    .padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = "Paylaşılan İmtahana Qoşul",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = vip.textPrimary,
-                    )
-                    IconButton(
-                        onClick = onDismiss,
-                        enabled = !isBusy,
-                        modifier = Modifier.size(48.dp),
-                    ) {
-                        Icon(Icons.Default.Close, contentDescription = "Bağla", tint = vip.textSecondary)
                     }
                 }
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    OutlinedTextField(
-                        value = codeInput,
-                        onValueChange = { codeInput = it.uppercase().take(32) },
-                        label = { Text("İmtahan kodu (məs: TB4K9M2A)") },
-                        singleLine = true,
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("join_exam_code_input"),
-                    )
-                    Button(
-                        onClick = { onLookupCode(codeInput) },
-                        enabled = !isBusy && codeInput.trim().length >= 4,
-                        modifier = Modifier
-                            .heightIn(min = 52.dp)
-                            .testTag("join_exam_lookup_button"),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = vip.gold),
-                    ) {
-                        Text("Tap", color = MaterialTheme.colorScheme.onPrimary)
-                    }
-                }
-
-                if (isBusy) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center,
-                    ) {
-                        CircularProgressIndicator(color = vip.gold, modifier = Modifier.size(28.dp))
-                    }
-                }
-
-                if (previewExam != null) {
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = vip.surfaceElevated,
-                        border = BorderStroke(1.dp, vip.goldBorder),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(14.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Text(
-                                text = previewExam.title,
-                                style = MaterialTheme.typography.titleMedium,
-                                color = vip.gold,
-                            )
-                            Text(
-                                text = "Paylaşan: ${previewExam.ownerName}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = vip.textSecondary,
-                            )
-                            Text(
-                                text = "${previewExam.questionCount} sual • ${previewExam.durationMinutes} dəqiqə",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = vip.emerald,
-                            )
-                        }
-                    }
-
-                    OutlinedTextField(
-                        value = participantName,
-                        onValueChange = { participantName = it },
-                        label = { Text("Adınız və soyadınız") },
-                        singleLine = true,
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("join_participant_name_input"),
-                    )
-
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = if (consentGranted) vip.emeraldSoft else vip.surfaceElevated,
-                        border = BorderStroke(
-                            1.dp,
-                            if (consentGranted) vip.emeraldBorder else vip.border,
-                        ),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Lock,
-                                contentDescription = "Məxfilik icazəsi",
-                                tint = if (consentGranted) vip.emerald else vip.gold,
-                                modifier = Modifier.size(20.dp),
-                            )
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Nəticə paylaşma icazəsi",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = vip.textPrimary,
-                                )
-                                Text(
-                                    text = "İcazə versəniz, imtahan nəticəniz, səhv etdiyiniz suallar və hər suala sərf etdiyiniz vaxt (${previewExam.ownerName}) ilə paylaşılacaq.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = vip.textSecondary,
-                                )
-                            }
-                            Switch(
-                                checked = consentGranted,
-                                onCheckedChange = { consentGranted = it },
-                                modifier = Modifier.testTag("join_exam_consent_switch"),
-                            )
-                        }
-                    }
-
-                    Button(
+                    OutlinedButton(
                         onClick = {
-                            onStartExam(
-                                previewExam,
-                                participantName.ifBlank { "İştirakçı" },
-                                consentGranted,
-                            )
+                            copyTextToClipboard(context, formattedText)
+                            onCopySuccess()
                         },
                         modifier = Modifier
-                            .fillMaxWidth()
+                            .weight(1f)
                             .heightIn(min = 50.dp)
-                            .testTag("join_exam_start_button"),
+                            .testTag("share_result_copy_button"),
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.dp, vip.borderStrong),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ContentCopy,
+                            contentDescription = "Nəticəni kopyala",
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.size(6.dp))
+                        Text("Kopyala")
+                    }
+
+                    Button(
+                        onClick = { shareTextViaIntent(context, payload.title, formattedText) },
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 50.dp)
+                            .testTag("share_result_intent_button"),
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = vip.emerald,
                             contentColor = MaterialTheme.colorScheme.onPrimary,
                         ),
                     ) {
-                        Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(20.dp))
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = "Paylaş",
+                            modifier = Modifier.size(18.dp),
+                        )
                         Spacer(Modifier.size(6.dp))
-                        Text("İmtahana Başla")
+                        Text("Paylaş")
                     }
                 }
             }
@@ -588,28 +247,121 @@ fun JoinSharedExamDialog(
 }
 
 @Composable
-fun MySharedExamsDialog(
-    sharedExams: List<SharedExam>,
-    inspectedExamId: String?,
-    attempts: List<SharedExamAttempt>,
-    attemptsError: String?,
-    onSelectExam: (String?) -> Unit,
-    onDeleteExam: (String) -> Unit,
-    onCopyCode: (String) -> Unit,
+private fun ShareModeOptionCard(
+    title: String,
+    subtitle: String,
+    selected: Boolean,
+    testTag: String,
+    onClick: () -> Unit,
+) {
+    val vip = LocalVipColors.current
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 58.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick)
+            .testTag(testTag),
+        shape = RoundedCornerShape(16.dp),
+        color = if (selected) vip.emeraldSoft else vip.surfaceElevated,
+        border = BorderStroke(
+            width = if (selected) 1.4.dp else 1.dp,
+            color = if (selected) vip.emeraldBorder else vip.border,
+        ),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Default.CheckCircle,
+                contentDescription = title,
+                tint = if (selected) vip.emerald else vip.textSecondary.copy(alpha = 0.45f),
+                modifier = Modifier.size(20.dp),
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = if (selected) vip.emerald else vip.textPrimary,
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = vip.textSecondary,
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun FileStatisticsDialog(
+    banks: List<QuizBank>,
+    selectedBankId: Long?,
+    stats: FileStatisticsSummary?,
+    history: List<ExamAttemptHistoryItem>,
+    onSelectBank: (Long) -> Unit,
+    onClearStatistics: (Long) -> Unit,
+    onPracticeWeak: (Long) -> Unit,
+    onShareHistoryRecord: (ShareResultPayload) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val vip = LocalVipColors.current
-    val context = LocalContext.current
-    val inspectedExam = sharedExams.firstOrNull { it.id == inspectedExamId }
+    var activeTab by remember { mutableStateOf(StatsTab.SUMMARY) }
+    var sortTimingsBySlowest by remember { mutableStateOf(true) }
+    var showClearConfirm by remember { mutableStateOf(false) }
 
-    Dialog(onDismissRequest = onDismiss) {
+    val hasAnyStats = stats != null && (
+        stats.totalAttempts > 0 ||
+            stats.totalTimeSeconds > 0L ||
+            stats.totalWrongAttempts > 0 ||
+            stats.answeredQuestionsCount > 0 ||
+            history.isNotEmpty()
+        )
+
+    if (showClearConfirm && stats != null) {
+        AlertDialog(
+            onDismissRequest = { showClearConfirm = false },
+            title = { Text("Statistika təmizlənsin?") },
+            text = {
+                Text("\"${stats.bankTitle}\" faylına aid bütün sual vaxtları, səhvlər, mənimsəmə statusları və imtahan tarixçəsi silinəcək. Suallar və doğru cavablar saxlanacaq.")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showClearConfirm = false
+                        onClearStatistics(stats.bankId)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = vip.rose),
+                    modifier = Modifier.testTag("confirm_clear_stats_button"),
+                ) {
+                    Text("Təmizlə")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearConfirm = false }) {
+                    Text("Ləğv et")
+                }
+            },
+        )
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
         Surface(
             shape = RoundedCornerShape(24.dp),
             color = vip.surface,
             border = BorderStroke(1.2.dp, vip.goldBorder),
             modifier = Modifier
+                .padding(horizontal = 14.dp, vertical = 18.dp)
+                .widthIn(max = 640.dp)
                 .fillMaxWidth()
-                .heightIn(max = 620.dp),
+                .heightIn(max = 690.dp),
         ) {
             Column(
                 modifier = Modifier
@@ -624,189 +376,190 @@ fun MySharedExamsDialog(
                 ) {
                     Row(
                         modifier = Modifier.weight(1f),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        if (inspectedExam != null) {
-                            IconButton(
-                                onClick = { onSelectExam(null) },
-                                modifier = Modifier.size(48.dp),
-                            ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                    contentDescription = "Geri",
-                                    tint = vip.gold,
-                                )
-                            }
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(vip.goldSoft),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Assessment,
+                                contentDescription = "Statistika",
+                                tint = vip.gold,
+                                modifier = Modifier.size(20.dp),
+                            )
                         }
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = inspectedExam?.title ?: "Paylaşdığım İmtahanlar",
+                                text = "Statistika Bölməsi",
                                 style = MaterialTheme.typography.titleLarge,
                                 color = vip.gold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
                             )
                             Text(
-                                text = if (inspectedExam != null) {
-                                    "Kod: ${inspectedExam.id} • İcazəli iştirakçılar"
-                                } else {
-                                    "Digər telefonlarla paylaşılan imtahanlar"
-                                },
+                                text = stats?.bankTitle ?: "Yüklənmiş fayl üzrə analiz",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = vip.textSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                             )
                         }
                     }
                     IconButton(
                         onClick = onDismiss,
-                        modifier = Modifier.size(48.dp),
+                        modifier = Modifier
+                            .size(48.dp)
+                            .testTag("stats_close_button"),
                     ) {
-                        Icon(Icons.Default.Close, contentDescription = "Bağla", tint = vip.textSecondary)
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Bağla",
+                            tint = vip.textSecondary,
+                        )
                     }
                 }
 
-                if (inspectedExam == null) {
-                    if (sharedExams.isEmpty()) {
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = vip.surfaceElevated,
-                            border = BorderStroke(1.dp, vip.border),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text(
-                                text = "Hələ paylaşdığınız imtahan yoxdur. Tənzimləmələr -> İmtahan Bölməsindən imtahan yaradıb paylaşa bilərsiniz.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = vip.textSecondary,
-                                modifier = Modifier.padding(16.dp),
-                            )
-                        }
-                    } else {
-                        LazyColumn(
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier.weight(1f, fill = false),
-                        ) {
-                            items(sharedExams, key = { it.id }) { exam ->
-                                Surface(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(16.dp))
-                                        .clickable { onSelectExam(exam.id) },
-                                    shape = RoundedCornerShape(16.dp),
-                                    color = vip.surfaceElevated,
-                                    border = BorderStroke(1.dp, vip.borderStrong),
-                                ) {
-                                    Column(
-                                        modifier = Modifier.padding(14.dp),
-                                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically,
-                                        ) {
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text(
-                                                    text = exam.title,
-                                                    style = MaterialTheme.typography.titleMedium,
-                                                    color = vip.textPrimary,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis,
-                                                )
-                                                Text(
-                                                    text = "Kod: ${exam.id} • ${exam.questionCount} sual • ${exam.durationMinutes} dəq",
-                                                    style = MaterialTheme.typography.labelMedium,
-                                                    color = vip.gold,
-                                                )
-                                            }
-                                            IconButton(
-                                                onClick = { onDeleteExam(exam.id) },
-                                                modifier = Modifier.size(48.dp),
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.DeleteOutline,
-                                                    contentDescription = "İmtahanı sil",
-                                                    tint = vip.rose,
-                                                )
-                                            }
-                                        }
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        ) {
-                                            OutlinedButton(
-                                                onClick = {
-                                                    copyCodeToClipboard(context, exam.id)
-                                                    onCopyCode(exam.id)
-                                                },
-                                                modifier = Modifier
-                                                    .weight(1f)
-                                                    .heightIn(min = 48.dp),
-                                                shape = RoundedCornerShape(12.dp),
-                                            ) {
-                                                Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
-                                                Spacer(Modifier.size(4.dp))
-                                                Text("Kopyala")
-                                            }
-                                            Button(
-                                                onClick = { onSelectExam(exam.id) },
-                                                modifier = Modifier
-                                                    .weight(1f)
-                                                    .heightIn(min = 48.dp),
-                                                shape = RoundedCornerShape(12.dp),
-                                                colors = ButtonDefaults.buttonColors(
-                                                    containerColor = vip.emerald,
-                                                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                                                ),
-                                            ) {
-                                                Icon(Icons.Default.Assessment, contentDescription = null, modifier = Modifier.size(16.dp))
-                                                Spacer(Modifier.size(4.dp))
-                                                Text("Nəticələr")
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                if (banks.isEmpty() || stats == null) {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = vip.surfaceElevated,
+                        border = BorderStroke(1.dp, vip.border),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            text = "Statistika görmək üçün əvvəlcə Word, PDF və ya TXT test faylı yükləyin.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = vip.textSecondary,
+                            modifier = Modifier.padding(18.dp),
+                        )
                     }
                 } else {
-                    if (!attemptsError.isNullOrBlank()) {
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = vip.roseSoft,
-                            border = BorderStroke(1.dp, vip.roseBorder),
+                    if (banks.size > 1) {
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Text(
-                                text = attemptsError,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = vip.textPrimary,
-                                modifier = Modifier.padding(12.dp),
+                            items(banks, key = { it.id }) { bank ->
+                                val selected = bank.id == selectedBankId
+                                FilterChip(
+                                    selected = selected,
+                                    onClick = { onSelectBank(bank.id) },
+                                    label = {
+                                        Text(
+                                            text = "${bank.title} (${bank.questionCount})",
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    },
+                                    modifier = Modifier.testTag("stats_bank_chip_${bank.id}"),
+                                )
+                            }
+                        }
+                    }
+
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        StatsTab.entries.forEach { tab ->
+                            val tabLabel = when (tab) {
+                                StatsTab.ERRORS -> "Səhvlər (${stats.mostWrongQuestions.size})"
+                                StatsTab.HISTORY -> "Tarixçə (${history.size})"
+                                else -> tab.label
+                            }
+                            FilterChip(
+                                selected = activeTab == tab,
+                                onClick = { activeTab = tab },
+                                label = { Text(tabLabel) },
+                                modifier = Modifier.testTag("stats_tab_${tab.name.lowercase()}"),
                             )
                         }
                     }
-                    if (attempts.isEmpty()) {
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = vip.surfaceElevated,
-                            border = BorderStroke(1.dp, vip.border),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text(
-                                text = "Hələ icazəli nəticə yoxdur. İmtahanda iştirak edən şəxs nəticəsini paylaşmağa icazə verdikdə burada görünəcək.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = vip.textSecondary,
-                                modifier = Modifier.padding(16.dp),
+
+                    Box(
+                        modifier = Modifier
+                            .weight(1f, fill = false)
+                            .fillMaxWidth(),
+                    ) {
+                        when (activeTab) {
+                            StatsTab.SUMMARY -> SummaryStatsTabContent(stats = stats)
+                            StatsTab.ERRORS -> ErrorsStatsTabContent(
+                                stats = stats,
+                                onPracticeWeak = {
+                                    onDismiss()
+                                    onPracticeWeak(stats.bankId)
+                                },
+                            )
+                            StatsTab.TIMINGS -> TimingsStatsTabContent(
+                                stats = stats,
+                                sortBySlowest = sortTimingsBySlowest,
+                                onToggleSort = { sortTimingsBySlowest = !sortTimingsBySlowest },
+                            )
+                            StatsTab.HISTORY -> HistoryStatsTabContent(
+                                history = history,
+                                onShareRecord = { record ->
+                                    onShareHistoryRecord(
+                                        ShareResultPayload(
+                                            title = record.bankTitle,
+                                            summary = record.toEvaluationSummary(),
+                                            totalElapsedSeconds = record.totalElapsedSeconds,
+                                            durationLimitMinutes = record.durationLimitMinutes.takeIf { record.isTimedExam && it > 0 },
+                                            timedOut = record.timedOut,
+                                        )
+                                    )
+                                },
                             )
                         }
-                    } else {
-                        LazyColumn(
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
-                            modifier = Modifier.weight(1f, fill = false),
+                    }
+
+                    HorizontalDivider(color = vip.border)
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        OutlinedButton(
+                            onClick = { showClearConfirm = true },
+                            enabled = hasAnyStats,
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp)
+                                .testTag("stats_clear_button"),
+                            shape = RoundedCornerShape(14.dp),
+                            border = BorderStroke(
+                                1.dp,
+                                if (hasAnyStats) vip.roseBorder else vip.border,
+                            ),
                         ) {
-                            items(attempts, key = { it.id }) { attempt ->
-                                ParticipantAttemptCard(attempt = attempt)
-                            }
+                            Icon(
+                                imageVector = Icons.Default.DeleteSweep,
+                                contentDescription = "Statistikanı təmizlə",
+                                tint = if (hasAnyStats) vip.rose else vip.textSecondary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(Modifier.size(6.dp))
+                            Text(
+                                text = "Təmizlə",
+                                color = if (hasAnyStats) vip.rose else vip.textSecondary,
+                            )
+                        }
+
+                        Button(
+                            onClick = onDismiss,
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = vip.emerald,
+                                contentColor = MaterialTheme.colorScheme.onPrimary,
+                            ),
+                        ) {
+                            Text("Bağla")
                         }
                     }
                 }
@@ -815,199 +568,418 @@ fun MySharedExamsDialog(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ParticipantAttemptCard(attempt: SharedExamAttempt) {
+private fun SummaryStatsTabContent(stats: FileStatisticsSummary) {
     val vip = LocalVipColors.current
-    var showTimings by remember { mutableStateOf(false) }
-    val total = attempt.totalQuestions.coerceAtLeast(1L)
-    val pct = ((attempt.correctCount * 100L) / total).toInt()
-    val dateLabel = remember(attempt.createdAt) {
-        val date = attempt.createdAt?.toDate()
-        if (date != null) SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault()).format(date) else ""
+    val coverageFraction = if (stats.totalQuestions > 0) {
+        stats.answeredQuestionsCount.toFloat() / stats.totalQuestions.toFloat()
+    } else 0f
+
+    val examReadinessTip = when {
+        stats.totalAttempts == 0 ->
+            "Sualları işlədikcə hər suala sərf olunan vaxt, dəqiqlik faizi və səhv etdiyiniz mövzular burada avtomatik hesablanacaq."
+        stats.weakCount > 0 && stats.avgSecondsPerTimedQuestion > 45L ->
+            "İmtahandan əvvəl ${stats.weakCount} səhv sualı təkrarlayın. Orta cavab vaxtınız (${stats.avgSecondsPerTimedQuestion} san) bir qədər yüksəkdir — sürətli sınaq rejimi faydalı olar."
+        stats.weakCount > 0 ->
+            "${stats.weakCount} sualda səhviniz qeydə alınıb. 'Səhvlər' bölməsindən onları ayrıca məşq edərək nəticənizi yüksəldə bilərsiniz."
+        stats.accuracyPercent >= 85 && stats.answeredQuestionsCount >= stats.totalQuestions / 2 ->
+            "İmtahana hazırlığınız əladır (${stats.accuracyPercent}% dəqiqlik). Vaxt idarəetməsini qorumaq üçün qarışıq sınaq imtahanı işləyin."
+        else ->
+            "Bazanı tam əhatə etmək üçün qalan ${stats.newCount} yeni sualı da tamamlayın."
     }
 
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            StatsKpiCard(
+                title = "Dəqiqlik",
+                value = "${stats.accuracyPercent}%",
+                subtitle = "${stats.totalCorrectAttempts} düzgün • ${stats.totalWrongAttempts} səhv",
+                accent = vip.emerald,
+                modifier = Modifier.weight(1f),
+            )
+            StatsKpiCard(
+                title = "Ümumi Vaxt",
+                value = QuizEngine.formatDurationHumanAz(stats.totalTimeSeconds),
+                subtitle = "Orta: ${stats.avgSecondsPerTimedQuestion} san/sual",
+                accent = vip.gold,
+                modifier = Modifier.weight(1f),
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            StatsKpiCard(
+                title = "Mənimsənilib",
+                value = "${stats.masteredCount}/${stats.totalQuestions}",
+                subtitle = "${stats.newCount} yeni sual",
+                accent = vip.emerald,
+                modifier = Modifier.weight(1f),
+            )
+            StatsKpiCard(
+                title = "Səhv Bazası",
+                value = "${stats.weakCount} sual",
+                subtitle = "Cəmi ${stats.totalAttempts} cavab",
+                accent = if (stats.weakCount > 0) vip.rose else vip.emerald,
+                modifier = Modifier.weight(1f),
+            )
+        }
+
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = vip.surfaceElevated,
+            border = BorderStroke(1.dp, vip.goldBorder),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Speed,
+                            contentDescription = null,
+                            tint = vip.gold,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Text(
+                            text = "İmtahana Hazırlıq Analizi",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = vip.gold,
+                        )
+                    }
+                    Text(
+                        text = "${stats.answeredQuestionsCount}/${stats.totalQuestions} sual",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = vip.textSecondary,
+                    )
+                }
+
+                LinearProgressIndicator(
+                    progress = { coverageFraction },
+                    color = vip.emerald,
+                    trackColor = vip.surface,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp)),
+                )
+
+                if (stats.estimated50QuestionSeconds > 0L) {
+                    val estCount = minOf(50, maxOf(1, stats.totalQuestions))
+                    Text(
+                        text = "$estCount suallıq imtahan üçün təxmini sürətiniz: ${QuizEngine.formatDurationHumanAz(stats.estimated50QuestionSeconds)}",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = vip.emerald,
+                    )
+                }
+
+                Text(
+                    text = examReadinessTip,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = vip.textSecondary,
+                )
+            }
+        }
+
+        if (stats.slowestQuestions.isNotEmpty()) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = vip.surfaceElevated,
+                border = BorderStroke(1.dp, vip.border),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = "Ən Çox Vaxt Aparan Suallar",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = vip.textPrimary,
+                    )
+                    stats.slowestQuestions.forEach { q ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "#${q.questionNumber}. ${q.questionText}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = vip.textSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f).padding(end = 8.dp),
+                            )
+                            Text(
+                                text = "${q.averageTimeSeconds} san",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = vip.gold,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatsKpiCard(
+    title: String,
+    value: String,
+    subtitle: String,
+    accent: Color,
+    modifier: Modifier = Modifier,
+) {
+    val vip = LocalVipColors.current
     Surface(
         shape = RoundedCornerShape(16.dp),
         color = vip.surfaceElevated,
-        border = BorderStroke(1.dp, vip.borderStrong),
-        modifier = Modifier.fillMaxWidth(),
+        border = BorderStroke(1.dp, vip.border),
+        modifier = modifier,
     ) {
         Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelSmall,
+                color = vip.textSecondary,
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = accent,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.labelSmall,
+                color = vip.textSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ErrorsStatsTabContent(
+    stats: FileStatisticsSummary,
+    onPracticeWeak: () -> Unit,
+) {
+    val vip = LocalVipColors.current
+    if (stats.mostWrongQuestions.isEmpty()) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = vip.emeraldSoft,
+            border = BorderStroke(1.dp, vip.emeraldBorder),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(
+                text = "Bu faylda hələ səhv cavab qeydə alınmayıb.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = vip.emerald,
+                modifier = Modifier.padding(16.dp),
+            )
+        }
+    } else {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (stats.weakCount > 0) {
+                Button(
+                    onClick = onPracticeWeak,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .testTag("stats_practice_weak_button"),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = vip.rose,
+                        contentColor = MaterialTheme.colorScheme.onError,
+                    ),
+                ) {
+                    Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.size(6.dp))
+                    Text("Səhvləri Məşq Et (${stats.weakCount} sual)")
+                }
+            }
+
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(bottom = 4.dp),
+            ) {
+                items(stats.mostWrongQuestions, key = { it.rowId }) { q ->
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = vip.surfaceElevated,
+                        border = BorderStroke(1.dp, vip.roseBorder),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(5.dp),
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.ErrorOutline,
+                                        contentDescription = null,
+                                        tint = vip.rose,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                    Text(
+                                        text = "Sual #${q.questionNumber} • ${q.wrongCount}x səhv",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = vip.rose,
+                                    )
+                                }
+                                if (q.averageTimeSeconds > 0L) {
+                                    Text(
+                                        text = "Orta: ${q.averageTimeSeconds} san",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = vip.gold,
+                                    )
+                                }
+                            }
+                            Text(
+                                text = q.questionText,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = vip.textPrimary,
+                            )
+                            Text(
+                                text = "Doğru cavab: ${q.correctText}",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = vip.emerald,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TimingsStatsTabContent(
+    stats: FileStatisticsSummary,
+    sortBySlowest: Boolean,
+    onToggleSort: () -> Unit,
+) {
+    val vip = LocalVipColors.current
+    val itemsList = remember(stats.timedQuestions, sortBySlowest) {
+        if (sortBySlowest) {
+            stats.timedQuestions.sortedByDescending { it.averageTimeSeconds }
+        } else {
+            stats.timedQuestions.sortedBy { it.questionNumber }
+        }
+    }
+
+    if (itemsList.isEmpty()) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = vip.surfaceElevated,
+            border = BorderStroke(1.dp, vip.border),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(
+                text = "Hələ bu faylda cavablandırılmış sual vaxtı qeydə alınmayıb.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = vip.textSecondary,
+                modifier = Modifier.padding(16.dp),
+            )
+        }
+    } else {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = attempt.participantName.ifBlank { "İştirakçı" },
-                        style = MaterialTheme.typography.titleMedium,
-                        color = vip.textPrimary,
-                    )
-                    if (dateLabel.isNotBlank()) {
-                        Text(
-                            text = dateLabel,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = vip.textSecondary,
-                        )
-                    }
-                }
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = vip.emeraldSoft,
-                    border = BorderStroke(1.dp, vip.emeraldBorder),
-                ) {
-                    Text(
-                        text = "$pct% (${attempt.correctCount}/${attempt.totalQuestions})",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = vip.emerald,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                    )
-                }
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
                 Text(
-                    text = "Düzgün: ${attempt.correctCount}",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = vip.emerald,
-                )
-                Text(
-                    text = "• Səhv: ${attempt.wrongCount}",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = vip.rose,
-                )
-                Text(
-                    text = "• Boş: ${attempt.unansweredCount}",
+                    text = "${itemsList.size} sual üzrə vaxt statistikası",
                     style = MaterialTheme.typography.labelMedium,
                     color = vip.textSecondary,
                 )
+                FilterChip(
+                    selected = sortBySlowest,
+                    onClick = onToggleSort,
+                    label = { Text(if (sortBySlowest) "Ən yavaşdan" else "Sual sırası") },
+                    modifier = Modifier.testTag("stats_timings_sort_chip"),
+                )
             }
 
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(bottom = 4.dp),
             ) {
-                Icon(
-                    imageVector = Icons.Default.Timer,
-                    contentDescription = null,
-                    tint = vip.gold,
-                    modifier = Modifier.size(16.dp),
-                )
-                Text(
-                    text = "Ümumi vaxt: ${QuizEngine.formatDurationHumanAz(attempt.totalElapsedSeconds)}" +
-                        if (attempt.timedOut) " (Vaxt bitdi)" else "",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = vip.gold,
-                )
-            }
-
-            if (attempt.wrongDetails.isNotEmpty()) {
-                HorizontalDivider(color = vip.border)
-                Text(
-                    text = "Səhv Edilən Suallar (${attempt.wrongDetails.size}):",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = vip.rose,
-                )
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    attempt.wrongDetails.forEach { wrong ->
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = vip.roseSoft.copy(alpha = 0.55f),
-                            border = BorderStroke(1.dp, vip.roseBorder),
-                            modifier = Modifier.fillMaxWidth(),
+                items(itemsList, key = { it.rowId }) { q ->
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = vip.surfaceElevated,
+                        border = BorderStroke(1.dp, vip.border),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
-                            Column(
-                                modifier = Modifier.padding(10.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Text(
-                                    text = "Sual #${wrong.questionNumber} (${QuizEngine.formatDurationHumanAz(wrong.timeSpentSeconds)}): ${wrong.questionText}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = vip.textPrimary,
-                                    fontWeight = FontWeight.SemiBold,
+                                    text = "Sual #${q.questionNumber}",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = vip.gold,
                                 )
                                 Text(
-                                    text = "Verilən cavab: ${wrong.selectedAnswer}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = vip.rose,
-                                )
-                                Text(
-                                    text = "Doğru cavab: ${wrong.correctAnswer}",
-                                    style = MaterialTheme.typography.bodySmall,
+                                    text = "Orta: ${q.averageTimeSeconds} san • Son: ${q.lastTimeSeconds} san",
+                                    style = MaterialTheme.typography.labelMedium,
                                     color = vip.emerald,
                                 )
                             }
-                        }
-                    }
-                }
-            } else {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.CheckCircle,
-                        contentDescription = null,
-                        tint = vip.emerald,
-                        modifier = Modifier.size(16.dp),
-                    )
-                    Text(
-                        text = "Səhv cavab yoxdur.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = vip.emerald,
-                    )
-                }
-            }
-
-            TextButton(
-                onClick = { showTimings = !showTimings },
-                modifier = Modifier.align(Alignment.Start),
-            ) {
-                Text(
-                    text = if (showTimings) {
-                        "Sual üzrə vaxtları gizlət"
-                    } else {
-                        "Hər suala sərf olunan vaxtı göstər (${attempt.questionTimings.size})"
-                    },
-                    color = vip.gold,
-                )
-            }
-
-            if (showTimings && attempt.questionTimings.isNotEmpty()) {
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    attempt.questionTimings.forEach { timing ->
-                        val bg = when (timing.status) {
-                            "CORRECT" -> vip.emeraldSoft
-                            "WRONG" -> vip.roseSoft
-                            else -> vip.surface
-                        }
-                        val fg = when (timing.status) {
-                            "CORRECT" -> vip.emerald
-                            "WRONG" -> vip.rose
-                            else -> vip.textSecondary
-                        }
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = bg,
-                            border = BorderStroke(1.dp, fg.copy(alpha = 0.5f)),
-                        ) {
                             Text(
-                                text = "#${timing.questionNumber} • ${timing.timeSpentSeconds} san",
+                                text = q.questionText,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = vip.textPrimary,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                text = "Cəmi vaxt: ${QuizEngine.formatDurationHumanAz(q.totalTimeSeconds)} • Cəhd: ${q.attemptCount} • Səhv: ${q.wrongCount}",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = fg,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                color = vip.textSecondary,
                             )
                         }
                     }
@@ -1017,23 +989,119 @@ private fun ParticipantAttemptCard(attempt: SharedExamAttempt) {
     }
 }
 
-private fun copyCodeToClipboard(context: Context, code: String) {
-    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
-    clipboard.setPrimaryClip(ClipData.newPlainText("Testbaza İmtahan Kodu", code))
+@Composable
+private fun HistoryStatsTabContent(
+    history: List<ExamAttemptHistoryItem>,
+    onShareRecord: (ExamAttemptHistoryItem) -> Unit,
+) {
+    val vip = LocalVipColors.current
+    val dateFmt = remember { SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault()) }
+
+    if (history.isEmpty()) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = vip.surfaceElevated,
+            border = BorderStroke(1.dp, vip.border),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(
+                text = "Hələ tamamlanmış imtahan və ya test sessiyası tarixçəsi yoxdur.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = vip.textSecondary,
+                modifier = Modifier.padding(16.dp),
+            )
+        }
+    } else {
+        LazyColumn(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(bottom = 4.dp),
+        ) {
+            items(history, key = { it.id }) { item ->
+                val pct = if (item.totalQuestions > 0) (item.correctCount * 100) / item.totalQuestions else 0
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = vip.surfaceElevated,
+                    border = BorderStroke(1.dp, vip.borderStrong),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Icon(
+                                    imageVector = if (item.isTimedExam) Icons.Default.Timer else Icons.Default.History,
+                                    contentDescription = null,
+                                    tint = if (item.isTimedExam) vip.gold else vip.emerald,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                                Text(
+                                    text = if (item.isTimedExam) "İmtahan ($pct%)" else "Məşq ($pct%)",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = vip.textPrimary,
+                                )
+                                Text(
+                                    text = dateFmt.format(Date(item.createdAtEpochMs)),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = vip.textSecondary,
+                                )
+                            }
+                            Text(
+                                text = "Düzgün: ${item.correctCount} • Səhv: ${item.wrongCount} • Boş: ${item.unansweredCount}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = vip.emerald,
+                            )
+                            Text(
+                                text = "Vaxt: ${QuizEngine.formatDurationHumanAz(item.totalElapsedSeconds)}" +
+                                    if (item.timedOut) " (Vaxt bitdi)" else "",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = vip.gold,
+                            )
+                        }
+
+                        OutlinedButton(
+                            onClick = { onShareRecord(item) },
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier
+                                .heightIn(min = 48.dp)
+                                .testTag("history_share_button_${item.id}"),
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, vip.goldBorder),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Share,
+                                contentDescription = "Nəticəni paylaş",
+                                tint = vip.gold,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(Modifier.size(4.dp))
+                            Text("Paylaş", color = vip.gold)
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
-private fun shareExamViaIntent(context: Context, exam: SharedExam) {
-    val shareText = buildString {
-        appendLine("Testbaza imtahanına dəvət!")
-        appendLine("İmtahan: ${exam.title}")
-        appendLine("Suallar: ${exam.questionCount} sual | Vaxt: ${exam.durationMinutes} dəqiqə")
-        appendLine("İmtahan kodu: ${exam.id}")
-        append("Testbaza tətbiqini açın -> Tənzimləmələr -> İmtahan Bölməsi -> 'Kodu ilə Qoşul' seçib kodu daxil edin.")
-    }
+private fun copyTextToClipboard(context: Context, text: String) {
+    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
+    cm.setPrimaryClip(ClipData.newPlainText("Testbaza Nəticə", text))
+}
+
+private fun shareTextViaIntent(context: Context, title: String, text: String) {
     val intent = Intent(Intent.ACTION_SEND).apply {
         type = "text/plain"
-        putExtra(Intent.EXTRA_SUBJECT, "Testbaza İmtahanı: ${exam.title}")
-        putExtra(Intent.EXTRA_TEXT, shareText)
+        putExtra(Intent.EXTRA_SUBJECT, "Testbaza — ${title.ifBlank { "Nəticə" }}")
+        putExtra(Intent.EXTRA_TEXT, text)
     }
-    context.startActivity(Intent.createChooser(intent, "İmtahanı paylaş"))
+    context.startActivity(Intent.createChooser(intent, "Nəticəni paylaş"))
 }
