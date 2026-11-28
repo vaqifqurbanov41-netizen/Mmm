@@ -11,6 +11,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.aistudio.testbaza.core.domain.QuizQuestion
 import com.aistudio.testbaza.core.domain.ShareResultPayload
 import com.aistudio.testbaza.core.ui.theme.TestBazaTheme
 
@@ -23,7 +24,7 @@ fun TestBazaRoot(
 
     var showToolsSheet by remember { mutableStateOf(false) }
     var showKeyEditor by remember { mutableStateOf(false) }
-    var showSingleKeyDialog by remember { mutableStateOf(false) }
+    var editingQuestion by remember { mutableStateOf<QuizQuestion?>(null) }
     var showGridDialog by remember { mutableStateOf(false) }
     var showPasteDialog by remember { mutableStateOf(false) }
     var showStatisticsDialog by remember { mutableStateOf(false) }
@@ -90,7 +91,9 @@ fun TestBazaRoot(
             onFlipFlashcard = viewModel::flipFlashcard,
             onPrevFlashcard = viewModel::prevFlashcard,
             onNextFlashcard = viewModel::nextFlashcard,
-            onOpenSingleKeyDialog = { showSingleKeyDialog = true },
+            onOpenSingleKeyDialog = {
+                editingQuestion = uiState.currentSessionItem?.question
+            },
             onOpenGridDialog = { showGridDialog = true },
             onOpenToolsSheet = { showToolsSheet = true },
             onOpenWordPicker = launchWordPicker,
@@ -160,23 +163,33 @@ fun TestBazaRoot(
                 onSelectAnswer = { q, opt ->
                     viewModel.updateSingleAnswerKey(q, opt, reshuffleNow = false)
                 },
+                onEditQuestionClick = { q ->
+                    editingQuestion = q
+                },
                 onSelectAllFirst = viewModel::selectAllFirstOptions,
                 onStartShuffledQuiz = viewModel::startQuizFromKeyEditor,
                 onDismiss = { showKeyEditor = false },
             )
         }
 
-        if (showSingleKeyDialog && !uiState.isExamActive) {
-            val activeQuestion = uiState.currentSessionItem?.question
-            if (activeQuestion != null) {
-                SingleQuestionKeyDialog(
-                    question = activeQuestion,
-                    onSaveAndShuffle = { opt ->
-                        viewModel.updateSingleAnswerKey(activeQuestion, opt, reshuffleNow = true)
-                    },
-                    onDismiss = { showSingleKeyDialog = false },
-                )
-            }
+        val targetEditQuestion = editingQuestion
+        if (targetEditQuestion != null && !uiState.isExamActive) {
+            EditQuestionDialog(
+                question = targetEditQuestion,
+                onSave = { newText, newOpts, newCorrect, reshuffle ->
+                    viewModel.updateQuestionContent(
+                        question = targetEditQuestion,
+                        newQuestionText = newText,
+                        newOptions = newOpts,
+                        newCorrectText = newCorrect,
+                        reshuffleNow = reshuffle,
+                    )
+                },
+                onDeleteQuestion = {
+                    viewModel.deleteSingleQuestion(targetEditQuestion)
+                },
+                onDismiss = { editingQuestion = null },
+            )
         }
 
         if (showGridDialog && uiState.sessionItems.isNotEmpty() && !uiState.isSessionFinished) {

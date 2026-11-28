@@ -60,7 +60,8 @@ object QuizDocumentParser {
     private val STANDALONE_QNUM_REGEX = Regex("""^(?:Sual\s*)?(\d{1,4})\s*[\.\)\:\№]$""", RegexOption.IGNORE_CASE)
     private val OPTION_START_REGEX = Regex("""^(?:[\*\+✓✔•\-–]\s*)?([A-Ea-eƏəА-Еа-е])\s*[\.\)\-\:]\s*(.+)$""")
     private val BULLET_OPT_REGEX = Regex("""^[\*\+✓✔•\-–]\s+(.+)$""")
-    private val INLINE_OPTION_SPLIT_REGEX = Regex("""\s+(?=[A-Ea-eƏəА-Еа-е]\)(?:\s+|\d)|[A-Ea-eƏəА-Еа-е]\.\s+)""")
+    private val INLINE_OPTION_SPLIT_REGEX = Regex("""\s+(?=[A-EƏА-Е]\)(?=\s|\d|\p{L}|\()|[a-eəа-е]\)(?:\s+|\d)|[A-Ea-eƏəА-Еа-е]\.\s+)""")
+    private val BLANK_ANSWER_LINE_REGEX = Regex("""^Cavab\s*:?\s*[_\.\-–…\s]*$""", RegexOption.IGNORE_CASE)
     private val PAGE_NUMBER_REGEX = Regex("""^[\-–]?\s*\d{1,4}\s*[\-–]?$""")
     private val NUMBER_ROW_TOKEN_REGEX = Regex("""^\d{1,4}$""")
     private val LETTER_ROW_TOKEN_REGEX = Regex("""^[A-Ea-eƏəА-Еа-е]{1,2}$""")
@@ -625,6 +626,7 @@ object QuizDocumentParser {
             val txt = line.text
             if (TOC_DOT_LEADER_REGEX.containsMatchIn(txt)) continue
             if (DIFFICULTY_LABEL_REGEX.matches(txt)) continue
+            if (BLANK_ANSWER_LINE_REGEX.matches(txt)) continue
 
             val inlineOptParts = txt.split(INLINE_OPTION_SPLIT_REGEX)
             val qMatch = QUESTION_START_REGEX.matchEntire(txt)
@@ -865,12 +867,12 @@ object QuizDocumentParser {
 
     private class BoldAwarePdfStripper : PDFTextStripper() {
         private val rawPages = mutableListOf<List<PageLineEntry>>()
-        private val currentPageRows = mutableListOf<PdfRow>()
+        private val currentPageItems = mutableListOf<PdfWordItem>()
         private var pageActive = false
 
         override fun startPage(page: com.tom_roush.pdfbox.pdmodel.PDPage) {
             super.startPage(page)
-            currentPageRows.clear()
+            currentPageItems.clear()
             pageActive = true
         }
 
@@ -880,7 +882,7 @@ object QuizDocumentParser {
                 val ch = pos.unicode ?: continue
                 val x = pos.xDirAdj
                 val y = pos.yDirAdj
-                val w = pos.widthDirAdj
+                val w = pos.widthDirAdj.coerceAtLeast(0f)
                 val fontSize = pos.fontSizeInPt.takeIf { it > 0f } ?: 10f
                 val fontName = pos.font?.name?.lowercase().orEmpty()
                 val descriptor = pos.font?.fontDescriptor
@@ -893,12 +895,16 @@ object QuizDocumentParser {
                     (descriptor?.fontWeight ?: 0f) >= 600f ||
                     descriptor?.isForceBold == true
 
-                val existingRow = currentPageRows.firstOrNull { abs(it.y - y) < maxOf(3.5f, fontSize * 0.45f) }
-                if (existingRow != null) {
-                    existingRow.items.add(PdfWordItem(x, ch, isBold, w, fontSize))
-                } else {
-                    currentPageRows.add(PdfRow(y, mutableListOf(PdfWordItem(x, ch, isBold, w, fontSize))))
-                }
+                currentPageItems.add(
+                    PdfWordItem(
+                        x = x,
+                        y = y,
+                        str = ch,
+                        isBold = isBold,
+                        width = w,
+                        fontSize = fontSize,
+                    )
+                )
             }
         }
 
@@ -908,59 +914,328 @@ object QuizDocumentParser {
         }
 
         fun flushCurrentPageIfNeeded(): Boolean {
-            if (!pageActive && currentPageRows.isEmpty()) return false
-            val hadRows = currentPageRows.isNotEmpty()
+            if (!pageActive && currentPageItems.isEmpty()) return false
+            val hadItems = currentPageItems.isNotEmpty()
             flushRowsToPageList()
-            return hadRows
+            return hadItems
         }
 
         private fun flushRowsToPageList() {
             pageActive = false
-            if (currentPageRows.isEmpty()) return
-            currentPageRows.sortBy { it.y }
+            if (currentPageItems.isEmpty()) return
+
+            val pageItems = currentPageItems.toList()
+            currentPageItems.clear()
+
+            val fullRows = groupItemsIntoRows(pageItems)
+            if (fullRows.isEmpty()) return
+            val topPageY = fullRows.first().y
+            val bottomPageY = fullRows.last().y
+
+            val orderedRows = buildColumnAwareRows(pageItems, fullRows)
             val pageEntries = mutableListOf<PageLineEntry>()
-            val lastRowIdx = currentPageRows.lastIndex
-            currentPageRows.forEachIndexed { rIdx, row ->
-                row.items.sortBy { it.x }
-                val sb = StringBuilder()
-                var boldChars = 0
-                var lastEndX: Float? = null
-                for (it in row.items) {
-                    if (it.str.isBlank()) {
-                        if (sb.isNotEmpty() && !sb.endsWith(" ")) {
-                            sb.append(' ')
-                        }
-                        lastEndX = it.x + it.width
-                        continue
-                    }
-                    val spaceThreshold = maxOf(1.5f, it.fontSize * 0.18f)
-                    if (lastEndX != null && (it.x - lastEndX) > spaceThreshold && !sb.endsWith(" ") && !it.str.startsWith(" ")) {
-                        sb.append(' ')
-                    }
-                    sb.append(it.str)
-                    if (it.isBold) {
-                        boldChars += it.str.trim().length
-                    }
-                    lastEndX = it.x + it.width
-                }
-                val cleanTxt = sb.toString().replace(Regex("""\s+"""), " ").trim()
+            val lastOrderedIdx = orderedRows.lastIndex
+
+            orderedRows.forEachIndexed { idx, row ->
+                val cleanTxt = row.text
                 if (cleanTxt.isNotEmpty()) {
-                    val isEdge = (rIdx == 0 || rIdx == lastRowIdx)
+                    val isEdge = abs(row.y - topPageY) <= 4.5f ||
+                        abs(row.y - bottomPageY) <= 4.5f ||
+                        idx == 0 ||
+                        idx == lastOrderedIdx
                     if (!(isEdge && PAGE_NUMBER_REGEX.matches(cleanTxt))) {
-                        val isBold = boldChars > 0 && (boldChars.toFloat() / cleanTxt.length.toFloat()) >= 0.45f
                         pageEntries.add(
                             PageLineEntry(
-                                line = StyledLine(text = cleanTxt, isBold = isBold),
+                                line = StyledLine(text = cleanTxt, isBold = row.isBold),
                                 isEdgeRow = isEdge,
                             )
                         )
                     }
                 }
             }
-            currentPageRows.clear()
             if (pageEntries.isNotEmpty()) {
                 rawPages.add(pageEntries)
             }
+        }
+
+        private fun buildColumnAwareRows(
+            pageItems: List<PdfWordItem>,
+            fullRows: List<PdfRow>,
+        ): List<RenderedRow> {
+            val splitInfo = detectVerticalSplit(pageItems, fullRows)
+            if (splitInfo == null) {
+                return renderColumnItems(pageItems)
+            }
+
+            val spanningRows = splitInfo.spanningRowIndices.map { idx -> fullRows[idx] }
+            val topSpanY = fullRows.filterIndexed { idx, _ -> idx !in splitInfo.spanningRowIndices }
+                .minOfOrNull { it.y } ?: Float.MAX_VALUE
+            val bottomSpanY = fullRows.filterIndexed { idx, _ -> idx !in splitInfo.spanningRowIndices }
+                .maxOfOrNull { it.y } ?: Float.MIN_VALUE
+
+            val spanningSet = splitInfo.spanningRowIndices
+            val nonSpanningItems = mutableListOf<PdfWordItem>()
+            fullRows.forEachIndexed { idx, row ->
+                if (idx !in spanningSet) {
+                    nonSpanningItems.addAll(row.items)
+                }
+            }
+
+            val leftItems = nonSpanningItems.filter { (it.x + it.width / 2f) < splitInfo.splitX }
+            val rightItems = nonSpanningItems.filter { (it.x + it.width / 2f) >= splitInfo.splitX }
+
+            val leftRendered = renderColumnItems(leftItems)
+            val rightRendered = renderColumnItems(rightItems)
+
+            if (!isSemanticMultiColumnSplit(leftRendered, rightRendered, spanningRows.size)) {
+                return renderColumnItems(pageItems)
+            }
+
+            val topHeaders = spanningRows
+                .filter { it.y <= topSpanY }
+                .mapNotNull { renderRow(it) }
+            val bottomFooters = spanningRows
+                .filter { it.y > topSpanY && it.y >= bottomSpanY }
+                .mapNotNull { renderRow(it) }
+
+            return buildList {
+                addAll(topHeaders)
+                addAll(leftRendered)
+                addAll(rightRendered)
+                addAll(bottomFooters)
+            }
+        }
+
+        private fun isSemanticMultiColumnSplit(
+            leftRows: List<RenderedRow>,
+            rightRows: List<RenderedRow>,
+            spanningCount: Int,
+        ): Boolean {
+            if (leftRows.size < 2 || rightRows.size < 2) return false
+            if (spanningCount > 2) return false
+
+            val leftTexts = leftRows.map { it.text }
+            val rightTexts = rightRows.map { it.text }
+
+            // Never split a tabular numeric/letter answer-key page vertically by mistake
+            val leftTabular = leftTexts.count { isTabularKeyRow(it) }
+            val rightTabular = rightTexts.count { isTabularKeyRow(it) }
+            if (leftTabular >= 2 && rightTabular >= 2) return false
+
+            val rightHasQuestions = rightTexts.any {
+                QUESTION_START_REGEX.matches(it) || STANDALONE_QNUM_REGEX.matches(it)
+            }
+            if (rightHasQuestions) return true
+
+            // Also handle pages where column 1 ended with a question stem and column 2 starts with its options/continuation
+            val rightHasSubstantialNonOptionLines = rightTexts.count {
+                it.length >= 12 && !OPTION_START_REGEX.matches(it)
+            } >= 2
+            val leftHasQuestions = leftTexts.any {
+                QUESTION_START_REGEX.matches(it) || STANDALONE_QNUM_REGEX.matches(it)
+            }
+            return leftHasQuestions && rightHasSubstantialNonOptionLines
+        }
+
+        private fun isTabularKeyRow(text: String): Boolean {
+            val tokens = text.split(Regex("""\s+""")).filter { it.isNotBlank() }
+            if (tokens.size < 2) return false
+            return tokens.all { NUMBER_ROW_TOKEN_REGEX.matches(it) } ||
+                tokens.all { LETTER_ROW_TOKEN_REGEX.matches(it) }
+        }
+
+        private fun detectVerticalSplit(
+            pageItems: List<PdfWordItem>,
+            fullRows: List<PdfRow>,
+        ): VerticalSplitInfo? {
+            val visible = pageItems.filter { it.str.isNotBlank() }
+            if (visible.size < 12 || fullRows.size < 5) return null
+
+            val minX = visible.minOf { it.x }
+            val maxX = visible.maxOf { it.x + it.width }
+            val span = maxX - minX
+            if (span < 180f) return null
+
+            // Build merged horizontal intervals per row so intra-line word spaces (~2-7pt) don't look like column gutters
+            val rowIntervals = fullRows.map { row ->
+                val sorted = row.items.filter { it.str.isNotBlank() }.sortedBy { it.x }
+                val merged = mutableListOf<Pair<Float, Float>>()
+                for (item in sorted) {
+                    val s = item.x
+                    val e = (item.x + item.width).coerceAtLeast(s + 1f)
+                    if (merged.isEmpty()) {
+                        merged.add(s to e)
+                    } else {
+                        val last = merged.last()
+                        if (s - last.second <= 9.5f) {
+                            merged[merged.lastIndex] = last.first to maxOf(last.second, e)
+                        } else {
+                            merged.add(s to e)
+                        }
+                    }
+                }
+                merged
+            }
+
+            val leftBound = minX + span * 0.25f
+            val rightBound = maxX - span * 0.25f
+            if (rightBound - leftBound < 20f) return null
+
+            val maxAllowedCrossing = maxOf(1, (fullRows.size * 0.06f).toInt())
+
+            fun findWidestGutter(crossingLimit: Int): Pair<Float, Float>? {
+                var bestStart = -1f
+                var bestEnd = -1f
+                var curStart = -1f
+                var x = leftBound
+                while (x <= rightBound) {
+                    var crossings = 0
+                    for (intervals in rowIntervals) {
+                        if (intervals.any { (s, e) -> x > s && x < e }) {
+                            crossings++
+                            if (crossings > crossingLimit) break
+                        }
+                    }
+                    if (crossings <= crossingLimit) {
+                        if (curStart < 0f) curStart = x
+                        if (x - curStart > bestEnd - bestStart) {
+                            bestStart = curStart
+                            bestEnd = x
+                        }
+                    } else {
+                        curStart = -1f
+                    }
+                    x += 2f
+                }
+                return if (bestStart >= 0f && (bestEnd - bestStart) >= 10f) {
+                    bestStart to bestEnd
+                } else null
+            }
+
+            val gutter = findWidestGutter(0) ?: findWidestGutter(maxAllowedCrossing) ?: return null
+            val splitX = (gutter.first + gutter.second) / 2f
+
+            val spanningIndices = mutableSetOf<Int>()
+            rowIntervals.forEachIndexed { idx, intervals ->
+                if (intervals.any { (s, e) -> splitX > s && splitX < e }) {
+                    spanningIndices.add(idx)
+                }
+            }
+            return VerticalSplitInfo(splitX = splitX, spanningRowIndices = spanningIndices)
+        }
+
+        private fun groupItemsIntoRows(items: List<PdfWordItem>): List<PdfRow> {
+            if (items.isEmpty()) return emptyList()
+            val sortedByY = items.sortedBy { it.y }
+            val rows = mutableListOf<PdfRow>()
+            for (item in sortedByY) {
+                val existingRow = rows.lastOrNull { row ->
+                    val threshold = maxOf(4.2f, maxOf(item.fontSize, row.dominantFontSize) * 0.48f)
+                    abs(item.y - row.y) <= threshold
+                }
+                if (existingRow != null) {
+                    existingRow.items.add(item)
+                    if (item.str.isNotBlank() && item.fontSize > existingRow.dominantFontSize) {
+                        existingRow.dominantFontSize = item.fontSize
+                    }
+                } else {
+                    rows.add(
+                        PdfRow(
+                            y = item.y,
+                            dominantFontSize = item.fontSize,
+                            items = mutableListOf(item),
+                        )
+                    )
+                }
+            }
+            return rows
+        }
+
+        private fun renderColumnItems(items: List<PdfWordItem>): List<RenderedRow> {
+            if (items.isEmpty()) return emptyList()
+            val rows = groupItemsIntoRows(items).toMutableList()
+            mergeStackedFractions(rows)
+            return rows.mapNotNull { renderRow(it) }
+        }
+
+        private fun mergeStackedFractions(rows: MutableList<PdfRow>) {
+            var i = 0
+            while (i + 2 < rows.size) {
+                val rNum = rows[i]
+                val rMid = rows[i + 1]
+                val rDen = rows[i + 2]
+
+                val numRendered = renderRow(rNum)
+                val denRendered = renderRow(rDen)
+                if (numRendered != null &&
+                    denRendered != null &&
+                    numRendered.text.matches(Regex("""^\d{1,3}$""")) &&
+                    denRendered.text.matches(Regex("""^\d{1,3}$"""))
+                ) {
+                    val numItems = rNum.items.filter { it.str.isNotBlank() }
+                    val denItems = rDen.items.filter { it.str.isNotBlank() }
+                    val midItems = rMid.items.filter { it.str.isNotBlank() }
+
+                    if (numItems.isNotEmpty() && denItems.isNotEmpty() && midItems.isNotEmpty()) {
+                        val numMinX = numItems.minOf { it.x }
+                        val numMaxX = numItems.maxOf { it.x + it.width }
+                        val denMinX = denItems.minOf { it.x }
+                        val denMaxX = denItems.maxOf { it.x + it.width }
+                        val midMinX = midItems.minOf { it.x }
+
+                        val alignedHoriz = abs((numMinX + numMaxX) / 2f - (denMinX + denMaxX) / 2f) <= 14f
+                        val verticalFit = (rMid.y - rNum.y) in 1.5f..15f && (rDen.y - rNum.y) in 6f..25f
+                        val sitsInsideMidLine = midMinX < numMinX - 14f
+
+                        if (alignedHoriz && verticalFit && sitsInsideMidLine) {
+                            rMid.items.add(
+                                PdfWordItem(
+                                    x = numMinX,
+                                    y = rMid.y,
+                                    str = "${numRendered.text}/${denRendered.text}",
+                                    isBold = rMid.items.any { it.isBold },
+                                    width = maxOf(numMaxX - numMinX, denMaxX - denMinX),
+                                    fontSize = rMid.dominantFontSize,
+                                )
+                            )
+                            rows.removeAt(i + 2)
+                            rows.removeAt(i)
+                            continue
+                        }
+                    }
+                }
+                i++
+            }
+        }
+
+        private fun renderRow(row: PdfRow): RenderedRow? {
+            if (row.items.isEmpty()) return null
+            val sortedItems = row.items.sortedBy { it.x }
+            val sb = StringBuilder()
+            var boldChars = 0
+            var lastEndX: Float? = null
+            for (it in sortedItems) {
+                if (it.str.isBlank()) {
+                    if (sb.isNotEmpty() && !sb.endsWith(" ")) {
+                        sb.append(' ')
+                    }
+                    lastEndX = it.x + it.width
+                    continue
+                }
+                val spaceThreshold = maxOf(1.5f, it.fontSize * 0.18f)
+                if (lastEndX != null && (it.x - lastEndX) > spaceThreshold && !sb.endsWith(" ") && !it.str.startsWith(" ")) {
+                    sb.append(' ')
+                }
+                sb.append(it.str)
+                if (it.isBold) {
+                    boldChars += it.str.trim().length
+                }
+                lastEndX = it.x + it.width
+            }
+            val cleanTxt = sb.toString().replace(Regex("""\s+"""), " ").trim()
+            if (cleanTxt.isEmpty()) return null
+            val isBold = boldChars > 0 && (boldChars.toFloat() / cleanTxt.length.toFloat()) >= 0.45f
+            return RenderedRow(y = row.y, text = cleanTxt, isBold = isBold)
         }
 
         fun buildCleanLines(): List<StyledLine> {
@@ -996,6 +1271,17 @@ object QuizDocumentParser {
         private fun normalizeEdgeHeaderSignature(text: String): String =
             text.replace(Regex("""\d+"""), "#").replace(Regex("""\s+"""), " ").trim().lowercase()
 
+        private data class VerticalSplitInfo(
+            val splitX: Float,
+            val spanningRowIndices: Set<Int>,
+        )
+
+        private data class RenderedRow(
+            val y: Float,
+            val text: String,
+            val isBold: Boolean,
+        )
+
         private data class PageLineEntry(
             val line: StyledLine,
             val isEdgeRow: Boolean,
@@ -1003,6 +1289,7 @@ object QuizDocumentParser {
 
         private data class PdfWordItem(
             val x: Float,
+            val y: Float,
             val str: String,
             val isBold: Boolean,
             val width: Float,
@@ -1011,6 +1298,7 @@ object QuizDocumentParser {
 
         private class PdfRow(
             val y: Float,
+            var dominantFontSize: Float,
             val items: MutableList<PdfWordItem>,
         )
     }

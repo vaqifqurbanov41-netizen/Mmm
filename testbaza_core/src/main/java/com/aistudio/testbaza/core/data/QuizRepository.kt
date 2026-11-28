@@ -174,6 +174,26 @@ class QuizRepository(
         dao.updateAnswerKey(rowId, correctText)
     }
 
+    suspend fun updateQuestionContent(
+        rowId: Long,
+        questionText: String,
+        allOptions: List<String>,
+        correctText: String,
+        hasConfirmedKey: Boolean,
+    ) = withContext(Dispatchers.IO) {
+        dao.updateQuestionContent(
+            rowId = rowId,
+            questionText = questionText,
+            allOptions = allOptions,
+            correctText = correctText,
+            hasConfirmedKey = hasConfirmedKey,
+        )
+    }
+
+    suspend fun deleteQuestion(rowId: Long) = withContext(Dispatchers.IO) {
+        dao.deleteQuestion(rowId)
+    }
+
     suspend fun selectAllFirstOptions(bankId: Long) = withContext(Dispatchers.IO) {
         val list = dao.getQuestionsForBankOnce(bankId)
         for (q in list) {

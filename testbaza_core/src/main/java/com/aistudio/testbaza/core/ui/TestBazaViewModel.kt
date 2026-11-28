@@ -203,7 +203,16 @@ class TestBazaViewModel(
                         val qMap = input.questions.associateBy { it.rowId }
                         val updatedItems = prev.items.mapNotNull { item ->
                             val updatedQ = qMap[item.question.rowId] ?: return@mapNotNull null
-                            item.copy(question = updatedQ)
+                            val optionsOrKeyChanged =
+                                updatedQ.allOptions != item.question.allOptions ||
+                                    updatedQ.correctText != item.question.correctText
+                            if (optionsOrKeyChanged) {
+                                QuizEngine.buildSessionItems(listOf(updatedQ), input.shuffleEnabled)
+                                    .firstOrNull()
+                                    ?: item.copy(question = updatedQ)
+                            } else {
+                                item.copy(question = updatedQ)
+                            }
                         }
                         prev.copy(
                             items = updatedItems,
@@ -998,6 +1007,56 @@ class TestBazaViewModel(
                     )
                 }
             }
+        }
+    }
+
+    fun updateQuestionContent(
+        question: QuizQuestion,
+        newQuestionText: String,
+        newOptions: List<String>,
+        newCorrectText: String,
+        reshuffleNow: Boolean,
+    ) {
+        if (question.rowId <= 0L) return
+        val cleanedQuestion = newQuestionText.trim()
+        val cleanedOptions = newOptions.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        if (cleanedQuestion.isEmpty() || cleanedOptions.size < 2) {
+            setStatus("Sual mətni və ən azı 2 fərqli variant daxil edilməlidir.", isError = true)
+            return
+        }
+        val resolvedCorrect = if (newCorrectText.trim() in cleanedOptions) {
+            newCorrectText.trim()
+        } else {
+            cleanedOptions.first()
+        }
+        viewModelScope.launch {
+            repository.updateQuestionContent(
+                rowId = question.rowId,
+                questionText = cleanedQuestion,
+                allOptions = cleanedOptions,
+                correctText = resolvedCorrect,
+                hasConfirmedKey = true,
+            )
+            if (reshuffleNow) {
+                prefs.setShuffleEnabled(true)
+                _sessionState.update {
+                    it.copy(
+                        forceRebuild = true,
+                        statusMessage = "Sual #${question.questionNumber} redaktə olundu və qarışdırıldı.",
+                        isStatusError = false,
+                    )
+                }
+            } else {
+                setStatus("Sual #${question.questionNumber} redaktə olundu.", isError = false)
+            }
+        }
+    }
+
+    fun deleteSingleQuestion(question: QuizQuestion) {
+        if (question.rowId <= 0L) return
+        viewModelScope.launch {
+            repository.deleteQuestion(question.rowId)
+            setStatus("Sual #${question.questionNumber} bazadan silindi.", isError = false)
         }
     }
 

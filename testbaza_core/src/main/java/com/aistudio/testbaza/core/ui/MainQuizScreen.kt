@@ -882,7 +882,8 @@ private fun QuizActiveBody(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.weight(1f),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Surface(
@@ -894,6 +895,8 @@ private fun QuizActiveBody(
                                 text = "SUAL #${q.questionNumber}",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = vip.gold,
+                                maxLines = 1,
+                                softWrap = false,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                             )
                         }
@@ -912,6 +915,8 @@ private fun QuizActiveBody(
                                     text = mLabel,
                                     style = MaterialTheme.typography.labelSmall,
                                     color = mColor,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                 )
                             }
@@ -919,19 +924,39 @@ private fun QuizActiveBody(
                     }
 
                     if (showStudyActions) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            IconButton(
-                                onClick = onEditKey,
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Surface(
                                 modifier = Modifier
-                                    .size(48.dp)
+                                    .heightIn(min = 48.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable(onClick = onEditKey)
                                     .testTag("question_edit_key_button"),
+                                shape = RoundedCornerShape(10.dp),
+                                color = vip.surfaceElevated,
+                                border = BorderStroke(1.dp, vip.border),
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Edit,
-                                    contentDescription = "Doğru cavabı seç",
-                                    tint = vip.textSecondary,
-                                    modifier = Modifier.size(18.dp),
-                                )
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Edit,
+                                        contentDescription = "Sualı redaktə et",
+                                        tint = vip.gold,
+                                        modifier = Modifier.size(15.dp),
+                                    )
+                                    Text(
+                                        text = "Redaktə",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = vip.gold,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                    )
+                                }
                             }
                             IconButton(
                                 onClick = onToggleStar,

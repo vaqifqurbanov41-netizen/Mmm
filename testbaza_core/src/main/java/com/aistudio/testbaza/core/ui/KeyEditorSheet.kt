@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -24,11 +25,15 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -39,8 +44,11 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -62,6 +70,7 @@ fun KeyEditorModalDialog(
     questions: List<QuizQuestion>,
     keyedCount: Int,
     onSelectAnswer: (QuizQuestion, String) -> Unit,
+    onEditQuestionClick: (QuizQuestion) -> Unit,
     onSelectAllFirst: () -> Unit,
     onStartShuffledQuiz: () -> Unit,
     onDismiss: () -> Unit,
@@ -104,12 +113,12 @@ fun KeyEditorModalDialog(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Cavab Seçimi ($keyedCount/${questions.size})",
+                            text = "Cavab Seçimi və Redaktə ($keyedCount/${questions.size})",
                             style = MaterialTheme.typography.titleLarge,
                             color = vip.textPrimary,
                         )
                         Text(
-                            text = "Hər sualın doğru cavabına toxunun, sonra Testə Keçin",
+                            text = "Doğru cavabı seçin və ya qələm işarəsi ilə sualı redaktə edin",
                             style = MaterialTheme.typography.bodyMedium,
                             color = vip.textSecondary,
                         )
@@ -214,6 +223,7 @@ fun KeyEditorModalDialog(
                         KeyEditorQuestionCard(
                             question = q,
                             onSelectOption = { opt -> onSelectAnswer(q, opt) },
+                            onEditClick = { onEditQuestionClick(q) },
                         )
                     }
                 }
@@ -226,6 +236,7 @@ fun KeyEditorModalDialog(
 private fun KeyEditorQuestionCard(
     question: QuizQuestion,
     onSelectOption: (String) -> Unit,
+    onEditClick: () -> Unit,
 ) {
     val vip = LocalVipColors.current
     Surface(
@@ -254,20 +265,38 @@ private fun KeyEditorQuestionCard(
                     modifier = Modifier.weight(1f),
                 )
                 Spacer(Modifier.size(8.dp))
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = if (question.hasConfirmedKey) vip.emeraldSoft else vip.surfaceElevated,
-                    border = BorderStroke(
-                        1.dp,
-                        if (question.hasConfirmedKey) vip.emeraldBorder else vip.border,
-                    ),
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    Text(
-                        text = if (question.hasConfirmedKey) "✓ Seçilib" else "Seçilməyib",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (question.hasConfirmedKey) vip.emerald else vip.textSecondary,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                    )
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (question.hasConfirmedKey) vip.emeraldSoft else vip.surfaceElevated,
+                        border = BorderStroke(
+                            1.dp,
+                            if (question.hasConfirmedKey) vip.emeraldBorder else vip.border,
+                        ),
+                    ) {
+                        Text(
+                            text = if (question.hasConfirmedKey) "✓ Seçilib" else "Seçilməyib",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (question.hasConfirmedKey) vip.emerald else vip.textSecondary,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        )
+                    }
+                    IconButton(
+                        onClick = onEditClick,
+                        modifier = Modifier
+                            .size(48.dp)
+                            .testTag("key_editor_edit_button_${question.rowId}"),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "Sualı redaktə et",
+                            tint = vip.gold,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
                 }
             }
 
@@ -330,122 +359,307 @@ private fun KeyEditorQuestionCard(
 }
 
 @Composable
-fun SingleQuestionKeyDialog(
+fun EditQuestionDialog(
     question: QuizQuestion,
-    onSaveAndShuffle: (String) -> Unit,
+    onSave: (newQuestionText: String, newOptions: List<String>, newCorrectText: String, reshuffleNow: Boolean) -> Unit,
+    onDeleteQuestion: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val vip = LocalVipColors.current
-    var selectedOption by remember(question.rowId) {
-        mutableStateOf(question.correctText.ifBlank { question.allOptions.firstOrNull().orEmpty() })
+    var questionText by remember(question.rowId) { mutableStateOf(question.questionText) }
+    val optionsState = remember(question.rowId) {
+        val initial = question.allOptions.ifEmpty { listOf("", "") }.toMutableList()
+        while (initial.size < 2) initial.add("")
+        mutableStateListOf<String>().apply { addAll(initial.take(6)) }
     }
+    var correctIdx by remember(question.rowId) {
+        val found = question.allOptions.indexOf(question.correctText)
+        mutableIntStateOf(if (found >= 0) found else 0)
+    }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
 
-    Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            shape = RoundedCornerShape(24.dp),
-            color = vip.surface,
-            border = BorderStroke(1.dp, vip.goldBorder),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = "Sual #${question.questionNumber} — Doğru Cavab",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = vip.gold,
-                    )
-                    IconButton(
-                        onClick = onDismiss,
-                        modifier = Modifier
-                            .size(48.dp)
-                            .testTag("single_key_close_button"),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Bağla",
-                            tint = vip.textSecondary,
-                        )
-                    }
-                }
+    val cleanedPreviewOptions = optionsState.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+    val canSave = questionText.trim().isNotEmpty() && cleanedPreviewOptions.size >= 2
 
-                Text(
-                    text = question.questionText,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = vip.textPrimary,
-                )
-
-                Column(
-                    modifier = Modifier
-                        .heightIn(max = 280.dp)
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    question.allOptions.forEachIndexed { idx, opt ->
-                        val active = selectedOption == opt
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = 48.dp)
-                                .clip(RoundedCornerShape(14.dp))
-                                .clickable { selectedOption = opt },
-                            shape = RoundedCornerShape(14.dp),
-                            color = if (active) vip.emeraldSoft else vip.surfaceElevated,
-                            border = BorderStroke(1.dp, if (active) vip.emeraldBorder else vip.border),
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            ) {
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = if (active) vip.emerald else vip.surface,
-                                ) {
-                                    Text(
-                                        text = if (active) "✓" else QuizEngine.optionPrefix(idx),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = if (active) MaterialTheme.colorScheme.onPrimary else vip.gold,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                    )
-                                }
-                                Text(
-                                    text = opt,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = vip.textPrimary,
-                                    modifier = Modifier.weight(1f),
-                                )
-                            }
-                        }
-                    }
-                }
-
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Sual #${question.questionNumber} silinsin?") },
+            text = {
+                Text("Bu sual aktiv test bazasından həmişəlik silinəcək.")
+            },
+            confirmButton = {
                 Button(
                     onClick = {
-                        if (selectedOption.isNotBlank()) {
-                            onSaveAndShuffle(selectedOption)
-                        }
+                        showDeleteConfirm = false
+                        onDeleteQuestion()
                         onDismiss()
                     },
+                    colors = ButtonDefaults.buttonColors(containerColor = vip.rose),
+                    modifier = Modifier.testTag("edit_confirm_delete_question_button"),
+                ) {
+                    Text("Sil")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text("Ləğv et")
+                }
+            },
+        )
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 24.dp)
+                .imePadding(),
+            contentAlignment = Alignment.Center,
+        ) {
+            Surface(
+                shape = RoundedCornerShape(24.dp),
+                color = vip.surface,
+                border = BorderStroke(1.dp, vip.goldBorder),
+                modifier = Modifier
+                    .widthIn(max = 580.dp)
+                    .fillMaxWidth(),
+            ) {
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 50.dp)
-                        .testTag("single_key_save_button"),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = vip.emerald,
-                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                    ),
+                        .padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Text("Yadda Saxla və Qarışdır")
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Sual #${question.questionNumber} — Redaktə",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = vip.gold,
+                            )
+                            Text(
+                                text = "Mətni, variantları və doğru cavabı düzəldin",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = vip.textSecondary,
+                            )
+                        }
+                        IconButton(
+                            onClick = { showDeleteConfirm = true },
+                            modifier = Modifier
+                                .size(48.dp)
+                                .testTag("edit_question_delete_button"),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.DeleteOutline,
+                                contentDescription = "Sualı sil",
+                                tint = vip.rose,
+                            )
+                        }
+                        IconButton(
+                            onClick = onDismiss,
+                            modifier = Modifier
+                                .size(48.dp)
+                                .testTag("edit_question_close_button"),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Bağla",
+                                tint = vip.textSecondary,
+                            )
+                        }
+                    }
+
+                    Column(
+                        modifier = Modifier
+                            .weight(1f, fill = false)
+                            .heightIn(max = 460.dp)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        OutlinedTextField(
+                            value = questionText,
+                            onValueChange = { questionText = it },
+                            label = { Text("Sual mətni") },
+                            minLines = 2,
+                            maxLines = 6,
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("edit_question_text_input"),
+                        )
+
+                        Text(
+                            text = "Variantlar (doğru cavab üçün hərfə toxunun):",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = vip.textSecondary,
+                        )
+
+                        optionsState.forEachIndexed { idx, optValue ->
+                            val isCorrect = idx == correctIdx
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Surface(
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .clickable { correctIdx = idx }
+                                        .testTag("edit_option_correct_badge_$idx"),
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = if (isCorrect) vip.emerald else vip.surfaceElevated,
+                                    border = BorderStroke(
+                                        1.dp,
+                                        if (isCorrect) vip.emerald else vip.goldBorder,
+                                    ),
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        if (isCorrect) {
+                                            Icon(
+                                                imageVector = Icons.Default.Check,
+                                                contentDescription = "Doğru cavab seçilib",
+                                                tint = MaterialTheme.colorScheme.onPrimary,
+                                                modifier = Modifier.size(20.dp),
+                                            )
+                                        } else {
+                                            Text(
+                                                text = QuizEngine.optionPrefix(idx),
+                                                style = MaterialTheme.typography.labelLarge,
+                                                fontWeight = FontWeight.Bold,
+                                                color = vip.gold,
+                                            )
+                                        }
+                                    }
+                                }
+
+                                OutlinedTextField(
+                                    value = optValue,
+                                    onValueChange = { optionsState[idx] = it },
+                                    label = { Text("${QuizEngine.optionPrefix(idx)} variantı") },
+                                    maxLines = 3,
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("edit_option_input_$idx"),
+                                )
+
+                                if (optionsState.size > 2) {
+                                    IconButton(
+                                        onClick = {
+                                            optionsState.removeAt(idx)
+                                            correctIdx = when {
+                                                correctIdx == idx -> 0
+                                                correctIdx > idx -> correctIdx - 1
+                                                else -> correctIdx
+                                            }.coerceIn(0, maxOf(0, optionsState.lastIndex))
+                                        },
+                                        modifier = Modifier
+                                            .size(48.dp)
+                                            .testTag("edit_option_remove_$idx"),
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.DeleteOutline,
+                                            contentDescription = "Variantı sil",
+                                            tint = vip.rose,
+                                            modifier = Modifier.size(18.dp),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        if (optionsState.size < 6) {
+                            OutlinedButton(
+                                onClick = { optionsState.add("") },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 48.dp)
+                                    .testTag("edit_add_option_button"),
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, vip.borderStrong),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Add,
+                                    contentDescription = "Variant əlavə et",
+                                    tint = vip.gold,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(Modifier.size(6.dp))
+                                Text("Variant əlavə et", color = vip.gold)
+                            }
+                        }
+
+                        if (!canSave) {
+                            Text(
+                                text = "Sual mətni və ən azı 2 fərqli variant boş olmamalıdır.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = vip.rose,
+                            )
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                val chosenRaw = optionsState.getOrElse(correctIdx) { "" }.trim()
+                                val cleaned = optionsState.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+                                val resolvedCorrect = if (chosenRaw in cleaned) chosenRaw else cleaned.firstOrNull().orEmpty()
+                                onSave(questionText.trim(), cleaned, resolvedCorrect, false)
+                                onDismiss()
+                            },
+                            enabled = canSave,
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp)
+                                .testTag("edit_question_save_button"),
+                            shape = RoundedCornerShape(14.dp),
+                            border = BorderStroke(1.dp, vip.goldBorder),
+                        ) {
+                            Text(
+                                text = "Saxla",
+                                color = vip.gold,
+                                maxLines = 1,
+                            )
+                        }
+
+                        Button(
+                            onClick = {
+                                val chosenRaw = optionsState.getOrElse(correctIdx) { "" }.trim()
+                                val cleaned = optionsState.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+                                val resolvedCorrect = if (chosenRaw in cleaned) chosenRaw else cleaned.firstOrNull().orEmpty()
+                                onSave(questionText.trim(), cleaned, resolvedCorrect, true)
+                                onDismiss()
+                            },
+                            enabled = canSave,
+                            modifier = Modifier
+                                .weight(1.35f)
+                                .heightIn(min = 48.dp)
+                                .testTag("edit_question_save_shuffle_button"),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = vip.emerald,
+                                contentColor = MaterialTheme.colorScheme.onPrimary,
+                            ),
+                        ) {
+                            Text(
+                                text = "Saxla və Qarışdır",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
                 }
             }
         }

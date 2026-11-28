@@ -403,4 +403,100 @@ class QuizParserAndEngineTest {
         writeAscii("trailer\n<< /Size ${offsets.size} /Root 1 0 R >>\nstartxref\n$xrefOffset\n%%EOF\n")
         return out.toByteArray()
     }
+
+    @Test
+    fun twoColumnPdfParserSeparatesColumnsAndMergesStackedFractions() {
+        val content = """
+            BT
+            /F1 11 Tf
+            1 0 0 1 54 720 Tm (1. Sol birinci sual?) Tj
+            1 0 0 1 54 700 Tm (A\) 14 B\) 10) Tj
+            1 0 0 1 54 682 Tm (C\) 11 D\) 18) Tj
+            1 0 0 1 54 656 Tm (2. Sol ikinci sual hansidir?) Tj
+            1 0 0 1 320 720 Tm (A\) 5 sm B\) 5 dm) Tj
+            1 0 0 1 320 700 Tm (C\) 2 sm D\) 3 sm) Tj
+            1 0 0 1 320 674 Tm (3. Sag sutun suali: hissesi necedir?) Tj
+            1 0 0 1 390 658 Tm (1) Tj
+            1 0 0 1 390 644 Tm (6) Tj
+            1 0 0 1 320 626 Tm (A\) 20 B\) 30) Tj
+            1 0 0 1 320 608 Tm (C\) 40 D\) 50) Tj
+            ET
+        """.trimIndent().toByteArray(Charsets.US_ASCII)
+
+        val pdfBytes = buildSinglePagePdf(content)
+        val lines = QuizDocumentParser.extractPdfLines(null, ByteArrayInputStream(pdfBytes))
+        val parsed = QuizDocumentParser.parseStructuredLines(lines, "Iki Sutun", AnswerRule.AUTO).getOrThrow()
+
+        assertEquals(3, parsed.questions.size)
+        assertEquals(listOf("14", "10", "11", "18"), parsed.questions[0].allOptions)
+        assertEquals(listOf("5 sm", "5 dm", "2 sm", "3 sm"), parsed.questions[1].allOptions)
+        assertEquals(listOf("20", "30", "40", "50"), parsed.questions[2].allOptions)
+        assertTrue(parsed.questions[2].questionText.contains("1/6"))
+    }
+
+    @Test
+    fun sampleTwoColumnMathPdfParsesCleanlyWithoutColumnMixing() {
+        val sampleFile = listOf(
+            java.io.File("public/assets/aistudio/iv-riyaziyyat_1aab370b.pdf"),
+            java.io.File("../public/assets/aistudio/iv-riyaziyyat_1aab370b.pdf"),
+        ).firstOrNull { it.exists() } ?: return
+
+        val lines = sampleFile.inputStream().use { QuizDocumentParser.extractPdfLines(null, it) }
+        val parsed = QuizDocumentParser.parseStructuredLines(lines, "IV Riyaziyyat", AnswerRule.AUTO).getOrThrow()
+
+        assertEquals(42, parsed.questions.size)
+        val q2 = parsed.questions.first { it.questionNumber == 2 }
+        assertEquals(listOf("14", "10", "11", "18"), q2.allOptions)
+        assertFalse(q2.questionText.contains("dm"))
+
+        val q8 = parsed.questions.first { it.questionNumber == 8 }
+        assertEquals(listOf("5 sm", "5 dm", "2 sm", "3 sm"), q8.allOptions)
+
+        val q12 = parsed.questions.first { it.questionNumber == 12 }
+        assertTrue("Expected stacked fraction 1/6 in Q12, got: ${q12.questionText}", q12.questionText.contains("1/6"))
+
+        val q19 = parsed.questions.first { it.questionNumber == 19 }
+        assertEquals(listOf("8", "13", "15", "16"), q19.allOptions)
+
+        val q43 = parsed.questions.first { it.questionNumber == 43 }
+        assertEquals(4, q43.allOptions.size)
+    }
+
+    private fun buildSinglePagePdf(contentStream: ByteArray): ByteArray {
+        val out = ByteArrayOutputStream()
+        fun writeAscii(s: String) = out.write(s.toByteArray(Charsets.US_ASCII))
+        writeAscii("%PDF-1.4\n")
+        val offsets = mutableListOf(0)
+
+        fun startObj(id: Int) {
+            offsets.add(out.size())
+            writeAscii("$id 0 obj\n")
+        }
+
+        startObj(1)
+        writeAscii("<< /Type /Catalog /Pages 2 0 R >>\nendobj\n")
+
+        startObj(2)
+        writeAscii("<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n")
+
+        startObj(3)
+        writeAscii("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n")
+
+        startObj(4)
+        writeAscii("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n")
+
+        startObj(5)
+        writeAscii("<< /Length ${contentStream.size} >>\nstream\n")
+        out.write(contentStream)
+        writeAscii("\nendstream\nendobj\n")
+
+        val xrefOffset = out.size()
+        writeAscii("xref\n0 ${offsets.size}\n")
+        writeAscii("0000000000 65535 f \n")
+        for (i in 1 until offsets.size) {
+            writeAscii(String.format("%010d 00000 n \n", offsets[i]))
+        }
+        writeAscii("trailer\n<< /Size ${offsets.size} /Root 1 0 R >>\nstartxref\n$xrefOffset\n%%EOF\n")
+        return out.toByteArray()
+    }
 }

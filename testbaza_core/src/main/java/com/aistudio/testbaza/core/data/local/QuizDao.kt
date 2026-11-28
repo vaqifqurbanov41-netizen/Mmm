@@ -69,6 +69,27 @@ interface QuizDao {
     @Query(
         """
         UPDATE quiz_questions
+        SET questionText = :questionText,
+            allOptions = :allOptions,
+            correctText = :correctText,
+            hasConfirmedKey = :hasConfirmedKey
+        WHERE rowId = :rowId
+        """
+    )
+    suspend fun updateQuestionContent(
+        rowId: Long,
+        questionText: String,
+        allOptions: List<String>,
+        correctText: String,
+        hasConfirmedKey: Boolean,
+    )
+
+    @Query("DELETE FROM quiz_questions WHERE rowId = :rowId")
+    suspend fun deleteQuestion(rowId: Long)
+
+    @Query(
+        """
+        UPDATE quiz_questions
         SET masteryStatus = :status,
             wrongCount = :wrongCount,
             correctStreak = :correctStreak,

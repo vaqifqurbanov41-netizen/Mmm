@@ -305,8 +305,8 @@ fun ToolsBottomSheet(
 
             ToolRowAction(
                 icon = Icons.AutoMirrored.Filled.ListAlt,
-                title = "Cavab Seçimi (${uiState.keyedCount}/${uiState.totalCount})",
-                subtitle = "Bütün sualların doğru cavablarını redaktə et",
+                title = "Cavab Seçimi və Redaktə (${uiState.keyedCount}/${uiState.totalCount})",
+                subtitle = "Sualları, variantları və doğru cavabları redaktə et",
                 accentColor = vip.gold,
                 testTag = "tools_key_editor_button",
                 onClick = {
