@@ -38,16 +38,32 @@ object QuizDocumentParser {
 
     private val KEY_REGEX = Regex("""(\d{1,4})\s*[\.\-\)\:]\s*([A-Ea-eƏəА-Еа-е])(?=$|[\s,;.\)])""")
     private val SINGLE_KEY_LOOSE_REGEX = Regex("""^(\d{1,4})\s*[\.\-\)\:\s]\s*([A-Ea-eƏəА-Еа-е])[\.\)]?$""")
+    private val TOC_DOT_LEADER_REGEX = Regex("""\.{4,}\s*\d*\s*$""")
     private val KEY_SECTION_HEADER_REGEX = Regex(
-        """^(?:doğru\s+)?(?:cavablar|cavab\s+açarı|test\s+açarı|açar|answers|answer\s+key|keys)\b.*$""",
+        """^(?:test\s+suallarının\s+cavabları|sualların\s+cavabları|(?:doğru\s+)?(?:cavablar|cavab\s+açarı|test\s+açarı|açar|answers|answer\s+key|keys))(?=$|[\s:\.\-–—]).*$""",
         RegexOption.IGNORE_CASE,
     )
-    private val QUESTION_START_REGEX = Regex("""^(?:Sual\s*|№\s*)?(\d{1,4})\s*[\.\)\-\:\№]\s*(.+)$""", RegexOption.IGNORE_CASE)
+    private val BACKMATTER_HEADER_REGEX = Regex(
+        """^(?:ədəbiyyat|istifadə\s+olunmuş\s+ədəbiyyat|qeydlər|mündəricat|bibliography|references|notes)\s*$""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val DIFFICULTY_LABEL_REGEX = Regex(
+        """^(?:asan|orta|çətin|asan\s+suallar|orta\s+suallar|çətin\s+suallar)\s*$""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val QUESTION_START_REGEX = Regex(
+        """^(?:Sual\s*|№\s*)?(\d{1,4})(?:\s*[\.\)\:\№](?:\s+|(?=\p{Lu}))|\s+[-–]\s+)(.+)$""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val SUBITEM_LINE_PAIR_REGEX = Regex("""^\s*(\d{1,2})\s*[\.\)]\s+.+\s+(\d{1,2})\s*[\.\)]\s+.+$""")
+    private val SUBITEM_SINGLE_TOKEN_REGEX = Regex("""\b(\d{1,2})\s*[\.\)]\s+""")
     private val STANDALONE_QNUM_REGEX = Regex("""^(?:Sual\s*)?(\d{1,4})\s*[\.\)\:\№]$""", RegexOption.IGNORE_CASE)
     private val OPTION_START_REGEX = Regex("""^(?:[\*\+✓✔•\-–]\s*)?([A-Ea-eƏəА-Еа-е])\s*[\.\)\-\:]\s*(.+)$""")
     private val BULLET_OPT_REGEX = Regex("""^[\*\+✓✔•\-–]\s+(.+)$""")
-    private val INLINE_OPTION_SPLIT_REGEX = Regex("""\s+(?=[A-Ea-eƏəА-Еа-е][\.\)]\s+)""")
+    private val INLINE_OPTION_SPLIT_REGEX = Regex("""\s+(?=[A-Ea-eƏəА-Еа-е]\)(?:\s+|\d)|[A-Ea-eƏəА-Еа-е]\.\s+)""")
     private val PAGE_NUMBER_REGEX = Regex("""^[\-–]?\s*\d{1,4}\s*[\-–]?$""")
+    private val NUMBER_ROW_TOKEN_REGEX = Regex("""^\d{1,4}$""")
+    private val LETTER_ROW_TOKEN_REGEX = Regex("""^[A-Ea-eƏəА-Еа-е]{1,2}$""")
     private val STAR_PREFIX_REGEX = Regex("""^[\*★🎯]""")
     private val STAR_SUFFIX_REGEX = Regex("""[\*★🎯]$""")
     private val STAR_STRIP_REGEX = Regex("""^[\*★🎯]\s*|\s*[\*★🎯]$""")
@@ -322,15 +338,44 @@ object QuizDocumentParser {
         }
     }
 
-    fun extractPdfLines(context: Context, inputStream: InputStream): List<StyledLine> {
-        PDFBoxResourceLoader.init(context.applicationContext)
+    fun extractPdfLines(context: Context?, inputStream: InputStream): List<StyledLine> {
+        if (context != null) {
+            PDFBoxResourceLoader.init(context.applicationContext)
+        }
         return PDDocument.load(inputStream).use { document ->
+            val totalPages = document.numberOfPages
+            if (totalPages <= 0) return@use emptyList()
+
             val stripper = BoldAwarePdfStripper()
             stripper.sortByPosition = true
-            stripper.startPage = 1
-            stripper.endPage = document.numberOfPages
-            stripper.getText(document)
-            stripper.collectedLines
+
+            var succeededPages = 0
+            var lastError: Exception? = null
+
+            for (pageNum in 1..totalPages) {
+                try {
+                    stripper.startPage = pageNum
+                    stripper.endPage = pageNum
+                    stripper.getText(document)
+                    succeededPages++
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    lastError = e
+                    // Salvage any text rows parsed before a mid-page stream error
+                    if (stripper.flushCurrentPageIfNeeded()) {
+                        succeededPages++
+                    }
+                }
+            }
+
+            val finalLines = stripper.buildCleanLines()
+            if (finalLines.isEmpty() && succeededPages == 0 && lastError != null) {
+                throw IllegalArgumentException(
+                    "Bu PDF faylının mətn qatı zədələnib və ya dəstəklənməyən sıxılma formatındadır (${lastError.cause?.message ?: lastError.message ?: "oxuma xətası"}).",
+                    lastError,
+                )
+            }
+            finalLines
         }
     }
 
@@ -362,59 +407,166 @@ object QuizDocumentParser {
             return Result.failure(IllegalArgumentException("Faylda kifayət qədər mətn tapılmadı."))
         }
 
-        val answerKeyMap = mutableMapOf<Int, String>()
+        val keySections = mutableListOf(MutableKeySection(title = ""))
         var keyStartIdx = cleanLines.size
         val scanStart = maxOf(0, cleanLines.size / 2)
         var inExplicitKeySection = false
+        var pendingTabularNumbers: List<Int>? = null
+
+        fun currentKeySection(): MutableKeySection = keySections.last()
+
+        fun ensureSectionForNumber(qNum: Int) {
+            val sec = currentKeySection()
+            if (qNum == 1 && sec.answers.isNotEmpty()) {
+                keySections.add(MutableKeySection(title = ""))
+            }
+        }
 
         for (i in scanStart until cleanLines.size) {
             val txt = cleanLines[i].text
+            if (TOC_DOT_LEADER_REGEX.containsMatchIn(txt)) {
+                pendingTabularNumbers = null
+                continue
+            }
+            if (BACKMATTER_HEADER_REGEX.matches(txt)) {
+                pendingTabularNumbers = null
+                if (i < keyStartIdx) keyStartIdx = i
+                if (inExplicitKeySection) break
+                continue
+            }
             if (KEY_SECTION_HEADER_REGEX.matches(txt)) {
                 inExplicitKeySection = true
+                pendingTabularNumbers = null
                 if (i < keyStartIdx) keyStartIdx = i
                 continue
             }
+
             val matches = KEY_REGEX.findAll(txt).toList()
             if (matches.size >= 3) {
+                pendingTabularNumbers = null
                 if (i < keyStartIdx) keyStartIdx = i
                 for (m in matches) {
                     val qNum = m.groupValues[1].toIntOrNull()
-                    val letter = m.groupValues[2].uppercase()
-                    if (qNum != null) {
-                        answerKeyMap[qNum] = letter
+                    val letter = normalizeAnswerLetter(m.groupValues[2])
+                    if (qNum != null && letter != null) {
+                        ensureSectionForNumber(qNum)
+                        currentKeySection().answers[qNum] = letter
                     }
                 }
-            } else if (inExplicitKeySection) {
+                continue
+            }
+
+            if (inExplicitKeySection) {
+                // Tabular key format: a row of integers followed by a row of answer letters
+                val tokens = txt.split(Regex("""\s+""")).filter { it.isNotBlank() }
+                if (tokens.isNotEmpty() && tokens.all { NUMBER_ROW_TOKEN_REGEX.matches(it) }) {
+                    val nums = tokens.mapNotNull { it.toIntOrNull() }
+                    val lastNum = currentKeySection().answers.keys.maxOrNull() ?: 0
+                    val isValidNumberRow = nums.size >= 2 ||
+                        (nums.size == 1 && (nums[0] == 1 || nums[0] == lastNum + 1))
+                    if (isValidNumberRow) {
+                        if (nums.first() == 1 && currentKeySection().answers.isNotEmpty()) {
+                            keySections.add(MutableKeySection(title = ""))
+                        }
+                        pendingTabularNumbers = nums
+                        continue
+                    }
+                }
+
+                if (pendingTabularNumbers != null &&
+                    tokens.isNotEmpty() &&
+                    tokens.all { LETTER_ROW_TOKEN_REGEX.matches(it) }
+                ) {
+                    val nums = pendingTabularNumbers!!
+                    val pairCount = minOf(nums.size, tokens.size)
+                    for (idx in 0 until pairCount) {
+                        val letter = normalizeAnswerLetter(tokens[idx].take(1))
+                        if (letter != null) {
+                            currentKeySection().answers[nums[idx]] = letter
+                        }
+                    }
+                    pendingTabularNumbers = null
+                    continue
+                }
+                pendingTabularNumbers = null
+
                 val looseM = SINGLE_KEY_LOOSE_REGEX.matchEntire(txt)
                 if (looseM != null) {
                     val qNum = looseM.groupValues[1].toIntOrNull()
-                    val letter = looseM.groupValues[2].uppercase()
-                    if (qNum != null) {
-                        answerKeyMap[qNum] = letter
+                    val letter = normalizeAnswerLetter(looseM.groupValues[2])
+                    if (qNum != null && letter != null) {
+                        ensureSectionForNumber(qNum)
+                        currentKeySection().answers[qNum] = letter
                     }
                 } else if (matches.isNotEmpty()) {
                     for (m in matches) {
                         val qNum = m.groupValues[1].toIntOrNull()
-                        val letter = m.groupValues[2].uppercase()
-                        if (qNum != null) {
-                            answerKeyMap[qNum] = letter
+                        val letter = normalizeAnswerLetter(m.groupValues[2])
+                        if (qNum != null && letter != null) {
+                            ensureSectionForNumber(qNum)
+                            currentKeySection().answers[qNum] = letter
+                        }
+                    }
+                } else if (!PAGE_NUMBER_REGEX.matches(txt) && txt.length in 4..120) {
+                    // Chapter/section heading inside the answer key
+                    val normalizedTitle = normalizeSectionTitle(txt)
+                    if (normalizedTitle.isNotEmpty()) {
+                        val sec = currentKeySection()
+                        if (sec.answers.isEmpty()) {
+                            sec.title = normalizedTitle
+                        } else {
+                            keySections.add(MutableKeySection(title = normalizedTitle))
                         }
                     }
                 }
             }
         }
 
+        val populatedKeySections = keySections.filter { it.answers.isNotEmpty() }
+        val flatAnswerKeyMap = populatedKeySections.singleOrNull()?.answers
+            ?: populatedKeySections.flatMap { it.answers.entries }.associate { it.key to it.value }
+        val useMultiSectionKeys = populatedKeySections.size > 1
+
         val contentLines = cleanLines.subList(0, keyStartIdx)
         val parsedQuestions = mutableListOf<ParsedQuestion>()
         var currentQ: MutableParsedQuestion? = null
         var autoIdCounter = 1
+        var currentSectionIdx = 0
+        var lastQuestionNumSeen: Int? = null
+        var pendingSectionTitle = ""
+
+        fun resolveSectionIndexForNewQuestion(qNum: Int): Int {
+            if (!useMultiSectionKeys) return 0
+            val titleMatchIdx = if (pendingSectionTitle.isNotEmpty()) {
+                findMatchingKeySectionIndex(
+                    sectionTitle = pendingSectionTitle,
+                    keySections = populatedKeySections,
+                    minIndex = currentSectionIdx,
+                )
+            } else {
+                null
+            }
+            if (titleMatchIdx != null) {
+                currentSectionIdx = titleMatchIdx
+            } else if (lastQuestionNumSeen != null && qNum < lastQuestionNumSeen!! && lastQuestionNumSeen!! >= 5) {
+                if (currentSectionIdx + 1 < populatedKeySections.size) {
+                    currentSectionIdx++
+                }
+            }
+            pendingSectionTitle = ""
+            return currentSectionIdx
+        }
 
         fun finalizeQuestion(qObj: MutableParsedQuestion?) {
             if (qObj == null || qObj.rawOptions.size < 2) return
             var detectedIdx = 0
             var hasConfirmedKey = false
 
-            val keyLetter = answerKeyMap[qObj.id]
+            val keyLetter = if (useMultiSectionKeys) {
+                populatedKeySections.getOrNull(qObj.sectionIdx)?.answers?.get(qObj.id)
+            } else {
+                flatAnswerKeyMap[qObj.id]
+            }
             val mappedIdx = if (keyLetter != null) LETTER_TO_INDEX[keyLetter] else null
             if (mappedIdx != null && mappedIdx < qObj.rawOptions.size) {
                 detectedIdx = mappedIdx
@@ -471,15 +623,49 @@ object QuizDocumentParser {
 
         for (line in contentLines) {
             val txt = line.text
+            if (TOC_DOT_LEADER_REGEX.containsMatchIn(txt)) continue
+            if (DIFFICULTY_LABEL_REGEX.matches(txt)) continue
+
             val inlineOptParts = txt.split(INLINE_OPTION_SPLIT_REGEX)
             val qMatch = QUESTION_START_REGEX.matchEntire(txt)
             val standaloneNumMatch = STANDALONE_QNUM_REGEX.matchEntire(txt)
             val optMatch = OPTION_START_REGEX.matchEntire(txt)
 
+            // Detect inline or continuing numbered sub-list inside an open question (e.g., "1) MS Word 2) Winzip ..." or "4. burulmuş cüt 5. radiokanal")
+            val subPairMatch = SUBITEM_LINE_PAIR_REGEX.matchEntire(txt)
+            val subPairFirst = subPairMatch?.groupValues?.get(1)?.toIntOrNull()
+            val subPairSecond = subPairMatch?.groupValues?.get(2)?.toIntOrNull()
+            val isSubListInsideOpenQuestion = currentQ != null &&
+                currentQ.rawOptions.isEmpty() &&
+                optMatch == null &&
+                (
+                    (subPairFirst != null && subPairSecond != null && (subPairFirst == 1 || (currentQ.lastSubItemNum > 0 && subPairFirst == currentQ.lastSubItemNum + 1))) ||
+                        (
+                            qMatch != null &&
+                                qMatch.groupValues[1].toIntOrNull()?.let { num ->
+                                    (num == 1 && txt.contains("1)") && currentQ!!.qText.endsWith(":")) ||
+                                        (currentQ!!.lastSubItemNum > 0 && num == currentQ!!.lastSubItemNum + 1)
+                                } == true
+                            )
+                    )
+
+            if (isSubListInsideOpenQuestion) {
+                currentQ!!.qText = "${currentQ.qText}\n$txt"
+                val maxSubOnLine = SUBITEM_SINGLE_TOKEN_REGEX.findAll(txt)
+                    .mapNotNull { it.groupValues[1].toIntOrNull() }
+                    .maxOrNull()
+                if (maxSubOnLine != null) {
+                    currentQ.lastSubItemNum = maxOf(currentQ.lastSubItemNum, maxSubOnLine)
+                }
+                continue
+            }
+
             if (qMatch != null && optMatch == null) {
                 finalizeQuestion(currentQ)
                 val qNum = qMatch.groupValues[1].toIntOrNull() ?: autoIdCounter++
                 autoIdCounter = maxOf(autoIdCounter, qNum + 1)
+                val secIdx = resolveSectionIndexForNewQuestion(qNum)
+                lastQuestionNumSeen = qNum
                 var qBody = qMatch.groupValues[2].trim()
                 val qInlineParts = qBody.split(INLINE_OPTION_SPLIT_REGEX)
                 val extractedInlineOpts = mutableListOf<RawOption>()
@@ -501,6 +687,7 @@ object QuizDocumentParser {
 
                 currentQ = MutableParsedQuestion(
                     id = qNum,
+                    sectionIdx = secIdx,
                     qText = qBody,
                     isExam = isStarred,
                     usesExplicitOptionLabels = extractedInlineOpts.isNotEmpty(),
@@ -510,8 +697,11 @@ object QuizDocumentParser {
                 finalizeQuestion(currentQ)
                 val qNum = standaloneNumMatch.groupValues[1].toIntOrNull() ?: autoIdCounter++
                 autoIdCounter = maxOf(autoIdCounter, qNum + 1)
+                val secIdx = resolveSectionIndexForNewQuestion(qNum)
+                lastQuestionNumSeen = qNum
                 currentQ = MutableParsedQuestion(
                     id = qNum,
+                    sectionIdx = secIdx,
                     qText = "",
                     isExam = false,
                 )
@@ -557,12 +747,26 @@ object QuizDocumentParser {
             } else if (currentQ != null && currentQ.rawOptions.isNotEmpty()) {
                 val bulletM = BULLET_OPT_REGEX.matchEntire(txt)
                 if (currentQ.usesExplicitOptionLabels && bulletM == null) {
-                    // Wrapped continuation line of the previous labeled option
-                    val lastOpt = currentQ.rawOptions.last()
-                    val hasM = lastOpt.hasMarker || MARKER_END_REGEX.containsMatchIn(txt)
-                    val cleanAppend = txt.replace(MARKER_END_REGEX, "").trim()
-                    lastOpt.text = "${lastOpt.text} $cleanAppend".trim()
-                    lastOpt.hasMarker = hasM
+                    // Check if this line is actually a bold chapter heading starting the next section
+                    if (line.isBold &&
+                        useMultiSectionKeys &&
+                        findMatchingKeySectionIndex(
+                            sectionTitle = normalizeSectionTitle(txt),
+                            keySections = populatedKeySections,
+                            minIndex = currentSectionIdx + 1,
+                        ) != null
+                    ) {
+                        finalizeQuestion(currentQ)
+                        currentQ = null
+                        pendingSectionTitle = normalizeSectionTitle(txt)
+                    } else {
+                        // Wrapped continuation line of the previous labeled option
+                        val lastOpt = currentQ.rawOptions.last()
+                        val hasM = lastOpt.hasMarker || MARKER_END_REGEX.containsMatchIn(txt)
+                        val cleanAppend = txt.replace(MARKER_END_REGEX, "").trim()
+                        lastOpt.text = "${lastOpt.text} $cleanAppend".trim()
+                        lastOpt.hasMarker = hasM
+                    }
                 } else if (currentQ.rawOptions.size < 5) {
                     val rawOptStr = bulletM?.groupValues?.get(1) ?: txt
                     val hasM = MARKER_START_REGEX.containsMatchIn(txt) || MARKER_END_REGEX.containsMatchIn(rawOptStr)
@@ -570,11 +774,19 @@ object QuizDocumentParser {
                     currentQ.rawOptions.add(RawOption(cleanT, line.isBold, hasM))
                 }
             } else if (currentQ == null && (txt.endsWith("?") || txt.endsWith(":"))) {
+                val qNum = autoIdCounter++
+                val secIdx = resolveSectionIndexForNewQuestion(qNum)
                 currentQ = MutableParsedQuestion(
-                    id = autoIdCounter++,
+                    id = qNum,
+                    sectionIdx = secIdx,
                     qText = txt,
                     isExam = false,
                 )
+            } else if (currentQ == null && line.isBold && txt.length in 4..120) {
+                val normalized = normalizeSectionTitle(txt)
+                if (normalized.isNotEmpty()) {
+                    pendingSectionTitle = normalized
+                }
             }
         }
 
@@ -592,6 +804,49 @@ object QuizDocumentParser {
         return Result.success(ParsedQuizResult(title = title, questions = parsedQuestions))
     }
 
+    private fun normalizeAnswerLetter(raw: String): String? {
+        val upper = raw.trim().uppercase()
+        return if (upper in LETTER_TO_INDEX) upper else null
+    }
+
+    private fun normalizeSectionTitle(raw: String): String =
+        raw.lowercase()
+            .replace(Regex("""^\d{1,3}\s*[\.\)]\s*"""), "")
+            .replace(Regex("""[^\p{L}\p{N}\s]"""), " ")
+            .replace(Regex("""\s+"""), " ")
+            .trim()
+
+    private fun findMatchingKeySectionIndex(
+        sectionTitle: String,
+        keySections: List<MutableKeySection>,
+        minIndex: Int,
+    ): Int? {
+        if (sectionTitle.isBlank()) return null
+        val queryWords = sectionTitle.split(' ').filter { it.length >= 3 }.toSet()
+        if (queryWords.isEmpty()) return null
+        var bestIdx: Int? = null
+        var bestScore = 0
+        for (idx in minIndex until keySections.size) {
+            val candidate = keySections[idx].title
+            if (candidate.isBlank()) continue
+            if (candidate == sectionTitle || candidate.contains(sectionTitle) || sectionTitle.contains(candidate)) {
+                return idx
+            }
+            val candidateWords = candidate.split(' ').filter { it.length >= 3 }.toSet()
+            val overlap = queryWords.intersect(candidateWords).size
+            if (overlap >= 2 && overlap > bestScore) {
+                bestScore = overlap
+                bestIdx = idx
+            }
+        }
+        return bestIdx
+    }
+
+    private class MutableKeySection(
+        var title: String,
+        val answers: MutableMap<Int, String> = mutableMapOf(),
+    )
+
     private data class RawOption(
         var text: String,
         val isBold: Boolean,
@@ -600,19 +855,23 @@ object QuizDocumentParser {
 
     private class MutableParsedQuestion(
         val id: Int,
+        val sectionIdx: Int,
         var qText: String,
         var isExam: Boolean,
         var usesExplicitOptionLabels: Boolean = false,
+        var lastSubItemNum: Int = 0,
         val rawOptions: MutableList<RawOption> = mutableListOf(),
     )
 
     private class BoldAwarePdfStripper : PDFTextStripper() {
-        val collectedLines = mutableListOf<StyledLine>()
+        private val rawPages = mutableListOf<List<PageLineEntry>>()
         private val currentPageRows = mutableListOf<PdfRow>()
+        private var pageActive = false
 
         override fun startPage(page: com.tom_roush.pdfbox.pdmodel.PDPage) {
             super.startPage(page)
             currentPageRows.clear()
+            pageActive = true
         }
 
         override fun writeString(text: String?, textPositions: MutableList<TextPosition>?) {
@@ -644,7 +903,23 @@ object QuizDocumentParser {
         }
 
         override fun endPage(page: com.tom_roush.pdfbox.pdmodel.PDPage) {
+            flushRowsToPageList()
+            super.endPage(page)
+        }
+
+        fun flushCurrentPageIfNeeded(): Boolean {
+            if (!pageActive && currentPageRows.isEmpty()) return false
+            val hadRows = currentPageRows.isNotEmpty()
+            flushRowsToPageList()
+            return hadRows
+        }
+
+        private fun flushRowsToPageList() {
+            pageActive = false
+            if (currentPageRows.isEmpty()) return
             currentPageRows.sortBy { it.y }
+            val pageEntries = mutableListOf<PageLineEntry>()
+            val lastRowIdx = currentPageRows.lastIndex
             currentPageRows.forEachIndexed { rIdx, row ->
                 row.items.sortBy { it.x }
                 val sb = StringBuilder()
@@ -670,16 +945,61 @@ object QuizDocumentParser {
                 }
                 val cleanTxt = sb.toString().replace(Regex("""\s+"""), " ").trim()
                 if (cleanTxt.isNotEmpty()) {
-                    val isPageFooter = PAGE_NUMBER_REGEX.matches(cleanTxt) &&
-                        (rIdx == 0 || rIdx == currentPageRows.lastIndex)
-                    if (!isPageFooter) {
+                    val isEdge = (rIdx == 0 || rIdx == lastRowIdx)
+                    if (!(isEdge && PAGE_NUMBER_REGEX.matches(cleanTxt))) {
                         val isBold = boldChars > 0 && (boldChars.toFloat() / cleanTxt.length.toFloat()) >= 0.45f
-                        collectedLines.add(StyledLine(text = cleanTxt, isBold = isBold))
+                        pageEntries.add(
+                            PageLineEntry(
+                                line = StyledLine(text = cleanTxt, isBold = isBold),
+                                isEdgeRow = isEdge,
+                            )
+                        )
                     }
                 }
             }
-            super.endPage(page)
+            currentPageRows.clear()
+            if (pageEntries.isNotEmpty()) {
+                rawPages.add(pageEntries)
+            }
         }
+
+        fun buildCleanLines(): List<StyledLine> {
+            val edgePatternCounts = mutableMapOf<String, Int>()
+            for (page in rawPages) {
+                val seenOnPage = mutableSetOf<String>()
+                for (entry in page) {
+                    if (entry.isEdgeRow) {
+                        val sig = normalizeEdgeHeaderSignature(entry.line.text)
+                        if (sig.isNotEmpty() && seenOnPage.add(sig)) {
+                            edgePatternCounts[sig] = (edgePatternCounts[sig] ?: 0) + 1
+                        }
+                    }
+                }
+            }
+
+            val result = mutableListOf<StyledLine>()
+            for (page in rawPages) {
+                for (entry in page) {
+                    if (entry.isEdgeRow) {
+                        val sig = normalizeEdgeHeaderSignature(entry.line.text)
+                        val repeatCount = edgePatternCounts[sig] ?: 0
+                        if (repeatCount >= 3 && !QUESTION_START_REGEX.matches(entry.line.text) && !OPTION_START_REGEX.matches(entry.line.text)) {
+                            continue
+                        }
+                    }
+                    result.add(entry.line)
+                }
+            }
+            return result
+        }
+
+        private fun normalizeEdgeHeaderSignature(text: String): String =
+            text.replace(Regex("""\d+"""), "#").replace(Regex("""\s+"""), " ").trim().lowercase()
+
+        private data class PageLineEntry(
+            val line: StyledLine,
+            val isEdgeRow: Boolean,
+        )
 
         private data class PdfWordItem(
             val x: Float,

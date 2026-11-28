@@ -138,6 +138,49 @@
         "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp on update" }
       },
       "required": ["userId", "createdByEmail", "category", "region", "title", "details", "contactOrUrl", "createdAt", "updatedAt"]
+    },
+    "SharedExam": {
+      "title": "SharedExam",
+      "description": "Timed exam configuration and bounded question snapshot shared across Testbaza devices by share code",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "description": "Creator Firebase Auth UID" },
+        "ownerName": { "type": "string", "description": "Creator display alias" },
+        "title": { "type": "string", "description": "Shared exam title" },
+        "sourceBankTitle": { "type": "string", "description": "Source question bank title" },
+        "questionCount": { "type": "integer", "description": "Number of questions in the exam (1..150)" },
+        "durationMinutes": { "type": "integer", "description": "Exam duration limit in minutes (1..180)" },
+        "shuffleOptions": { "type": "boolean", "description": "Whether answer options should be shuffled per participant" },
+        "questions": { "type": "array", "description": "List of compact question maps {qNum, text, options, correct}" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp on creation" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp on update" }
+      },
+      "required": ["ownerId", "ownerName", "title", "sourceBankTitle", "questionCount", "durationMinutes", "shuffleOptions", "questions", "createdAt", "updatedAt"]
+    },
+    "SharedExamAttempt": {
+      "title": "SharedExamAttempt",
+      "description": "Participant exam result with wrong answers and per-question time telemetry uploaded only with explicit participant consent",
+      "type": "object",
+      "properties": {
+        "examId": { "type": "string", "description": "Parent shared exam code / document ID" },
+        "examOwnerId": { "type": "string", "description": "Denormalized creator Firebase Auth UID" },
+        "participantId": { "type": "string", "description": "Participant Firebase Auth UID" },
+        "participantName": { "type": "string", "description": "Participant display name" },
+        "shareConsentGranted": { "type": "boolean", "description": "Explicit participant consent to share results, mistakes, and per-question timing" },
+        "totalQuestions": { "type": "integer", "description": "Total questions in exam" },
+        "answeredCount": { "type": "integer", "description": "Questions answered by participant" },
+        "correctCount": { "type": "integer", "description": "Correct answers count" },
+        "wrongCount": { "type": "integer", "description": "Wrong answers count" },
+        "unansweredCount": { "type": "integer", "description": "Skipped/unanswered count" },
+        "totalElapsedSeconds": { "type": "integer", "description": "Total seconds spent in the exam" },
+        "durationLimitSeconds": { "type": "integer", "description": "Configured time limit in seconds" },
+        "timedOut": { "type": "boolean", "description": "True if countdown timer expired before manual finish" },
+        "wrongDetails": { "type": "array", "description": "List of wrong question maps {questionNumber, questionText, selectedAnswer, correctAnswer, timeSpentSeconds}" },
+        "questionTimings": { "type": "array", "description": "Per-question timing maps {questionNumber, questionText, status, timeSpentSeconds}" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp on submission" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp on submission" }
+      },
+      "required": ["examId", "examOwnerId", "participantId", "participantName", "shareConsentGranted", "totalQuestions", "answeredCount", "correctCount", "wrongCount", "unansweredCount", "totalElapsedSeconds", "durationLimitSeconds", "timedOut", "wrongDetails", "questionTimings", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -176,6 +219,14 @@
     "/adminEntries/{entryId}": {
       "schema": { "$ref": "#/entities/AdminContentItem" },
       "description": "Global content published exclusively by admin email vaqifqurbanov494@gmail.com"
+    },
+    "/sharedExams/{examId}": {
+      "schema": { "$ref": "#/entities/SharedExam" },
+      "description": "Testbaza shared timed exam accessible by exact exam code"
+    },
+    "/sharedExams/{examId}/attempts/{attemptId}": {
+      "schema": { "$ref": "#/entities/SharedExamAttempt" },
+      "description": "Consented participant exam results, wrong answers, and per-question time telemetry"
     }
   }
 }

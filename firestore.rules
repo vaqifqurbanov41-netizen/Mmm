@@ -114,6 +114,39 @@ service cloud.firestore {
              data.contactOrUrl is string && data.contactOrUrl.size() <= 300;
     }
 
+    function isValidSharedExam(data) {
+      return data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 &&
+             data.ownerName is string && data.ownerName.size() >= 1 && data.ownerName.size() <= 80 &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 160 &&
+             data.sourceBankTitle is string && data.sourceBankTitle.size() <= 160 &&
+             data.questionCount is int && data.questionCount >= 1 && data.questionCount <= 150 &&
+             data.durationMinutes is int && data.durationMinutes >= 1 && data.durationMinutes <= 180 &&
+             data.shuffleOptions is bool &&
+             data.questions is list && data.questions.size() == data.questionCount &&
+             data.questions[0] is map;
+    }
+
+    function isValidExamAttempt(data) {
+      return data.examId is string && data.examId.size() >= 1 && data.examId.size() <= 128 &&
+             data.examOwnerId is string && data.examOwnerId.size() >= 1 && data.examOwnerId.size() <= 128 &&
+             data.participantId is string && data.participantId.size() >= 1 && data.participantId.size() <= 128 &&
+             data.participantName is string && data.participantName.size() >= 1 && data.participantName.size() <= 80 &&
+             data.shareConsentGranted == true &&
+             data.totalQuestions is int && data.totalQuestions >= 1 && data.totalQuestions <= 150 &&
+             data.answeredCount is int && data.answeredCount >= 0 && data.answeredCount <= data.totalQuestions &&
+             data.correctCount is int && data.correctCount >= 0 && data.correctCount <= data.totalQuestions &&
+             data.wrongCount is int && data.wrongCount >= 0 && data.wrongCount <= data.totalQuestions &&
+             data.unansweredCount is int && data.unansweredCount >= 0 && data.unansweredCount <= data.totalQuestions &&
+             data.correctCount + data.wrongCount + data.unansweredCount == data.totalQuestions &&
+             data.totalElapsedSeconds is int && data.totalElapsedSeconds >= 0 && data.totalElapsedSeconds <= 86400 &&
+             data.durationLimitSeconds is int && data.durationLimitSeconds >= 60 && data.durationLimitSeconds <= 10800 &&
+             data.timedOut is bool &&
+             data.wrongDetails is list && data.wrongDetails.size() == data.wrongCount &&
+             (data.wrongDetails.size() == 0 || data.wrongDetails[0] is map) &&
+             data.questionTimings is list && data.questionTimings.size() == data.totalQuestions &&
+             data.questionTimings[0] is map;
+    }
+
     match /users/{userId} {
       allow get: if isOwner(userId) && isValidId(userId);
       allow list: if false;
@@ -329,6 +362,64 @@ service cloud.firestore {
                        incoming().diff(existing()).affectedKeys().hasOnly(['category', 'region', 'title', 'details', 'contactOrUrl', 'updatedAt']);
 
       allow delete: if isAdmin() && isValidId(entryId);
+    }
+
+    match /sharedExams/{examId} {
+      allow get: if isSignedIn() && isValidId(examId);
+      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+
+      allow create: if isSignedIn() &&
+                       isValidId(examId) &&
+                       incoming().ownerId == request.auth.uid &&
+                       incoming().keys().hasAll(['ownerId', 'ownerName', 'title', 'sourceBankTitle', 'questionCount', 'durationMinutes', 'shuffleOptions', 'questions', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['ownerId', 'ownerName', 'title', 'sourceBankTitle', 'questionCount', 'durationMinutes', 'shuffleOptions', 'questions', 'createdAt', 'updatedAt']) &&
+                       isValidTimestamp(incoming().createdAt) &&
+                       isValidTimestamp(incoming().updatedAt) &&
+                       isValidSharedExam(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(examId) &&
+                       existing().ownerId == request.auth.uid &&
+                       incoming().ownerId == existing().ownerId &&
+                       incoming().createdAt == existing().createdAt &&
+                       isValidTimestamp(incoming().updatedAt) &&
+                       isValidSharedExam(incoming()) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['title', 'durationMinutes', 'updatedAt']);
+
+      allow delete: if isSignedIn() && isValidId(examId) && existing().ownerId == request.auth.uid;
+
+      match /attempts/{attemptId} {
+        allow get: if isSignedIn() &&
+                      isValidId(examId) &&
+                      isValidId(attemptId) &&
+                      (existing().participantId == request.auth.uid ||
+                       (existing().examOwnerId == request.auth.uid && existing().shareConsentGranted == true));
+
+        allow list: if isSignedIn() &&
+                       isValidId(examId) &&
+                       (resource.data.participantId == request.auth.uid ||
+                        (resource.data.examOwnerId == request.auth.uid && resource.data.shareConsentGranted == true));
+
+        allow create: if isSignedIn() &&
+                         isValidId(examId) &&
+                         isValidId(attemptId) &&
+                         incoming().participantId == request.auth.uid &&
+                         incoming().examId == examId &&
+                         exists(/databases/$(database)/documents/sharedExams/$(examId)) &&
+                         get(/databases/$(database)/documents/sharedExams/$(examId)).data.ownerId == incoming().examOwnerId &&
+                         incoming().keys().hasAll(['examId', 'examOwnerId', 'participantId', 'participantName', 'shareConsentGranted', 'totalQuestions', 'answeredCount', 'correctCount', 'wrongCount', 'unansweredCount', 'totalElapsedSeconds', 'durationLimitSeconds', 'timedOut', 'wrongDetails', 'questionTimings', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['examId', 'examOwnerId', 'participantId', 'participantName', 'shareConsentGranted', 'totalQuestions', 'answeredCount', 'correctCount', 'wrongCount', 'unansweredCount', 'totalElapsedSeconds', 'durationLimitSeconds', 'timedOut', 'wrongDetails', 'questionTimings', 'createdAt', 'updatedAt']) &&
+                         isValidTimestamp(incoming().createdAt) &&
+                         isValidTimestamp(incoming().updatedAt) &&
+                         isValidExamAttempt(incoming());
+
+        allow update: if false;
+
+        allow delete: if isSignedIn() &&
+                         isValidId(examId) &&
+                         isValidId(attemptId) &&
+                         (existing().participantId == request.auth.uid || existing().examOwnerId == request.auth.uid);
+      }
     }
   }
 }

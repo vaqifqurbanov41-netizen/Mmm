@@ -25,6 +25,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ListAlt
+import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentPaste
@@ -34,7 +37,12 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.ListAlt
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.QrCode2
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -66,6 +74,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.aistudio.testbaza.core.domain.AnswerRule
+import com.aistudio.testbaza.core.domain.ExamConfig
 import com.aistudio.testbaza.core.domain.QuestionMasteryStatus
 import com.aistudio.testbaza.core.domain.QuizBank
 import com.aistudio.testbaza.core.domain.SessionQuestionItem
@@ -85,6 +94,14 @@ fun ToolsBottomSheet(
     onDeleteBank: (QuizBank) -> Unit,
     onToggleTheme: () -> Unit,
     onResetProgressConfirmed: () -> Unit,
+    onSetExamQuestionCount: (Int) -> Unit,
+    onSetExamDurationMinutes: (Int) -> Unit,
+    onStartLocalExam: () -> Unit,
+    onOpenShareExam: () -> Unit,
+    onOpenJoinExam: () -> Unit,
+    onOpenMySharedExams: () -> Unit,
+    onOpenGoogleSignIn: () -> Unit,
+    onSignOut: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val vip = LocalVipColors.current
@@ -167,6 +184,35 @@ fun ToolsBottomSheet(
                     )
                 }
             }
+
+            ExamSettingsSection(
+                uiState = uiState,
+                onSetQuestionCount = onSetExamQuestionCount,
+                onSetDurationMinutes = onSetExamDurationMinutes,
+                onStartLocalExam = {
+                    onDismiss()
+                    onStartLocalExam()
+                },
+                onShareExam = {
+                    onDismiss()
+                    onOpenShareExam()
+                },
+                onJoinExam = {
+                    onDismiss()
+                    onOpenJoinExam()
+                },
+                onOpenMySharedExams = {
+                    onDismiss()
+                    onOpenMySharedExams()
+                },
+                onOpenGoogleSignIn = {
+                    onDismiss()
+                    onOpenGoogleSignIn()
+                },
+                onSignOut = onSignOut,
+            )
+
+            HorizontalDivider(color = vip.border)
 
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
@@ -337,6 +383,278 @@ fun ToolsBottomSheet(
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ExamSettingsSection(
+    uiState: TestBazaUiState,
+    onSetQuestionCount: (Int) -> Unit,
+    onSetDurationMinutes: (Int) -> Unit,
+    onStartLocalExam: () -> Unit,
+    onShareExam: () -> Unit,
+    onJoinExam: () -> Unit,
+    onOpenMySharedExams: () -> Unit,
+    onOpenGoogleSignIn: () -> Unit,
+    onSignOut: () -> Unit,
+) {
+    val vip = LocalVipColors.current
+    val bankMax = uiState.totalCount.takeIf { it > 0 }?.let { minOf(it, ExamConfig.MAX_QUESTIONS) }
+        ?: ExamConfig.MAX_QUESTIONS
+    val effectiveQuestions = uiState.examConfig.questionCount.coerceIn(1, bankMax)
+    val durationMin = uiState.examConfig.durationMinutes
+
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = vip.surfaceElevated,
+        border = BorderStroke(1.dp, vip.goldBorder),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Timer,
+                        contentDescription = "İmtahan Bölməsi",
+                        tint = vip.gold,
+                        modifier = Modifier.size(20.dp),
+                    )
+                    Text(
+                        text = "İmtahan Bölməsi",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = vip.gold,
+                    )
+                }
+                if (uiState.isCloudAvailable) {
+                    if (uiState.isSignedIn) {
+                        TextButton(
+                            onClick = onSignOut,
+                            modifier = Modifier.testTag("exam_sign_out_button"),
+                        ) {
+                            Text(
+                                text = (uiState.cloudUserName ?: uiState.cloudUserEmail ?: "Hesab") + " • Çıx",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = vip.emerald,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    } else {
+                        TextButton(
+                            onClick = onOpenGoogleSignIn,
+                            modifier = Modifier.testTag("exam_sign_in_prompt_button"),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AccountCircle,
+                                contentDescription = null,
+                                tint = vip.gold,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(Modifier.size(4.dp))
+                            Text(
+                                text = "Google Giriş",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = vip.gold,
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Question count setting
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "Düşəcək sual sayı:",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = vip.textPrimary,
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        IconButton(
+                            onClick = { onSetQuestionCount((effectiveQuestions - 5).coerceAtLeast(1)) },
+                            modifier = Modifier.size(40.dp).testTag("exam_questions_minus_button"),
+                        ) {
+                            Icon(Icons.Default.Remove, contentDescription = "Azalt", tint = vip.textSecondary)
+                        }
+                        Text(
+                            text = "$effectiveQuestions sual",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = vip.gold,
+                        )
+                        IconButton(
+                            onClick = { onSetQuestionCount((effectiveQuestions + 5).coerceAtMost(ExamConfig.MAX_QUESTIONS)) },
+                            modifier = Modifier.size(40.dp).testTag("exam_questions_plus_button"),
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = "Artır", tint = vip.emerald)
+                        }
+                    }
+                }
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    listOf(10, 20, 30, 50, 100).forEach { preset ->
+                        FilterChip(
+                            selected = effectiveQuestions == preset,
+                            onClick = { onSetQuestionCount(preset) },
+                            label = { Text("$preset") },
+                            modifier = Modifier.testTag("exam_count_chip_$preset"),
+                        )
+                    }
+                }
+            }
+
+            // Duration setting
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "İmtahan vaxtı:",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = vip.textPrimary,
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        IconButton(
+                            onClick = { onSetDurationMinutes((durationMin - 5).coerceAtLeast(1)) },
+                            modifier = Modifier.size(40.dp).testTag("exam_minutes_minus_button"),
+                        ) {
+                            Icon(Icons.Default.Remove, contentDescription = "Vaxtı azalt", tint = vip.textSecondary)
+                        }
+                        Text(
+                            text = "$durationMin dəq",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = vip.emerald,
+                        )
+                        IconButton(
+                            onClick = { onSetDurationMinutes((durationMin + 5).coerceAtMost(ExamConfig.MAX_DURATION_MINUTES)) },
+                            modifier = Modifier.size(40.dp).testTag("exam_minutes_plus_button"),
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = "Vaxtı artır", tint = vip.emerald)
+                        }
+                    }
+                }
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    listOf(10, 15, 30, 45, 60).forEach { mins ->
+                        FilterChip(
+                            selected = durationMin == mins,
+                            onClick = { onSetDurationMinutes(mins) },
+                            label = { Text("$mins dəq") },
+                            modifier = Modifier.testTag("exam_time_chip_$mins"),
+                        )
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Button(
+                    onClick = onStartLocalExam,
+                    enabled = uiState.totalCount > 0,
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 48.dp)
+                        .testTag("exam_start_local_button"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = vip.emerald,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                    ),
+                ) {
+                    Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.size(4.dp))
+                    Text("İmtahana Başla", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+
+                OutlinedButton(
+                    onClick = onShareExam,
+                    enabled = uiState.totalCount > 0 && uiState.isCloudAvailable,
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 48.dp)
+                        .testTag("exam_share_button"),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, vip.goldBorder),
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = null, tint = vip.gold, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.size(4.dp))
+                    Text("Paylaş", color = vip.gold, maxLines = 1)
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedButton(
+                    onClick = onJoinExam,
+                    enabled = uiState.isCloudAvailable,
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 48.dp)
+                        .testTag("exam_join_code_button"),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, vip.emeraldBorder),
+                ) {
+                    Icon(Icons.Default.QrCode2, contentDescription = null, tint = vip.emerald, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.size(4.dp))
+                    Text("Kodu ilə Qoşul", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+
+                OutlinedButton(
+                    onClick = onOpenMySharedExams,
+                    enabled = uiState.isCloudAvailable,
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 48.dp)
+                        .testTag("exam_my_results_button"),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, vip.borderStrong),
+                ) {
+                    Icon(Icons.Default.Assessment, contentDescription = null, tint = vip.gold, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.size(4.dp))
+                    Text(
+                        text = if (uiState.mySharedExams.isNotEmpty()) {
+                            "Nəticələr (${uiState.mySharedExams.size})"
+                        } else {
+                            "Nəticələr"
+                        },
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
             }
         }

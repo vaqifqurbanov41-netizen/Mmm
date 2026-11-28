@@ -83,6 +83,11 @@ jobs:
           with open("app/google-services.json", "w", encoding="utf-8") as f:
               json.dump(parsed, f, indent=2)
           print("Created app/google-services.json from GOOGLE_SERVICES_JSON secret.")
+          clients = parsed.get("client", [])
+          if any(c.get("client_info", {}).get("android_client_info", {}).get("package_name") == "com.aistudio.testbaza.app" for c in clients):
+              with open("testbaza/google-services.json", "w", encoding="utf-8") as tf:
+                  json.dump(parsed, tf, indent=2)
+              print("Synced testbaza/google-services.json from GOOGLE_SERVICES_JSON secret.")
           PY
           elif [ ! -f app/google-services.json ]; then
             echo "::warning title=Missing google-services.json::app/google-services.json was not found in the repository and GOOGLE_SERVICES_JSON secret is not set. Add GOOGLE_SERVICES_JSON in GitHub Settings -> Secrets and variables -> Actions (or upload app/google-services.json) so Firebase and Google Sign-In work."

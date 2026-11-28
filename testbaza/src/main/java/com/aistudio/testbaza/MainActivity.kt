@@ -10,8 +10,18 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        val databaseId = readStringRes("firestore_database_id")
+        val webClientId = readStringRes("default_web_client_id")
         setContent {
-            TestBazaRoot()
+            TestBazaRoot(
+                firestoreDatabaseId = databaseId,
+                defaultWebClientId = webClientId,
+            )
         }
     }
+
+    private fun readStringRes(name: String): String = runCatching {
+        val id = resources.getIdentifier(name, "string", packageName)
+        if (id != 0) getString(id) else ""
+    }.getOrDefault("")
 }

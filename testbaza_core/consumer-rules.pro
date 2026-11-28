@@ -1,5 +1,9 @@
 -keep class com.tom_roush.pdfbox.** { *; }
 -keep class com.tom_roush.fontbox.** { *; }
+-keep class com.aistudio.testbaza.core.domain.** { *; }
+-keep @androidx.annotation.Keep class * { *; }
+-keepclassmembers @androidx.annotation.Keep class * { *; }
+-keepattributes Signature,InnerClasses,EnclosingMethod,RuntimeVisibleAnnotations
 -dontwarn com.tom_roush.pdfbox.**
 -dontwarn com.tom_roush.fontbox.**
 -dontwarn org.bouncycastle.**

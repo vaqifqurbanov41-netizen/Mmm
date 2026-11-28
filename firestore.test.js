@@ -220,3 +220,124 @@ test("Only verified admin vaqifqurbanov494@gmail.com can write adminEntries whil
   await assertSucceeds(adminDoc.delete());
 });
 
+test("Shared exams allow code-based get, owner-scoped list, and consented attempt telemetry only", async () => {
+  const aliceDb = getDb(testEnv.authenticatedContext(ALICE_UID));
+  const bobDb = getDb(testEnv.authenticatedContext(BOB_UID));
+  const charlieDb = getDb(testEnv.authenticatedContext("charlie_789"));
+  const unauthDb = getDb(testEnv.unauthenticatedContext());
+
+  const examId = "TB4K9M2A";
+  const examRef = aliceDb.collection("sharedExams").doc(examId);
+
+  await assertSucceeds(
+    examRef.set({
+      ownerId: ALICE_UID,
+      ownerName: "Əli",
+      title: "İnformatika Sınaq",
+      sourceBankTitle: "İnformatika",
+      questionCount: 2,
+      durationMinutes: 15,
+      shuffleOptions: true,
+      questions: [
+        { qNum: 1, text: "Sual 1?", options: ["A", "B", "C"], correct: "A" },
+        { qNum: 2, text: "Sual 2?", options: ["X", "Y", "Z"], correct: "Y" },
+      ],
+      createdAt: tsNow(),
+      updatedAt: tsNow(),
+    })
+  );
+
+  // Blanket listing of all sharedExams is denied; owner-scoped listing succeeds
+  await assertFails(bobDb.collection("sharedExams").get());
+  await assertSucceeds(aliceDb.collection("sharedExams").where("ownerId", "==", ALICE_UID).get());
+
+  // Participant with exact code can get the exam
+  await assertSucceeds(bobDb.collection("sharedExams").doc(examId).get());
+  await assertFails(unauthDb.collection("sharedExams").doc(examId).get());
+
+  // Submitting attempt without consent (shareConsentGranted = false) is rejected
+  const bobAttemptRef = bobDb.collection("sharedExams").doc(examId).collection("attempts").doc("att_bob_1");
+  await assertFails(
+    bobAttemptRef.set({
+      examId,
+      examOwnerId: ALICE_UID,
+      participantId: BOB_UID,
+      participantName: "Babək",
+      shareConsentGranted: false,
+      totalQuestions: 2,
+      answeredCount: 2,
+      correctCount: 1,
+      wrongCount: 1,
+      unansweredCount: 0,
+      totalElapsedSeconds: 45,
+      durationLimitSeconds: 900,
+      timedOut: false,
+      wrongDetails: [
+        { questionNumber: 2, questionText: "Sual 2?", selectedAnswer: "X", correctAnswer: "Y", timeSpentSeconds: 30 },
+      ],
+      questionTimings: [
+        { questionNumber: 1, questionText: "Sual 1?", status: "CORRECT", timeSpentSeconds: 15 },
+        { questionNumber: 2, questionText: "Sual 2?", status: "WRONG", timeSpentSeconds: 30 },
+      ],
+      createdAt: tsNow(),
+      updatedAt: tsNow(),
+    })
+  );
+
+  // Submitting attempt WITH explicit consent succeeds
+  await assertSucceeds(
+    bobAttemptRef.set({
+      examId,
+      examOwnerId: ALICE_UID,
+      participantId: BOB_UID,
+      participantName: "Babək",
+      shareConsentGranted: true,
+      totalQuestions: 2,
+      answeredCount: 2,
+      correctCount: 1,
+      wrongCount: 1,
+      unansweredCount: 0,
+      totalElapsedSeconds: 45,
+      durationLimitSeconds: 900,
+      timedOut: false,
+      wrongDetails: [
+        { questionNumber: 2, questionText: "Sual 2?", selectedAnswer: "X", correctAnswer: "Y", timeSpentSeconds: 30 },
+      ],
+      questionTimings: [
+        { questionNumber: 1, questionText: "Sual 1?", status: "CORRECT", timeSpentSeconds: 15 },
+        { questionNumber: 2, questionText: "Sual 2?", status: "WRONG", timeSpentSeconds: 30 },
+      ],
+      createdAt: tsNow(),
+      updatedAt: tsNow(),
+    })
+  );
+
+  // Sharer (Alice) can list consented attempts with owner+consent filter
+  await assertSucceeds(
+    aliceDb
+      .collection("sharedExams")
+      .doc(examId)
+      .collection("attempts")
+      .where("examOwnerId", "==", ALICE_UID)
+      .where("shareConsentGranted", "==", true)
+      .get()
+  );
+
+  // Unrelated user (Charlie) cannot read Bob's attempt
+  await assertFails(charlieDb.collection("sharedExams").doc(examId).collection("attempts").doc("att_bob_1").get());
+  await assertFails(
+    charlieDb
+      .collection("sharedExams")
+      .doc(examId)
+      .collection("attempts")
+      .where("examOwnerId", "==", ALICE_UID)
+      .where("shareConsentGranted", "==", true)
+      .get()
+  );
+
+  // Participant can revoke/delete their shared attempt
+  await assertSucceeds(bobAttemptRef.delete());
+  await assertSucceeds(examRef.delete());
+});
+
+

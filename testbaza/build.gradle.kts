@@ -1,8 +1,10 @@
+import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
 import java.time.Duration
 
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.kotlin.compose)
+  alias(libs.plugins.google.services)
 }
 
 android {
@@ -58,7 +60,14 @@ android {
   }
 
   testOptions {
-    unitTests { isIncludeAndroidResources = true }
+    unitTests {
+      isIncludeAndroidResources = true
+      isReturnDefaultValues = true
+    }
+  }
+
+  sourceSets {
+    getByName("test").resources.directories.add("build/intermediates/assets/debug/mergeDebugAssets")
   }
 
   dependenciesInfo {
@@ -67,9 +76,17 @@ android {
   }
 }
 
+googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN }
+
 dependencies {
   implementation(project(":testbaza_core"))
   implementation(platform(libs.androidx.compose.bom))
+  implementation(platform(libs.firebase.bom))
+  implementation(libs.firebase.firestore)
+  implementation(libs.firebase.auth)
+  implementation(libs.androidx.credentials)
+  implementation(libs.androidx.credentials.play.services)
+  implementation(libs.googleid)
   implementation(libs.androidx.activity.compose)
   implementation(libs.androidx.compose.material.icons.core)
   implementation(libs.androidx.compose.material.icons.extended)
@@ -92,6 +109,10 @@ dependencies {
   testImplementation(libs.kotlinx.coroutines.test)
   testImplementation(libs.robolectric)
   debugImplementation(libs.androidx.compose.ui.tooling)
+}
+
+tasks.matching { it.name.endsWith("UnitTestJavaRes") }.configureEach {
+  dependsOn("mergeDebugAssets")
 }
 
 tasks.withType<Test> {

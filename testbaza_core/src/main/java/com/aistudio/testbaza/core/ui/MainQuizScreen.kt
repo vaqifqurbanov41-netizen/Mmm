@@ -1,5 +1,6 @@
 package com.aistudio.testbaza.core.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
@@ -32,6 +33,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.automirrored.filled.TextSnippet
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
@@ -42,22 +45,26 @@ import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.LocalFireDepartment
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Quiz
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.automirrored.filled.TextSnippet
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.outlined.StarOutline
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -68,7 +75,9 @@ import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -119,8 +128,45 @@ fun MainQuizScreen(
     onOpenTxtPicker: () -> Unit,
     onOpenPasteDialog: () -> Unit,
     onSelectImportRule: (AnswerRule) -> Unit,
+    onFinishExam: () -> Unit,
+    onExitExam: () -> Unit,
+    onToggleSharedExamConsent: (Boolean) -> Unit,
+    onRetryUploadAttempt: () -> Unit,
+    onOpenJoinExam: () -> Unit,
 ) {
     val vip = LocalVipColors.current
+    var showExitExamConfirm by remember { mutableStateOf(false) }
+
+    BackHandler(enabled = uiState.isExamActive && !uiState.isSessionFinished) {
+        showExitExamConfirm = true
+    }
+
+    if (showExitExamConfirm) {
+        AlertDialog(
+            onDismissRequest = { showExitExamConfirm = false },
+            title = { Text("İmtahandan çıxılsın?") },
+            text = {
+                Text("Aktiv imtahan yarımçıq dayandırılacaq və taymer sıfırlanacaq.")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showExitExamConfirm = false
+                        onExitExam()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = vip.rose),
+                    modifier = Modifier.testTag("confirm_exit_exam_button"),
+                ) {
+                    Text("İmtahanı Dayandır")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showExitExamConfirm = false }) {
+                    Text("Davam et")
+                }
+            },
+        )
+    }
 
     Scaffold(
         containerColor = vip.background,
@@ -143,7 +189,8 @@ fun MainQuizScreen(
         },
         bottomBar = {
             if (!uiState.isLoading &&
-                uiState.rawQuestions.isNotEmpty() &&
+                !uiState.isImporting &&
+                (uiState.rawQuestions.isNotEmpty() || uiState.isExamActive) &&
                 uiState.mode != StudyMode.FLASHCARD &&
                 !uiState.isSessionFinished &&
                 uiState.currentSessionItem != null
@@ -151,6 +198,7 @@ fun MainQuizScreen(
                 QuizBottomDock(
                     canGoPrev = uiState.currentIndex > 0,
                     canUseJoker = !uiState.currentSessionItem!!.isAnswered,
+                    showMasteredButton = !uiState.isExamActive,
                     isLastQuestion = uiState.currentIndex >= uiState.sessionItems.lastIndex,
                     onPrev = onPrevQuestion,
                     onJoker = onUseJoker5050,
@@ -172,7 +220,13 @@ fun MainQuizScreen(
                     .fillMaxSize()
                     .padding(horizontal = 16.dp),
             ) {
-                if (uiState.rawQuestions.isNotEmpty()) {
+                if (uiState.isExamActive && !uiState.isSessionFinished) {
+                    ActiveExamHudBar(
+                        uiState = uiState,
+                        onFinishExam = onFinishExam,
+                        onRequestExitExam = { showExitExamConfirm = true },
+                    )
+                } else if (!uiState.isExamActive && uiState.rawQuestions.isNotEmpty()) {
                     StudyModePillBar(
                         uiState = uiState,
                         onSwitchMode = onSwitchMode,
@@ -196,14 +250,41 @@ fun MainQuizScreen(
                             )
                         }
                     }
+                } else if (uiState.isExamActive) {
+                    if (uiState.isSessionFinished) {
+                        ExamCompleteVipCard(
+                            uiState = uiState,
+                            onToggleSharedExamConsent = onToggleSharedExamConsent,
+                            onRetryUploadAttempt = onRetryUploadAttempt,
+                            onRestart = onRestartSession,
+                            onExitExam = onExitExam,
+                            modifier = Modifier.weight(1f),
+                        )
+                    } else if (uiState.currentSessionItem != null) {
+                        QuizActiveBody(
+                            item = uiState.currentSessionItem!!,
+                            showStudyActions = false,
+                            onSelectOption = onSelectOption,
+                            onToggleStar = onToggleStar,
+                            onEditKey = onOpenSingleKeyDialog,
+                            modifier = Modifier.weight(1f),
+                        )
+                    } else {
+                        EmptyFilteredModeCard(
+                            title = "İmtahanda sual tapılmadı",
+                            onBackToAll = onExitExam,
+                        )
+                    }
                 } else if (uiState.rawQuestions.isEmpty()) {
                     InitialImportHomeScreen(
                         selectedRule = uiState.importRule,
+                        isCloudAvailable = uiState.isCloudAvailable,
                         onSelectRule = onSelectImportRule,
                         onPickWord = onOpenWordPicker,
                         onPickPdf = onOpenPdfPicker,
                         onPickTxt = onOpenTxtPicker,
                         onOpenPaste = onOpenPasteDialog,
+                        onOpenJoinExam = onOpenJoinExam,
                     )
                 } else {
                     TelemetryAndFilterRow(
@@ -250,6 +331,7 @@ fun MainQuizScreen(
                         uiState.currentSessionItem != null -> {
                             QuizActiveBody(
                                 item = uiState.currentSessionItem!!,
+                                showStudyActions = true,
                                 onSelectOption = onSelectOption,
                                 onToggleStar = onToggleStar,
                                 onEditKey = onOpenSingleKeyDialog,
@@ -277,7 +359,7 @@ private fun VipTopHeader(
     onOpenTools: () -> Unit,
 ) {
     val vip = LocalVipColors.current
-    val hasUnconfirmed = uiState.totalCount > 0 && uiState.keyedCount < uiState.totalCount
+    val hasUnconfirmed = !uiState.isExamActive && uiState.totalCount > 0 && uiState.keyedCount < uiState.totalCount
 
     Surface(
         color = vip.surface,
@@ -317,28 +399,38 @@ private fun VipTopHeader(
 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = uiState.activeBank?.title ?: "Testbaza",
+                        text = if (uiState.isExamActive) {
+                            uiState.activeExam.title.ifBlank { "Sınaq İmtahanı" }
+                        } else {
+                            uiState.activeBank?.title ?: "Testbaza"
+                        },
                         style = MaterialTheme.typography.titleMedium,
                         color = vip.textPrimary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        text = if (uiState.totalCount > 0) {
-                            "${uiState.totalCount} sual • " +
-                                if (uiState.isShuffled) "Qarışıq" else "Sıralı"
-                        } else {
-                            "Oflayn Test Bazası"
+                        text = when {
+                            uiState.isExamActive -> {
+                                val codePrefix = uiState.activeExam.examCode?.let { "Kod: $it • " }.orEmpty()
+                                "$codePrefix${uiState.sessionItems.size} sual • ${uiState.activeExam.durationMinutes} dəq"
+                            }
+                            uiState.totalCount > 0 -> {
+                                "${uiState.totalCount} sual • " +
+                                    if (uiState.isShuffled) "Qarışıq" else "Sıralı"
+                            }
+                            else -> "Oflayn Test Bazası"
                         },
                         style = MaterialTheme.typography.labelMedium,
                         color = vip.gold,
                         maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
 
                 IconButton(
                     onClick = onOpenGrid,
-                    enabled = uiState.sessionItems.isNotEmpty(),
+                    enabled = uiState.sessionItems.isNotEmpty() && !uiState.isSessionFinished,
                     modifier = Modifier
                         .size(48.dp)
                         .testTag("header_grid_button"),
@@ -353,6 +445,7 @@ private fun VipTopHeader(
                 Box {
                     IconButton(
                         onClick = onOpenTools,
+                        enabled = !uiState.isExamActive || uiState.isSessionFinished,
                         modifier = Modifier
                             .size(48.dp)
                             .testTag("header_tools_button"),
@@ -360,7 +453,7 @@ private fun VipTopHeader(
                         Icon(
                             imageVector = Icons.Default.Tune,
                             contentDescription = "Alətlər və fayl yükləmə",
-                            tint = vip.gold,
+                            tint = if (!uiState.isExamActive || uiState.isSessionFinished) vip.gold else vip.textSecondary.copy(alpha = 0.4f),
                         )
                     }
                     if (hasUnconfirmed) {
@@ -376,6 +469,135 @@ private fun VipTopHeader(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ActiveExamHudBar(
+    uiState: TestBazaUiState,
+    onFinishExam: () -> Unit,
+    onRequestExitExam: () -> Unit,
+) {
+    val vip = LocalVipColors.current
+    val exam = uiState.activeExam
+    val remaining = exam.remainingSeconds
+    val timerColor = when {
+        remaining <= 30 -> vip.rose
+        remaining <= 120 -> vip.gold
+        else -> vip.emerald
+    }
+    val timerBg = when {
+        remaining <= 30 -> vip.roseSoft
+        remaining <= 120 -> vip.goldSoft
+        else -> vip.emeraldSoft
+    }
+    val totalActive = uiState.sessionItems.size
+    val progressFraction by animateFloatAsState(
+        targetValue = if (totalActive > 0) (uiState.currentIndex + 1).toFloat() / totalActive.toFloat() else 0f,
+        label = "exam_progress",
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 10.dp, bottom = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = vip.surface,
+            border = BorderStroke(1.dp, vip.goldBorder),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = timerBg,
+                    border = BorderStroke(1.dp, timerColor.copy(alpha = 0.6f)),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Timer,
+                            contentDescription = "Qalan vaxt",
+                            tint = timerColor,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Text(
+                            text = QuizEngine.formatTimerMmSs(remaining),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = timerColor,
+                            modifier = Modifier.testTag("exam_countdown_text"),
+                        )
+                    }
+                }
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Sual ${uiState.currentIndex + 1}/$totalActive",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = vip.textPrimary,
+                        maxLines = 1,
+                    )
+                    Text(
+                        text = "Bu sual: ${exam.currentQuestionElapsedSeconds} san",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = vip.gold,
+                        maxLines = 1,
+                        modifier = Modifier.testTag("exam_question_timer_text"),
+                    )
+                }
+
+                OutlinedButton(
+                    onClick = onFinishExam,
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    modifier = Modifier
+                        .heightIn(min = 42.dp)
+                        .testTag("exam_hud_finish_button"),
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, vip.emeraldBorder),
+                ) {
+                    Text(
+                        text = "Bitir",
+                        color = vip.emerald,
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                }
+
+                IconButton(
+                    onClick = onRequestExitExam,
+                    modifier = Modifier
+                        .size(42.dp)
+                        .testTag("exam_hud_exit_button"),
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ExitToApp,
+                        contentDescription = "İmtahandan çıx",
+                        tint = vip.rose,
+                    )
+                }
+            }
+        }
+
+        LinearProgressIndicator(
+            progress = { progressFraction },
+            color = vip.gold,
+            trackColor = vip.surfaceElevated,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(6.dp)
+                .clip(CircleShape),
+        )
     }
 }
 
@@ -632,6 +854,7 @@ private fun StatDot(
 @Composable
 private fun QuizActiveBody(
     item: SessionQuestionItem,
+    showStudyActions: Boolean,
     onSelectOption: (Int) -> Unit,
     onToggleStar: () -> Unit,
     onEditKey: () -> Unit,
@@ -679,50 +902,54 @@ private fun QuizActiveBody(
                             )
                         }
 
-                        val (mLabel, mBg, mColor) = when (q.masteryStatus) {
-                            QuestionMasteryStatus.NEW -> Triple("Yeni", vip.surfaceElevated, vip.textSecondary)
-                            QuestionMasteryStatus.MASTERED -> Triple("✓ Mənimsənilib", vip.emeraldSoft, vip.emerald)
-                            QuestionMasteryStatus.WEAK -> Triple("Təkrar (${q.wrongCount}x)", vip.roseSoft, vip.rose)
-                        }
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = mBg,
-                        ) {
-                            Text(
-                                text = mLabel,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = mColor,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            )
+                        if (showStudyActions) {
+                            val (mLabel, mBg, mColor) = when (q.masteryStatus) {
+                                QuestionMasteryStatus.NEW -> Triple("Yeni", vip.surfaceElevated, vip.textSecondary)
+                                QuestionMasteryStatus.MASTERED -> Triple("✓ Mənimsənilib", vip.emeraldSoft, vip.emerald)
+                                QuestionMasteryStatus.WEAK -> Triple("Təkrar (${q.wrongCount}x)", vip.roseSoft, vip.rose)
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = mBg,
+                            ) {
+                                Text(
+                                    text = mLabel,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = mColor,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                )
+                            }
                         }
                     }
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        IconButton(
-                            onClick = onEditKey,
-                            modifier = Modifier
-                                .size(48.dp)
-                                .testTag("question_edit_key_button"),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Edit,
-                                contentDescription = "Doğru cavabı seç",
-                                tint = vip.textSecondary,
-                                modifier = Modifier.size(18.dp),
-                            )
-                        }
-                        IconButton(
-                            onClick = onToggleStar,
-                            modifier = Modifier
-                                .size(48.dp)
-                                .testTag("question_star_button"),
-                        ) {
-                            Icon(
-                                imageVector = if (q.isExam) Icons.Default.Star else Icons.Outlined.StarOutline,
-                                contentDescription = if (q.isExam) "Seçilmişdən çıxar" else "Seçilmişə əlavə et",
-                                tint = if (q.isExam) vip.gold else vip.textSecondary,
-                                modifier = Modifier.size(21.dp),
-                            )
+                    if (showStudyActions) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            IconButton(
+                                onClick = onEditKey,
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .testTag("question_edit_key_button"),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Edit,
+                                    contentDescription = "Doğru cavabı seç",
+                                    tint = vip.textSecondary,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                            IconButton(
+                                onClick = onToggleStar,
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .testTag("question_star_button"),
+                            ) {
+                                Icon(
+                                    imageVector = if (q.isExam) Icons.Default.Star else Icons.Outlined.StarOutline,
+                                    contentDescription = if (q.isExam) "Seçilmişdən çıxar" else "Seçilmişə əlavə et",
+                                    tint = if (q.isExam) vip.gold else vip.textSecondary,
+                                    modifier = Modifier.size(21.dp),
+                                )
+                            }
                         }
                     }
                 }
@@ -846,6 +1073,7 @@ private fun VipOptionButton(
 private fun QuizBottomDock(
     canGoPrev: Boolean,
     canUseJoker: Boolean,
+    showMasteredButton: Boolean,
     isLastQuestion: Boolean,
     onPrev: () -> Unit,
     onJoker: () -> Unit,
@@ -913,21 +1141,23 @@ private fun QuizBottomDock(
                     )
                 }
 
-                OutlinedButton(
-                    onClick = onMarkMastered,
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                    modifier = Modifier
-                        .heightIn(min = 48.dp)
-                        .testTag("bottom_mastered_button"),
-                    shape = RoundedCornerShape(14.dp),
-                    border = BorderStroke(1.dp, vip.emeraldBorder),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.CheckCircle,
-                        contentDescription = "Mənimsədim",
-                        tint = vip.emerald,
-                        modifier = Modifier.size(18.dp),
-                    )
+                if (showMasteredButton) {
+                    OutlinedButton(
+                        onClick = onMarkMastered,
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("bottom_mastered_button"),
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.dp, vip.emeraldBorder),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = "Mənimsədim",
+                            tint = vip.emerald,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
                 }
 
                 Button(
@@ -1057,13 +1287,325 @@ private fun SessionCompleteVipCard(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
+private fun ExamCompleteVipCard(
+    uiState: TestBazaUiState,
+    onToggleSharedExamConsent: (Boolean) -> Unit,
+    onRetryUploadAttempt: () -> Unit,
+    onRestart: () -> Unit,
+    onExitExam: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val vip = LocalVipColors.current
+    val exam = uiState.activeExam
+    val summary = exam.evaluationSummary
+    val total = summary?.totalQuestions ?: uiState.sessionItems.size
+    val correct = summary?.correctCount ?: uiState.correctCount
+    val wrong = summary?.wrongCount ?: uiState.incorrectCount
+    val unanswered = summary?.unansweredCount ?: maxOf(0, total - correct - wrong)
+    val pct = if (total > 0) (correct * 100) / total else 0
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .navigationBarsPadding()
+            .padding(top = 12.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = vip.surface,
+            border = BorderStroke(1.2.dp, vip.goldBorder),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(62.dp)
+                        .clip(CircleShape)
+                        .background(vip.goldSoft),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.EmojiEvents,
+                        contentDescription = "İmtahan tamamlandı",
+                        tint = vip.gold,
+                        modifier = Modifier.size(32.dp),
+                    )
+                }
+
+                Text(
+                    text = if (exam.timedOut) "Vaxt Bitdi — İmtahan Yekunlaşdı" else "İmtahan Tamamlandı",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = vip.textPrimary,
+                    textAlign = TextAlign.Center,
+                )
+
+                Text(
+                    text = "Nəticə: $pct%  ($correct düzgün • $wrong səhv • $unanswered boş)",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = vip.emerald,
+                    textAlign = TextAlign.Center,
+                    fontWeight = FontWeight.SemiBold,
+                )
+
+                Text(
+                    text = "Ümumi sərf olunan vaxt: ${QuizEngine.formatDurationHumanAz(exam.totalElapsedSeconds)}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = vip.gold,
+                    textAlign = TextAlign.Center,
+                )
+            }
+        }
+
+        if (exam.isSharedExam && exam.sharedExam != null) {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = if (exam.shareConsentGranted) vip.emeraldSoft else vip.surface,
+                border = BorderStroke(
+                    1.dp,
+                    if (exam.shareConsentGranted) vip.emeraldBorder else vip.borderStrong,
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("exam_result_consent_card"),
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Lock,
+                            contentDescription = "Nəticə paylaşma icazəsi",
+                            tint = if (exam.shareConsentGranted) vip.emerald else vip.gold,
+                            modifier = Modifier.size(22.dp),
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Nəticəni paylaşan şəxsə göstər",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = vip.textPrimary,
+                            )
+                            Text(
+                                text = "Paylaşan (${exam.sharedExam.ownerName}) yalnız siz icazə verdikdə nəticənizi, səhvlərinizi və hər sual üzrə vaxtınızı görə bilər.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = vip.textSecondary,
+                            )
+                        }
+                        Switch(
+                            checked = exam.shareConsentGranted,
+                            onCheckedChange = onToggleSharedExamConsent,
+                            enabled = !exam.attemptUploading,
+                            modifier = Modifier.testTag("exam_result_consent_switch"),
+                        )
+                    }
+
+                    when {
+                        exam.attemptUploading -> {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                CircularProgressIndicator(color = vip.emerald, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                Text(
+                                    text = "Nəticə göndərilir...",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = vip.emerald,
+                                )
+                            }
+                        }
+                        !exam.uploadErrorMessage.isNullOrBlank() -> {
+                            Text(
+                                text = exam.uploadErrorMessage,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = vip.rose,
+                            )
+                            OutlinedButton(
+                                onClick = onRetryUploadAttempt,
+                                modifier = Modifier.heightIn(min = 48.dp),
+                                shape = RoundedCornerShape(12.dp),
+                            ) {
+                                Text("Yenidən göndər")
+                            }
+                        }
+                        exam.shareConsentGranted && exam.attemptUploaded -> {
+                            Text(
+                                text = "✓ Nəticəniz, səhv suallar və sual vaxtları icazənizlə paylaşan şəxsə göndərildi.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = vip.emerald,
+                            )
+                        }
+                        else -> {
+                            Text(
+                                text = "İcazə bağlıdır — nəticəniz yalnız bu cihazda saxlanılır.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = vip.textSecondary,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        if (summary != null) {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = vip.surface,
+                border = BorderStroke(1.dp, vip.borderStrong),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Text(
+                        text = if (summary.wrongDetails.isEmpty()) {
+                            "Səhv Edilən Suallar (0)"
+                        } else {
+                            "Səhv Edilən Suallar (${summary.wrongDetails.size})"
+                        },
+                        style = MaterialTheme.typography.titleMedium,
+                        color = if (summary.wrongDetails.isEmpty()) vip.emerald else vip.rose,
+                    )
+
+                    if (summary.wrongDetails.isEmpty()) {
+                        Text(
+                            text = "Təbriklər! Heç bir sualda səhv etmədiniz.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = vip.textSecondary,
+                        )
+                    } else {
+                        summary.wrongDetails.forEach { detail ->
+                            Surface(
+                                shape = RoundedCornerShape(14.dp),
+                                color = vip.roseSoft.copy(alpha = 0.55f),
+                                border = BorderStroke(1.dp, vip.roseBorder),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    Text(
+                                        text = "Sual #${detail.questionNumber} (${QuizEngine.formatDurationHumanAz(detail.timeSpentSeconds)}): ${detail.questionText}",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = vip.textPrimary,
+                                    )
+                                    Text(
+                                        text = "Sizin cavab: ${detail.selectedAnswer}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = vip.rose,
+                                    )
+                                    Text(
+                                        text = "Doğru cavab: ${detail.correctAnswer}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = vip.emerald,
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    if (summary.questionTimings.isNotEmpty()) {
+                        HorizontalDivider(color = vip.border)
+                        Text(
+                            text = "Hər Sual Üzrə Sərf Olunan Vaxt:",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = vip.gold,
+                        )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            summary.questionTimings.forEach { t ->
+                                val chipBg = when (t.status) {
+                                    "CORRECT" -> vip.emeraldSoft
+                                    "WRONG" -> vip.roseSoft
+                                    else -> vip.surfaceElevated
+                                }
+                                val chipFg = when (t.status) {
+                                    "CORRECT" -> vip.emerald
+                                    "WRONG" -> vip.rose
+                                    else -> vip.textSecondary
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = chipBg,
+                                    border = BorderStroke(1.dp, chipFg.copy(alpha = 0.5f)),
+                                ) {
+                                    Text(
+                                        text = "#${t.questionNumber} • ${t.timeSpentSeconds} san",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = chipFg,
+                                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            OutlinedButton(
+                onClick = onExitExam,
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = 50.dp)
+                    .testTag("exam_exit_home_button"),
+                shape = RoundedCornerShape(14.dp),
+            ) {
+                Text("Əsas Səhifə")
+            }
+            Button(
+                onClick = onRestart,
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = 50.dp)
+                    .testTag("exam_restart_button"),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = vip.emerald,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                ),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.RestartAlt,
+                    contentDescription = "Yenidən başla",
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.size(6.dp))
+                Text("Yenidən")
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
 private fun InitialImportHomeScreen(
     selectedRule: AnswerRule,
+    isCloudAvailable: Boolean,
     onSelectRule: (AnswerRule) -> Unit,
     onPickWord: () -> Unit,
     onPickPdf: () -> Unit,
     onPickTxt: () -> Unit,
     onOpenPaste: () -> Unit,
+    onOpenJoinExam: () -> Unit,
 ) {
     val vip = LocalVipColors.current
     Column(
@@ -1245,6 +1787,31 @@ private fun InitialImportHomeScreen(
                 )
                 Spacer(Modifier.size(6.dp))
                 Text("Mətn Yapışdır", maxLines = 1, softWrap = false)
+            }
+        }
+
+        if (isCloudAvailable) {
+            OutlinedButton(
+                onClick = onOpenJoinExam,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 52.dp)
+                    .testTag("home_join_shared_exam_button"),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.2.dp, vip.goldBorder),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.QrCode2,
+                    contentDescription = "Paylaşılan imtahana qoşul",
+                    tint = vip.gold,
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(Modifier.size(8.dp))
+                Text(
+                    text = "Paylaşılan İmtahana Kodu ilə Qoşul",
+                    color = vip.gold,
+                    style = MaterialTheme.typography.titleSmall,
+                )
             }
         }
 

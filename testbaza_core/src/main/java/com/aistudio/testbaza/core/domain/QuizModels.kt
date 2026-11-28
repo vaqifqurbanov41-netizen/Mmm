@@ -1,5 +1,11 @@
 package com.aistudio.testbaza.core.domain
 
+import androidx.annotation.Keep
+import com.google.firebase.Timestamp
+import com.google.firebase.firestore.DocumentId
+import com.google.firebase.firestore.IgnoreExtraProperties
+import com.google.firebase.firestore.ServerTimestamp
+
 enum class StudyMode(val label: String) {
     QUIZ("Hamısı"),
     FLASHCARD("Kartlar"),
@@ -63,3 +69,114 @@ data class ChunkOption(
     val index: Int?,
     val label: String,
 )
+
+data class ExamConfig(
+    val questionCount: Int = 20,
+    val durationMinutes: Int = 20,
+) {
+    companion object {
+        const val MIN_QUESTIONS = 1
+        const val MAX_QUESTIONS = 150
+        const val MIN_DURATION_MINUTES = 1
+        const val MAX_DURATION_MINUTES = 180
+    }
+}
+
+@Keep
+@IgnoreExtraProperties
+data class SharedExamQuestionSnapshot(
+    val qNum: Long = 0L,
+    val text: String = "",
+    val options: List<String> = emptyList(),
+    val correct: String = "",
+)
+
+@Keep
+@IgnoreExtraProperties
+data class SharedExam(
+    @DocumentId val id: String = "",
+    val ownerId: String = "",
+    val ownerName: String = "",
+    val title: String = "",
+    val sourceBankTitle: String = "",
+    val questionCount: Long = 0L,
+    val durationMinutes: Long = 0L,
+    val shuffleOptions: Boolean = true,
+    val questions: List<SharedExamQuestionSnapshot> = emptyList(),
+    @ServerTimestamp val createdAt: Timestamp? = null,
+    @ServerTimestamp val updatedAt: Timestamp? = null,
+)
+
+@Keep
+@IgnoreExtraProperties
+data class ExamWrongDetail(
+    val questionNumber: Long = 0L,
+    val questionText: String = "",
+    val selectedAnswer: String = "",
+    val correctAnswer: String = "",
+    val timeSpentSeconds: Long = 0L,
+)
+
+@Keep
+@IgnoreExtraProperties
+data class QuestionTimingDetail(
+    val questionNumber: Long = 0L,
+    val questionText: String = "",
+    val status: String = "SKIPPED",
+    val timeSpentSeconds: Long = 0L,
+)
+
+@Keep
+@IgnoreExtraProperties
+data class SharedExamAttempt(
+    @DocumentId val id: String = "",
+    val examId: String = "",
+    val examOwnerId: String = "",
+    val participantId: String = "",
+    val participantName: String = "",
+    val shareConsentGranted: Boolean = false,
+    val totalQuestions: Long = 0L,
+    val answeredCount: Long = 0L,
+    val correctCount: Long = 0L,
+    val wrongCount: Long = 0L,
+    val unansweredCount: Long = 0L,
+    val totalElapsedSeconds: Long = 0L,
+    val durationLimitSeconds: Long = 0L,
+    val timedOut: Boolean = false,
+    val wrongDetails: List<ExamWrongDetail> = emptyList(),
+    val questionTimings: List<QuestionTimingDetail> = emptyList(),
+    @ServerTimestamp val createdAt: Timestamp? = null,
+    @ServerTimestamp val updatedAt: Timestamp? = null,
+)
+
+data class ExamEvaluationSummary(
+    val totalQuestions: Int,
+    val answeredCount: Int,
+    val correctCount: Int,
+    val wrongCount: Int,
+    val unansweredCount: Int,
+    val wrongDetails: List<ExamWrongDetail>,
+    val questionTimings: List<QuestionTimingDetail>,
+)
+
+data class ActiveExamUiState(
+    val active: Boolean = false,
+    val title: String = "",
+    val examCode: String? = null,
+    val durationMinutes: Int = 20,
+    val remainingSeconds: Int = 0,
+    val currentQuestionElapsedSeconds: Long = 0L,
+    val totalElapsedSeconds: Long = 0L,
+    val timedOut: Boolean = false,
+    val sharedExam: SharedExam? = null,
+    val participantName: String = "",
+    val shareConsentGranted: Boolean = false,
+    val attemptUploaded: Boolean = false,
+    val attemptUploading: Boolean = false,
+    val uploadedAttemptId: String? = null,
+    val uploadErrorMessage: String? = null,
+    val perQuestionSeconds: List<Long> = emptyList(),
+    val evaluationSummary: ExamEvaluationSummary? = null,
+) {
+    val isSharedExam: Boolean get() = sharedExam != null
+}
